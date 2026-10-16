@@ -1,5 +1,7 @@
 /build/
 /dist/
+/portable/
+/*.zip
 /.cache/
 /CMakeUserPresets.json
 *.user

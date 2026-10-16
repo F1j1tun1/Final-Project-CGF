@@ -126,7 +126,7 @@ ctest --preset core-only
 
 ## Статус проверки
 
-Проверено 15 октября 2026 на Windows: Debug и Release собраны MSVC 19.51 / CMake 4.4.3; CTest Release — 3 000 воспроизводимых забегов, 1 147 808 проверок, 0 ошибок. Графический прогон на Intel OpenGL 3.3 выполнил 600 кадров и достиг победы на третьем этапе; кадры стола, магазина и финала проверены отдельно. Подробности и ограничения — в [VERIFICATION.md](docs/VERIFICATION.md). Сборка на Linux/macOS и на машине TA пока не проверена.
+Локально проверены Windows/MSVC, 3 000 воспроизводимых забегов (1 147 808 проверок, 0 ошибок) и 600 кадров на Intel OpenGL 3.3. После переноса 16 октября 2026 [GitHub Actions](https://github.com/F1j1tun1/Final-Project-CGF/actions/runs/38881054596) успешно выполнил сборку и CTest в Windows/Ubuntu × Debug/Release, а также графический smoke через Mesa/Xvfb на Ubuntu. В этом запуске доступны Windows-артефакты. Подробности и ограничения — в [VERIFICATION.md](docs/VERIFICATION.md). macOS, ручная проверка Linux на другой видеокарте и машина TA ещё не проверены.
 
 ## Библиотеки и лицензии
 
