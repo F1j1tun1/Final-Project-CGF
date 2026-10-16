@@ -198,7 +198,7 @@ struct Interface {
         button = io.Fonts->AddFontFromFileTTF(bold.c_str(), 26.0f, &font);
         menuButton = io.Fonts->AddFontFromFileTTF(bold.c_str(), 34.0f, &font);
         number = io.Fonts->AddFontFromFileTTF(bold.c_str(), 46.0f, &font);
-        largeNumber = io.Fonts->AddFontFromFileTTF(bold.c_str(), 88.0f, &font);
+        largeNumber = io.Fonts->AddFontFromFileTTF(bold.c_str(), 104.0f, &font);
         small = io.Fonts->AddFontFromFileTTF(body.c_str(), 18.0f, &font);
         if (!io.FontDefault || !heading || !title || !button || !menuButton || !number || !largeNumber || !small) {
             ImGui::DestroyContext();
@@ -475,8 +475,17 @@ TableLayout tableLayout(ImVec2 display) {
     return {sidebar, contentX, display.x - contentX - 20, 202, actionY - 212, actionY};
 }
 
+float controlsLeft(const TableLayout& layout) {
+    constexpr float width = 456;
+    const float tableCenter = layout.contentX + layout.contentWidth * .5f;
+    const float handCenter = layout.contentX + layout.contentWidth - 105;
+    // Leave room for two large hand digits at the minimum window width.
+    const float center = std::min(tableCenter, handCenter - 80 - width * .5f);
+    return center - width * .5f;
+}
+
 ImVec2 dealButtonCenter(const TableLayout& layout) {
-    return {layout.contentX + 168, layout.actionY + 77};
+    return {controlsLeft(layout) + 228, layout.actionY + 81};
 }
 
 void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
@@ -775,18 +784,11 @@ void centeredText(ImDrawList* draw, ImFont* font, float size, float centerX, flo
     draw->AddText(font, size, {centerX - width * .5f, y}, color, text.c_str());
 }
 
-std::string cardName(const bj::Card& card) {
-    const char* suits[] = {"Clubs", "Diamonds", "Hearts", "Spades"};
-    const std::string rank = card.rank == 1 ? "A" : card.rank == 11 ? "J" :
-        card.rank == 12 ? "Q" : card.rank == 13 ? "K" : std::to_string(card.rank);
-    return rank + " of " + suits[static_cast<int>(card.suit)];
-}
-
 void drawHandValue(const bj::Snapshot& state, const HandFeedback& feedback, const TableLayout& layout,
                    const Interface& ui) {
     const ImVec2 origin{layout.contentX + layout.contentWidth - 210, layout.actionY - 38};
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    beginPanel("##hand-value", origin, {210, 180}, true, ImGuiWindowFlags_NoInputs);
+    beginPanel("##hand-value", origin, {210, 184}, true, ImGuiWindowFlags_NoInputs);
     auto* draw = ImGui::GetWindowDrawList();
     const float centerX = origin.x + 105;
     const auto hand = bj::evaluateHand(state.player);
@@ -798,17 +800,14 @@ void drawHandValue(const bj::Snapshot& state, const HandFeedback& feedback, cons
         const auto ink = ImGui::ColorConvertFloat4ToU32({cream.x, cream.y, cream.z, alpha});
         const bool redSuit = feedback.card.suit == bj::Suit::Hearts || feedback.card.suit == bj::Suit::Diamonds;
         const ImVec4 suit = redSuit ? red : cream;
-        draw->AddRectFilled({origin.x + 12, origin.y}, {origin.x + 198, origin.y + 56},
-            IM_COL32(14, 19, 26, static_cast<int>(225 * alpha)), 8);
         draw->AddText(ui.menuButton, 34, {left, origin.y}, ink, change.c_str());
-        presentation::drawCardSuit(draw, feedback.card.suit, {left + textWidth + 24, origin.y + 18}, 27,
+        presentation::drawCardSuit(draw, feedback.card.suit, {left + textWidth + 24, origin.y + 18}, 32,
             ImGui::ColorConvertFloat4ToU32({suit.x, suit.y, suit.z, alpha}));
-        centeredText(draw, ui.small, 18, centerX, origin.y + 35, ink, cardName(feedback.card));
     }
     const char* label = hand.bust ? "YOUR HAND / BUST" : hand.soft ? "YOUR HAND / SOFT" :
         state.phase == bj::Phase::Ready && !state.player.empty() ? "LAST HAND" : "YOUR HAND";
     centeredText(draw, ui.small, 18, centerX, origin.y + 60, ImGui::ColorConvertFloat4ToU32(muted), label);
-    centeredText(draw, ui.largeNumber, 88, centerX, origin.y + 78,
+    centeredText(draw, ui.largeNumber, 104, centerX, origin.y + 78,
         ImGui::ColorConvertFloat4ToU32(hand.bust ? red : cream),
         state.player.empty() ? "--" : std::to_string(hand.total));
     ImGui::End();
@@ -831,30 +830,32 @@ void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedbac
     drawSidebar(state, layout, session, commands, ui, display.y);
     drawRelicStrip(game, layout, ui);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    beginPanel("##actions", {layout.contentX + 18, layout.actionY + 42}, {440, 96}, true);
+    beginPanel("##actions", {controlsLeft(layout), layout.actionY + 42}, {460, 104}, true);
     ImGui::PushFont(ui.menuButton);
     ImGui::BeginDisabled(commands.blocked || commands.used);
     if (state.phase == bj::Phase::PlayerTurn) {
         ImGui::PushStyleColor(ImGuiCol_Button, {.08f, .35f, .30f, 1});
-        if (ImGui::Button("HIT", {176, 70})) commands.apply([&]() { return game.hit(); });
+        if (ImGui::Button("HIT", {190, 78})) commands.apply([&]() { return game.hit(); });
         ImGui::PopStyleColor();
-        ImGui::SameLine(192);
+        ImGui::SameLine(206);
         ImGui::PushStyleColor(ImGuiCol_Button, {.43f, .22f, .10f, 1});
-        if (ImGui::Button("STAND", {230, 70})) commands.apply([&]() { return game.stand(); });
+        if (ImGui::Button("STAND", {250, 78})) commands.apply([&]() { return game.stand(); });
         ImGui::PopStyleColor();
     } else if (state.phase == bj::Phase::Ready) {
-        if (ImGui::Button("DEAL HAND", {300, 70})) commands.apply([&]() { return game.deal(); });
+        ImGui::SetCursorPosX(68);
+        if (ImGui::Button("DEAL HAND", {320, 78})) commands.apply([&]() { return game.deal(); });
     } else if (state.phase == bj::Phase::RoundOver) {
-        if (ImGui::Button(state.roundScore >= state.goal ? "SHOP" : "CONTINUE", {300, 70}))
+        ImGui::SetCursorPosX(68);
+        if (ImGui::Button(state.roundScore >= state.goal ? "SHOP" : "CONTINUE", {320, 78}))
             commands.apply([&]() { return game.advance(); });
     }
     ImGui::EndDisabled();
     ImGui::PopFont();
     ImGui::PushFont(ui.small);
-    ImGui::SetCursorPos({0, 76});
+    ImGui::SetCursorPos({state.phase == bj::Phase::PlayerTurn ? 0.0f : 68.0f, 84});
     ImGui::TextColored(muted, "%s", state.phase == bj::Phase::PlayerTurn ? "H" : "SPACE");
     if (state.phase == bj::Phase::PlayerTurn) {
-        ImGui::SameLine(192);
+        ImGui::SameLine(206);
         ImGui::TextColored(muted, "SPACE / S");
     }
     ImGui::PopFont();
