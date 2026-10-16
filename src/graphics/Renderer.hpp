@@ -17,6 +17,7 @@ struct Scene {
     std::vector<VisualCard> dealer;
     int coins = 0;
     float time = 0.0f;
+    bool menu = false;
 };
 
 struct RenderSettings {

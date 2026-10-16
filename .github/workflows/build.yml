@@ -67,7 +67,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: blackjack-forge-windows-${{ matrix.build_type }}
+          name: jester-jack-windows-${{ matrix.build_type }}
           path: portable/
           if-no-files-found: error
           retention-days: 14
