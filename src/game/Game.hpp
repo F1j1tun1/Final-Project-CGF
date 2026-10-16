@@ -53,6 +53,9 @@ struct Snapshot {
     Phase phase = Phase::Ready;
     Outcome outcome = Outcome::None;
     int round = 1;
+    int handsLeft = 5;
+    int roundScore = 0;
+    int goal = 30;
     int wins = 0;
     int totalScore = 0;
     int coins = 0;

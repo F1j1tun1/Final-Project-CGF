@@ -218,26 +218,6 @@ Mesh makeCylinder(int segments) {
     return makeMesh(vertices, indices);
 }
 
-Mesh makeCone(int segments) {
-    std::vector<float> vertices;
-    std::vector<std::uint32_t> indices;
-    for (int i = 0; i < segments; ++i) {
-        const float a = static_cast<float>(i) * 2.0f * pi / static_cast<float>(segments);
-        const float b = static_cast<float>(i + 1) * 2.0f * pi / static_cast<float>(segments);
-        const glm::vec3 normal = glm::normalize(glm::vec3(std::cos((a + b) * .5f), 1.0f,
-                                                        std::sin((a + b) * .5f)));
-        const auto offset = static_cast<std::uint32_t>(vertices.size() / 8);
-        const float u = static_cast<float>(i) / static_cast<float>(segments);
-        const float nextU = static_cast<float>(i + 1) / static_cast<float>(segments);
-        vertices.insert(vertices.end(), {
-            std::cos(a), -.5f, std::sin(a), normal.x, normal.y, normal.z, u, 0,
-            0, .5f, 0, normal.x, normal.y, normal.z, (u + nextU) * .5f, 1,
-            std::cos(b), -.5f, std::sin(b), normal.x, normal.y, normal.z, nextU, 0});
-        indices.insert(indices.end(), {offset, offset + 1, offset + 2});
-    }
-    return makeMesh(vertices, indices);
-}
-
 Mesh makeSphere(int slices, int rings) {
     std::vector<float> vertices;
     std::vector<std::uint32_t> indices;
@@ -443,20 +423,6 @@ Bitmap cardBackBitmap() {
     return bitmap;
 }
 
-Bitmap roofBitmap() {
-    Bitmap bitmap(96, 64, {93, 36, 119});
-    for (int x = 0; x < bitmap.width; ++x) {
-        const int stripe = x / 8;
-        const Pixel color = stripe % 3 == 0 ? Pixel{93, 36, 119}
-            : stripe % 3 == 1 ? Pixel{177, 49, 67} : Pixel{218, 164, 61};
-        for (int y = 0; y < bitmap.height; ++y) {
-            bitmap.set(x, y, color);
-            if (x % 8 == 0) bitmap.set(x, y, {242, 199, 98});
-        }
-    }
-    return bitmap;
-}
-
 Bitmap feltBitmap() {
     Bitmap bitmap(128, 128, {255, 255, 255});
     std::uint32_t noise = 0x12345678;
@@ -523,36 +489,40 @@ glm::mat4 transform(glm::vec3 position, glm::vec3 scale, float rotation = 0.0f) 
 
 struct Renderer::Impl {
     Program program;
+    Program skyProgram;
     Mesh cube;
     Mesh plane;
     Mesh cylinder;
-    Mesh cone;
     Mesh sphere;
+    Mesh sky;
     Textures textures;
     std::array<GLuint, 52> cardFaces{};
     GLuint white = 0;
     GLuint felt = 0;
     GLuint back = 0;
     GLuint chip = 0;
-    GLuint roof = 0;
     struct Locations {
         GLint model, view, projection, normal, color, uvScale, camera, light,
-              intensity, shininess, specular, emission, useTexture, lighting;
+              intensity, shininess, specular, emission, fogColor, useTexture, lighting;
     } u{};
+    GLint skyResolution = -1;
     bool texturesEnabled = true;
 
     explicit Impl(const std::filesystem::path& root) {
         program.load(root / "shaders" / "table.vert", root / "shaders" / "table.frag");
+        skyProgram.load(root / "shaders" / "sky.vert", root / "shaders" / "sky.frag");
         cube = makeCube();
         plane = makeTopPlane();
         cylinder = makeCylinder(80);
-        cone = makeCone(48);
         sphere = makeSphere(24, 16);
+        sky = makeMesh({-1, -1, 0, 0, 0, 1, 0, 0,
+                         3, -1, 0, 0, 0, 1, 2, 0,
+                        -1,  3, 0, 0, 0, 1, 0, 2}, {0, 1, 2});
+        skyResolution = glGetUniformLocation(skyProgram.id, "uResolution");
         white = textures.upload(Bitmap(1, 1, {255, 255, 255}));
         felt = textures.upload(feltBitmap(), true);
         back = textures.upload(cardBackBitmap());
         chip = textures.upload(chipBitmap());
-        roof = textures.upload(roofBitmap(), true);
         for (int suit = 0; suit < 4; ++suit)
             for (int rank = 1; rank <= 13; ++rank)
                 cardFaces[static_cast<std::size_t>(suit * 13 + rank - 1)] = textures.upload(cardBitmap(rank, suit));
@@ -569,6 +539,7 @@ struct Renderer::Impl {
         u.shininess = uniform("uShininess");
         u.specular = uniform("uSpecular");
         u.emission = uniform("uEmission");
+        u.fogColor = uniform("uFogColor");
         u.useTexture = uniform("uUseTexture");
         u.lighting = uniform("uLighting");
         glUseProgram(program.id);
@@ -592,7 +563,8 @@ struct Renderer::Impl {
         mesh.draw();
     }
 
-    void beam(glm::vec3 from, glm::vec3 to, float radius, glm::vec3 color) {
+    void beam(glm::vec3 from, glm::vec3 to, float radius, glm::vec3 color,
+              const glm::mat4& root = glm::mat4(1)) {
         const glm::vec3 delta = to - from;
         const float length = glm::length(delta);
         if (length < .0001f) return;
@@ -605,174 +577,133 @@ struct Renderer::Impl {
         } else if (direction.y < 0) {
             model = glm::rotate(model, pi, glm::vec3(1, 0, 0));
         }
-        draw(cylinder, glm::scale(model, {radius, length, radius}), color,
+        draw(cylinder, root * glm::scale(model, {radius, length, radius}), color,
              0, glm::vec2(1), .25f);
     }
 
-    void diamond(glm::vec3 position, float size, glm::vec3 color) {
+    void diamond(glm::vec3 position, float size, glm::vec3 color,
+                 const glm::mat4& root = glm::mat4(1)) {
         glm::mat4 model = glm::translate(glm::mat4(1), position);
         model = glm::rotate(model, pi * .25f, glm::vec3(0, 0, 1));
-        draw(cube, glm::scale(model, {size, size, .025f}), color);
+        draw(cube, root * glm::scale(model, {size, size, .025f}), color);
+    }
+
+    void drawSky(int width, int height) {
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glUseProgram(skyProgram.id);
+        glUniform2f(skyResolution, static_cast<float>(width), static_cast<float>(height));
+        sky.draw();
+        glDepthMask(GL_TRUE);
+        glEnable(GL_DEPTH_TEST);
     }
 
     void drawCasino(float time, bool animate) {
-        const glm::vec3 plum{.20f, .072f, .28f};
-        const glm::vec3 deepPurple{.105f, .038f, .16f};
-        const glm::vec3 gold{.72f, .46f, .16f};
-        const glm::vec3 crimson{.42f, .060f, .105f};
-        const glm::vec3 cream{.84f, .71f, .43f};
-        const glm::vec3 window{1.0f, .58f, .18f};
-        constexpr float center = 2.8f;
-        constexpr float front = -.85f;
+        const glm::vec3 stone{.34f, .25f, .31f};
+        const glm::vec3 plum{.19f, .095f, .25f};
+        const glm::vec3 gold{.62f, .43f, .22f};
+        const glm::vec3 crimson{.37f, .10f, .15f};
+        const glm::vec3 trim{.58f, .46f, .36f};
+        const glm::vec3 window{.96f, .55f, .22f};
+        glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -2.0f});
+        building = glm::rotate(building, -.75f, glm::vec3(0, 1, 0));
+        const auto block = [&](glm::vec3 position, glm::vec3 size, glm::vec3 color,
+                               float emission = 0.0f) {
+            draw(cube, building * transform(position, size), color, 0,
+                 glm::vec2(1), .08f, 32, emission);
+        };
 
-        // A quiet courtyard leaves space for the menu and frames the warm facade.
-        draw(cube, transform({0, -.22f, 0}, {35, .35f, 25}), {.055f, .035f, .078f});
-        for (int row = 0; row < 6; ++row) {
-            const float z = .2f + static_cast<float>(row) * .95f;
-            for (int column = 0; column < 4; ++column) {
-                const float x = center + (static_cast<float>(column) - 1.5f) * .68f;
-                draw(cube, transform({x, -.032f, z}, {.62f, .025f, .86f}),
-                     (row + column) % 2 == 0 ? glm::vec3(.12f, .078f, .145f)
-                                              : glm::vec3(.085f, .055f, .11f));
-            }
-        }
-        draw(cube, transform({center, .04f, -.15f}, {6.8f, .17f, 3.6f}), {.13f, .085f, .16f});
-        draw(cube, transform({center, .17f, -.50f}, {6.25f, .16f, 2.7f}), gold);
-        draw(cube, transform({center, 1.89f, -1.85f}, {5.45f, 3.4f, 2.0f}), plum);
-        draw(cube, transform({center, .55f, front + .025f}, {5.55f, .66f, .10f}), crimson);
-        for (const float y : {.25f, 1.15f, 3.50f})
-            draw(cube, transform({center, y, front + .065f}, {5.68f, .08f, .14f}), gold,
-                 0, glm::vec2(1), .45f, 64);
-
-        // Two turrets and striped tent roofs give the casino a jester silhouette.
-        for (const float x : {center - 2.78f, center + 2.78f}) {
-            draw(cylinder, transform({x, 2.15f, -1.77f}, {.69f, 4.0f, .69f}), deepPurple);
-            for (const float y : {.30f, 1.17f, 3.91f})
-                draw(cylinder, transform({x, y, -1.77f}, {.74f, .10f, .74f}), gold,
-                     0, glm::vec2(1), .45f, 64);
-            draw(cone, transform({x, 4.74f, -1.77f}, {.98f, 1.60f, .98f}),
-                 glm::vec3(1), roof, glm::vec2(1), .12f);
-            draw(sphere, transform({x, 5.56f, -1.77f}, {.12f, .12f, .12f}), gold,
-                 0, glm::vec2(1), .45f, 64);
-            draw(cube, transform({x, 2.45f, -1.075f}, {.34f, .91f, .025f}), gold);
-            draw(cube, transform({x, 2.45f, -1.055f}, {.24f, .79f, .025f}),
-                 window, 0, glm::vec2(1), .0f, 8, .65f);
-            draw(cube, transform({x, 2.45f, -1.03f}, {.035f, .82f, .035f}), deepPurple);
-            draw(cube, transform({x, 2.45f, -1.03f}, {.27f, .035f, .035f}), deepPurple);
-        }
-        draw(cone, transform({center, 4.13f, -1.84f}, {3.02f, 1.30f, 1.36f}),
-             glm::vec3(1), roof, glm::vec2(1), .12f);
-        draw(sphere, transform({center, 4.84f, -1.84f}, {.14f, .14f, .14f}), gold,
-             0, glm::vec2(1), .45f, 64);
-
-        // The central entrance is an arched recess with twin red doors.
-        draw(cube, transform({center, .90f, front + .03f}, {1.26f, 1.45f, .13f}), gold);
-        draw(sphere, transform({center, 1.59f, front + .03f}, {.63f, .60f, .10f}), gold);
-        draw(cube, transform({center, .90f, front + .11f}, {1.10f, 1.40f, .08f}), {.045f, .018f, .066f});
-        draw(sphere, transform({center, 1.59f, front + .12f}, {.54f, .51f, .065f}), {.045f, .018f, .066f});
+        // A diagonal street and shallow forecourt connect the facade to the evening scene.
+        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.16f, .13f, .15f});
+        constexpr float roadAngle = -.58f;
+        draw(cube, transform({-1, -.006f, 3.5f}, {45, .035f, 3.25f}, roadAngle),
+             {.075f, .068f, .095f});
         for (const float side : {-1.0f, 1.0f}) {
-            const float x = center + side * .267f;
-            draw(cube, transform({x, .84f, front + .17f}, {.49f, 1.20f, .06f}), crimson);
-            draw(cube, transform({x, .84f, front + .205f}, {.38f, 1.05f, .025f}), {.58f, .12f, .17f});
-            draw(sphere, transform({center + side * .095f, .86f, front + .25f}, {.035f, .035f, .035f}), gold);
+            const glm::vec3 edge(-1.0f + std::sin(roadAngle) * side * 1.70f, .012f,
+                                 3.5f + std::cos(roadAngle) * side * 1.70f);
+            draw(cube, transform(edge, {45, .055f, .15f}, roadAngle), {.32f, .27f, .28f});
         }
-        draw(cube, transform({center, .23f, front + .63f}, {1.8f, .13f, .84f}), cream);
-        draw(cube, transform({center, .105f, front + .97f}, {2.10f, .13f, .70f}), {.54f, .43f, .31f});
+        for (int i = -10; i < 12; ++i) {
+            const float offset = static_cast<float>(i) * 1.65f;
+            draw(cube, transform({-1.0f + std::cos(roadAngle) * offset, .016f,
+                                 3.5f - std::sin(roadAngle) * offset},
+                                {.83f, .015f, .055f}, roadAngle), {.53f, .41f, .26f});
+        }
+        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.27f, .22f, .25f});
+        for (int i = -4; i <= 5; ++i)
+            block({static_cast<float>(i) * .92f, .07f, 2.55f}, {.016f, .012f, 2.55f}, {.20f, .16f, .20f});
 
-        // Sparse windows, pennants and the three-bell crest keep the facade readable.
-        for (const float x : {center - 1.78f, center + 1.78f}) {
-            draw(cube, transform({x, 2.39f, front + .02f}, {.66f, .92f, .10f}), gold);
-            draw(cube, transform({x, 2.39f, front + .085f}, {.52f, .78f, .05f}),
-                 window, 0, glm::vec2(1), .0f, 8, .65f);
-            draw(cube, transform({x, 2.39f, front + .12f}, {.045f, .84f, .04f}), deepPurple);
-            draw(cube, transform({x, 2.39f, front + .12f}, {.59f, .045f, .04f}), deepPurple);
-            draw(cube, transform({x, 1.47f, front + .06f}, {.58f, .55f, .04f}), crimson);
-            diamond({x, 1.48f, front + .095f}, .23f, cream);
+        // A modest two-storey casino, with a lower annex and flat cornices.
+        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.34f, .29f, .28f});
+        block({0, 1.98f, 0}, {5.25f, 3.60f, 3.20f}, stone);
+        block({0, .54f, 1.63f}, {5.30f, .65f, .10f}, plum);
+        block({0, 2.05f, 1.66f}, {5.40f, .12f, .13f}, trim);
+        block({0, 3.52f, 1.65f}, {5.38f, .40f, .14f}, plum);
+        block({0, 3.86f, 0}, {5.65f, .20f, 3.65f}, crimson);
+        block({0, 3.99f, 0}, {5.72f, .065f, 3.71f}, gold);
+        block({0, 4.08f, -.1f}, {5.34f, .14f, 3.25f}, plum);
+        for (const float x : {-2.48f, 2.48f})
+            block({x, 1.96f, 1.69f}, {.17f, 3.43f, .19f}, trim);
+
+        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.30f, .25f, .27f});
+        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.27f, .21f, .28f});
+        block({3.65f, 2.73f, -.22f}, {2.61f, .16f, 3.36f}, plum);
+        block({3.65f, 2.84f, -.22f}, {2.66f, .055f, 3.42f}, gold);
+        block({3.65f, .56f, 1.35f}, {2.40f, .59f, .10f}, plum);
+        block({3.65f, 1.92f, 1.35f}, {2.45f, .085f, .13f}, trim);
+
+        // Recessed windows are lit from within; no street or interior characters.
+        const auto frontWindow = [&](float x, float y, float z, float width, float height) {
+            block({x, y, z}, {width + .12f, height + .12f, .10f}, trim);
+            block({x, y, z + .065f}, {width, height, .045f}, window, .55f);
+            block({x, y, z + .10f}, {.035f, height + .01f, .035f}, plum);
+            block({x, y, z + .10f}, {width + .01f, .035f, .035f}, plum);
+        };
+        for (const float x : {-1.63f, 1.63f}) {
+            frontWindow(x, 1.23f, 1.67f, .63f, 1.02f);
+            frontWindow(x, 2.73f, 1.67f, .63f, .90f);
         }
-        draw(cube, transform({center, 2.91f, front + .08f}, {1.50f, .75f, .10f}), gold);
-        draw(cube, transform({center, 2.91f, front + .145f}, {1.38f, .63f, .05f}), deepPurple);
-        diamond({center, 2.83f, front + .19f}, .28f, crimson);
+        for (const float x : {3.08f, 4.20f}) frontWindow(x, 1.25f, 1.36f, .56f, .95f);
+        for (const float z : {-.94f, .38f}) {
+            block({4.845f, 1.25f, z}, {.10f, 1.07f, .69f}, trim);
+            block({4.91f, 1.25f, z}, {.045f, .95f, .57f}, window, .45f);
+            block({4.94f, 1.25f, z}, {.03f, .98f, .035f}, plum);
+            block({4.94f, 1.25f, z}, {.03f, .035f, .60f}, plum);
+        }
+
+        // A red double door and restrained three-bell emblem carry the jester theme.
+        block({0, 1.10f, 1.69f}, {1.43f, 1.83f, .15f}, trim);
+        block({0, 1.10f, 1.79f}, {1.23f, 1.66f, .085f}, plum);
+        for (const float side : {-1.0f, 1.0f}) {
+            block({side * .30f, 1.08f, 1.85f}, {.55f, 1.56f, .075f}, crimson);
+            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.62f, .37f, .22f}, .20f);
+            draw(sphere, building * transform({side * .09f, .98f, 1.94f}, {.035f, .035f, .025f}), gold);
+        }
+        block({0, .22f, 2.02f}, {1.90f, .16f, .76f}, trim);
+        block({0, .11f, 2.36f}, {2.17f, .12f, .68f}, {.40f, .33f, .31f});
+        block({0, 2.89f, 1.71f}, {1.63f, .81f, .12f}, gold);
+        block({0, 2.89f, 1.79f}, {1.48f, .66f, .05f}, plum);
+        diamond({0, 2.77f, 1.84f}, .28f, crimson, building);
         for (int i = -1; i <= 1; ++i) {
-            const float x = center + static_cast<float>(i) * .34f;
-            beam({center, 2.86f, front + .21f}, {x, 3.10f, front + .21f}, .027f, cream);
-            draw(sphere, transform({x, 3.12f, front + .21f}, {.07f, .07f, .045f}), cream,
-                 0, glm::vec2(1), .2f, 32, .12f);
+            const float x = static_cast<float>(i) * .37f;
+            beam({0, 2.80f, 1.87f}, {x, 3.09f, 1.87f}, .024f, gold, building);
+            draw(sphere, building * transform({x, 3.10f, 1.87f}, {.07f, .07f, .045f}), gold,
+                 0, glm::vec2(1), .2f, 32, .10f);
         }
-        for (const float x : {center - 3.65f, center + 3.65f}) {
-            draw(cylinder, transform({x, .88f, 1.0f}, {.055f, 1.8f, .055f}), gold);
-            draw(cylinder, transform({x, .04f, 1.0f}, {.21f, .10f, .21f}), deepPurple);
-            const float pulse = animate ? .04f * std::sin(time * 1.6f + x) : 0.0f;
-            draw(sphere, transform({x, 1.90f, 1.0f}, {.19f, .27f, .19f}),
-                 window, 0, glm::vec2(1), .0f, 8, .70f + pulse);
-            draw(cone, transform({x, 2.17f, 1.0f}, {.28f, .20f, .28f}), deepPurple);
+        for (const float x : {-3.10f, 5.28f}) {
+            const float pulse = animate ? .025f * std::sin(time * 1.4f + x) : 0.0f;
+            draw(cylinder, building * transform({x, 1.0f, 2.1f}, {.042f, 2.0f, .042f}), {.30f, .23f, .24f});
+            block({x, 2.05f, 2.1f}, {.25f, .39f, .25f}, window, .55f + pulse);
+            block({x, 2.29f, 2.1f}, {.34f, .08f, .34f}, plum);
         }
     }
 
     void drawRoom() {
-        const glm::vec3 purple{.11f, .033f, .17f};
-        const glm::vec3 gold{.55f, .36f, .14f};
-        draw(cube, transform({0, -.90f, 0}, {28, .25f, 24}), {.055f, .029f, .073f});
-        draw(cube, transform({0, 1.80f, -5.35f}, {17, 6, .22f}), {.065f, .030f, .10f});
-        for (const float side : {-1.0f, 1.0f}) {
-            for (int i = 0; i < 5; ++i) {
-                const float x = side * (4.1f + static_cast<float>(i) * .49f);
-                draw(cylinder, transform({x, 1.80f, -5.06f}, {.34f, 5.50f, .22f}),
-                     i % 2 == 0 ? purple : glm::vec3(.20f, .037f, .087f));
-            }
-            draw(cylinder, transform({side * 3.70f, 1.64f, -4.85f}, {.17f, 5.1f, .17f}), gold);
-            for (int row = 0; row < 3; ++row)
-                diamond({side * 2.15f, .65f + static_cast<float>(row) * 1.10f, -5.20f}, .28f,
-                        row % 2 == 0 ? gold * .65f : glm::vec3(.27f, .06f, .15f));
-        }
-        draw(cube, transform({0, 3.95f, -5.02f}, {15, .10f, .14f}), gold);
+        // Keep attention on the cards: a dim room with only a quiet skirting line.
+        draw(cube, transform({0, -.90f, 0}, {28, .25f, 24}), {.045f, .033f, .055f});
+        draw(cube, transform({0, 1.80f, -5.35f}, {24, 6, .22f}), {.037f, .027f, .048f});
+        draw(cube, transform({0, -.40f, -5.17f}, {24, .055f, .09f}), {.13f, .095f, .07f});
     }
-
-    void drawJester(float time, bool animate) {
-        const glm::vec3 purple{.34f, .10f, .45f};
-        const glm::vec3 red{.65f, .10f, .18f};
-        const glm::vec3 gold{.85f, .62f, .23f};
-        const glm::vec3 mask{.91f, .83f, .66f};
-        const float sway = animate ? std::sin(time * .65f) * .028f : 0.0f;
-        constexpr float z = -3.35f;
-        // Keep the full cap below the HUD, with the hands resting just inside the rail.
-        constexpr float figureScale = .65f;
-        const glm::vec3 pivot{0, .16f, -2.74f};
-        const glm::vec3 shift{0, 0, .45f};
-        glm::mat4 group = glm::translate(glm::mat4(1), pivot + shift);
-        group = glm::scale(group, glm::vec3(figureScale));
-        group = glm::translate(group, -pivot);
-        const auto place = [&](glm::vec3 point) { return pivot + shift + (point - pivot) * figureScale; };
-        draw(sphere, group * transform({sway, .62f, z}, {.48f, .67f, .30f}), purple);
-        draw(sphere, group * transform({.20f + sway, .62f, z + .025f}, {.25f, .59f, .30f}), red);
-        for (const float side : {-1.0f, 1.0f}) {
-            const glm::vec3 sleeve = side < 0 ? purple : red;
-            beam(place({side * .34f + sway, .98f, z}), place({side * .64f, .24f, -2.77f}), .13f * figureScale, sleeve);
-            draw(sphere, group * transform({side * .64f, .16f, -2.74f}, {.14f, .10f, .18f}), mask);
-            diamond(place({side * .22f + sway, 1.24f, z + .29f}), .22f * figureScale, gold);
-        }
-        draw(sphere, group * transform({sway, 1.69f, z}, {.30f, .37f, .26f}), mask,
-             0, glm::vec2(1), .06f);
-        for (const float side : {-1.0f, 1.0f}) {
-            draw(sphere, group * transform({side * .105f + sway, 1.77f, z + .244f}, {.064f, .027f, .025f}), {.045f, .018f, .065f});
-            diamond(place({side * .17f + sway, 1.64f, z + .225f}), .058f * figureScale, red);
-        }
-        draw(sphere, group * transform({sway, 1.68f, z + .27f}, {.040f, .054f, .055f}), gold);
-        beam(place({-.10f + sway, 1.57f, z + .244f}), place({sway, 1.54f, z + .26f}), .012f * figureScale, red);
-        beam(place({sway, 1.54f, z + .26f}), place({.10f + sway, 1.57f, z + .244f}), .012f * figureScale, red);
-        draw(sphere, group * transform({sway, 2.005f, z}, {.31f, .13f, .26f}), purple);
-        for (int i = -1; i <= 1; ++i) {
-            const float side = static_cast<float>(i);
-            const float tilt = -.57f * side;
-            glm::mat4 model = glm::translate(glm::mat4(1), {side * .23f + sway, 2.22f, z});
-            model = glm::rotate(model, tilt, glm::vec3(0, 0, 1));
-            draw(cone, group * glm::scale(model, {.16f, i == 0 ? .65f : .58f, .16f}), i == 0 ? purple : red);
-            draw(sphere, group * transform({side * .39f + sway, i == 0 ? 2.57f : 2.47f, z}, {.066f, .066f, .066f}), gold,
-                 0, glm::vec2(1), .45f, 64);
-        }
-        for (int i = 0; i < 3; ++i)
-            draw(sphere, group * transform({sway, .90f - static_cast<float>(i) * .25f, z + .31f}, {.045f, .045f, .028f}), gold);
-    }
-
     void drawCard(const VisualCard& card, glm::vec3 position, float rotation = 0.0f) {
         // A solid cuboid gives visible paper edges; its upper face receives the card texture.
         const glm::mat4 model = transform(position, {.74f, .045f, 1.08f}, rotation);
@@ -823,17 +754,18 @@ struct Renderer::Impl {
         glDisable(GL_SCISSOR_TEST);
         glClearColor(.026f, .014f, .050f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        if (scene.menu) drawSky(width, height);
 
         const float yaw = glm::radians(settings.yaw);
         const float pitch = glm::radians(std::clamp(settings.pitch, 20.0f, 85.0f));
         const float distance = std::clamp(settings.distance, 5.0f, 18.0f);
         const float aspect = static_cast<float>(width) / static_cast<float>(height);
-        const float menuDistance = 16.0f * std::max(1.0f, 1.45f / aspect);
-        const glm::vec3 eye = scene.menu ? glm::vec3(0, 4.2f, menuDistance)
+        const float menuDistance = 15.5f * std::max(1.0f, 1.45f / aspect);
+        const glm::vec3 eye = scene.menu ? glm::vec3(0, 4.8f, menuDistance)
             : glm::vec3(distance * std::cos(pitch) * std::sin(yaw),
                         distance * std::sin(pitch),
                         distance * std::cos(pitch) * std::cos(yaw));
-        const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.8f, 0)
+        const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
                                                                          : glm::vec3(0, 0, 0),
                                          glm::vec3(0, 1, 0));
         const glm::mat4 projection = glm::perspective(glm::radians(43.0f),
@@ -843,7 +775,9 @@ struct Renderer::Impl {
         glUniformMatrix4fv(u.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(u.projection, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(u.camera, 1, glm::value_ptr(eye));
-        glUniform3f(u.light, scene.menu ? 1.0f : -3.0f, 7.0f, 3.0f);
+        glUniform3f(u.light, scene.menu ? -5.0f : -3.0f, 7.0f, 4.0f);
+        if (scene.menu) glUniform3f(u.fogColor, .25f, .17f, .22f);
+        else glUniform3f(u.fogColor, .026f, .014f, .050f);
         glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         texturesEnabled = settings.textures;
@@ -857,7 +791,6 @@ struct Renderer::Impl {
         }
 
         drawRoom();
-        drawJester(scene.time, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.
         draw(cylinder, transform({0, -.35f, 0}, {4.2f, .5f, 3.0f}),

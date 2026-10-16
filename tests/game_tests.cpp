@@ -40,6 +40,7 @@ bool sameCards(const std::vector<bj::Card>& a, const std::vector<bj::Card>& b) {
 bool sameState(const bj::Snapshot& a, const bj::Snapshot& b) {
     return sameCards(a.player, b.player) && sameCards(a.dealer, b.dealer)
         && a.phase == b.phase && a.outcome == b.outcome && a.round == b.round
+        && a.handsLeft == b.handsLeft && a.roundScore == b.roundScore && a.goal == b.goal
         && a.wins == b.wins && a.totalScore == b.totalScore
         && a.coins == b.coins && a.streak == b.streak && a.dealerStand == b.dealerStand
         && a.seed == b.seed && a.usedSecondChance == b.usedSecondChance && a.owned == b.owned
@@ -219,6 +220,9 @@ void testUnbiasedOpeningDistribution() {
 
 struct Coverage {
     int wins = 0, pushes = 0, losses = 0, soft17 = 0, longRuns = 0;
+    int clearedRounds = 0, failedRounds = 0, lastHandClears = 0, earlyClears = 0;
+    int lossContinues = 0, pushContinues = 0, winContinues = 0, lastHandWinFails = 0;
+    int cappedGoals = 0, shieldResets = 0, maxRound = 1;
     int purchases = 0, sales = 0, reoffers = 0, fullBuilds = 0, cardStreams = 0;
     int shields = 0, spentShields = 0, persistentShields = 0;
     std::array<int, 12> active{};
@@ -235,7 +239,7 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
     if (result.outcome != bj::Outcome::Win) {
         check(result.score.base == 0 && result.score.bonus == 0 && result.score.total == 0
             && result.score.coins == 0 && result.score.multiplier == 1.0f, "non-wins award no points or coins");
-        check(result.coins == before.coins && result.totalScore == before.totalScore
+        check(result.coins == before.coins && result.totalScore == before.totalScore && result.roundScore == before.roundScore
             && result.wins == before.wins, "non-wins leave accumulated rewards unchanged");
         check(result.streak == (result.outcome == bj::Outcome::Loss ? 0 : before.streak), "loss breaks streak; push preserves it");
         return;
@@ -274,8 +278,8 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
         "points match the natural and conditional score upgrades");
     check(result.score.coins == expectedCoins && result.coins == before.coins + expectedCoins,
         "win income is three coins plus eligible modest bonuses");
-    check(result.totalScore == before.totalScore + result.score.total && result.wins == before.wins + 1,
-        "winning points and wins accumulate exactly once");
+    check(result.totalScore == before.totalScore + result.score.total && result.roundScore == before.roundScore + result.score.total
+        && result.wins == before.wins + 1, "winning points accumulate once in the round and complete run");
     check(result.streak == before.streak + 1, "win increments streak exactly once");
 }
 
@@ -311,14 +315,16 @@ void testSeededRunsAndShop() {
     for (std::uint32_t seed = 0; seed < 3000; ++seed) {
         bj::Game game(seed);
         check(game.state().phase == bj::Phase::Ready && game.state().round == 1
+            && game.state().handsLeft == 5 && game.state().roundScore == 0 && game.state().goal == 30
             && game.state().coins == 0 && game.state().wins == 0 && game.state().totalScore == 0
             && game.state().dealerStand == 17 && game.state().owned.empty() && game.state().offers.empty(), "new run defaults");
         std::vector<bj::Relic> previousOffers;
         std::vector<bj::Relic> sold;
-        for (int round = 0; round < 100; ++round) {
+        for (int dealtHand = 0; dealtHand < 500; ++dealtHand) {
             checkBlockedActions(game);
             const auto beforeRound = game.state();
             check(game.deal(), "deal succeeds in Ready");
+            check(game.state().handsLeft == beforeRound.handsLeft - 1, "every dealt hand spends one of the five attempts");
             check(game.state().player.size() == 2 && game.state().dealer.size() == 2, "opening deal gives two cards to each side");
             check(game.state().usedSecondChance == beforeRound.usedSecondChance, "deal does not recharge shield");
             probeShield(game, coverage);
@@ -349,18 +355,37 @@ void testSeededRunsAndShop() {
             coverage.pushes += result.outcome == bj::Outcome::Push ? 1 : 0;
             coverage.losses += result.outcome == bj::Outcome::Loss ? 1 : 0;
             coverage.longRuns += result.round > 5 ? 1 : 0;
+            coverage.maxRound = std::max(coverage.maxRound, result.round);
+            coverage.cappedGoals += result.round >= 8 && result.goal == 100 ? 1 : 0;
             checkBlockedActions(game);
-            check(game.advance(), "advance succeeds after a round");
-            check(game.state().coins == result.coins && game.state().totalScore == result.totalScore, "advance never awards the same round twice");
-            if (result.outcome == bj::Outcome::Loss) {
-                check(game.state().phase == bj::Phase::RunLost, "first defeat ends the run");
+            check(game.advance(), "advance succeeds after a finished hand");
+            check(game.state().coins == result.coins && game.state().totalScore == result.totalScore
+                && game.state().roundScore == result.roundScore && game.state().handsLeft == result.handsLeft,
+                "advance never repeats rewards or spends another hand");
+            if (result.roundScore < result.goal && result.handsLeft == 0) {
+                ++coverage.failedRounds;
+                coverage.lastHandWinFails += result.outcome == bj::Outcome::Win ? 1 : 0;
+                check(game.state().phase == bj::Phase::RunLost, "unmet goal after all five hands ends the run");
                 checkBlockedActions(game);
                 game.restart(seed);
                 const bj::Game fresh(seed);
                 check(sameState(fresh.state(), game.state()), "restart after defeat clears full run state");
                 break;
             }
-            check(game.state().phase == bj::Phase::Shop, "win and push both lead to a shop");
+            if (result.roundScore < result.goal) {
+                coverage.lossContinues += result.outcome == bj::Outcome::Loss ? 1 : 0;
+                coverage.pushContinues += result.outcome == bj::Outcome::Push ? 1 : 0;
+                coverage.winContinues += result.outcome == bj::Outcome::Win ? 1 : 0;
+                coverage.persistentShields += result.usedSecondChance ? 1 : 0;
+                check(game.state().phase == bj::Phase::Ready && game.state().round == result.round
+                    && game.state().offers.empty() && game.state().usedSecondChance == result.usedSecondChance,
+                    "a hand below the target continues the same round without opening a shop or recharging a shield");
+                continue;
+            }
+            ++coverage.clearedRounds;
+            coverage.lastHandClears += result.handsLeft == 0 ? 1 : 0;
+            coverage.earlyClears += result.handsLeft > 0 ? 1 : 0;
+            check(game.state().phase == bj::Phase::Shop, "only a cleared round opens the shop, including a last-hand clear");
             const auto offers = game.state().offers;
             check(offers.size() == 2 && offers[0] != offers[1], "shop offers exactly two distinct upgrades");
             for (auto relic : offers) {
@@ -428,25 +453,35 @@ void testSeededRunsAndShop() {
             const auto afterLeave = game.state();
             for (const auto& item : catalog) check(!game.boughtThisShop(item.id), "shop exit clears purchase markers");
             check(afterLeave.phase == bj::Phase::Ready && afterLeave.round == result.round + 1
+                && afterLeave.handsLeft == 5 && afterLeave.roundScore == 0
                 && afterLeave.dealerStand == 17 && afterLeave.player.empty() && afterLeave.dealer.empty()
                 && afterLeave.outcome == bj::Outcome::None && afterLeave.score.total == 0
-                && afterLeave.score.coins == 0 && afterLeave.offers.empty(), "next round clears hand and shop display");
+                && afterLeave.score.coins == 0 && afterLeave.offers.empty(), "next round resets all five hands, progress and display");
+            const std::array<int, 8> goals{30, 40, 50, 60, 70, 80, 90, 100};
+            check(afterLeave.goal == goals[static_cast<std::size_t>(std::min(afterLeave.round, 8) - 1)],
+                "round goals rise by ten and remain capped at one hundred");
             check(afterLeave.coins == beforeLeave.coins && afterLeave.totalScore == beforeLeave.totalScore
                 && afterLeave.wins == beforeLeave.wins && afterLeave.owned == beforeLeave.owned
-                && afterLeave.streak == beforeLeave.streak && afterLeave.usedSecondChance == beforeLeave.usedSecondChance,
-                "next round retains rewards, upgrades, streak and shield use");
-            coverage.persistentShields += afterLeave.usedSecondChance ? 1 : 0;
-            check(round < 99, "seeded run reaches first defeat without an artificial stage cap");
+                && afterLeave.streak == beforeLeave.streak && !afterLeave.usedSecondChance,
+                "next round keeps run rewards, upgrades and streak but recharges the once-per-round shield");
+            coverage.shieldResets += beforeLeave.usedSecondChance ? 1 : 0;
+            check(dealtHand < 499, "seeded run finishes without an artificial round cap");
         }
     }
-    check(coverage.wins > 0 && coverage.pushes > 0 && coverage.losses == 3000, "simulation covers all outcomes and ends each run at first defeat");
+    check(coverage.wins > 0 && coverage.pushes > 0 && coverage.losses > 0 && coverage.failedRounds == 3000,
+        "simulation covers all hand outcomes and finishes every run on an unmet round goal");
+    check(coverage.lossContinues > 0 && coverage.pushContinues > 0 && coverage.winContinues > 0,
+        "wins below target, pushes and individual losses all continue the same round");
+    check(coverage.lastHandClears > 0 && coverage.earlyClears > 0 && coverage.lastHandWinFails > 0,
+        "simulation clears goals early and on the final hand, and fails an insufficient final-hand win");
     check(coverage.longRuns > 0, "runs continue beyond five rounds and old three-stage structure");
     check(coverage.soft17 > 0, "soft-17 dealer stands exercised");
+    check(coverage.cappedGoals > 0, "longer runs exercise the one-hundred-point target cap");
     check(coverage.purchases > 0 && coverage.sales > 0 && coverage.reoffers > 0 && coverage.fullBuilds > 0,
         "simulation buys, sells, reoffers sold upgrades and reaches four active upgrades");
     check(coverage.cardStreams > 0, "transactions compared against no-shopping runs");
-    check(coverage.shields > 0 && coverage.spentShields > 0 && coverage.persistentShields > 0,
-        "shield rescues a bust and stays spent across hands");
+    check(coverage.shields > 0 && coverage.spentShields > 0 && coverage.persistentShields > 0 && coverage.shieldResets > 0,
+        "shield rescues one bust, stays spent within a round and recharges at the next round");
     for (const auto& item : catalog) {
         if (item.id != bj::Relic::SecondChance) {
             const auto index = static_cast<std::size_t>(item.id);
@@ -454,9 +489,11 @@ void testSeededRunsAndShop() {
         }
     }
     std::cout << "Seeded runs: 3000; wins " << coverage.wins << ", pushes " << coverage.pushes
+              << ", lost hands " << coverage.losses << "; cleared rounds " << coverage.clearedRounds
+              << ", final-hand clears " << coverage.lastHandClears << ", maximum round " << coverage.maxRound
               << "; purchases " << coverage.purchases << ", sales " << coverage.sales
               << ", sold reoffers " << coverage.reoffers << ", full builds " << coverage.fullBuilds
-              << "; shield saves " << coverage.shields << '\n';
+              << "; shield saves " << coverage.shields << ", recharges " << coverage.shieldResets << '\n';
 }
 
 } // namespace

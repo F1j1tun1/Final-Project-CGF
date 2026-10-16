@@ -14,6 +14,7 @@ uniform float uLightIntensity;
 uniform float uShininess;
 uniform float uSpecular;
 uniform float uEmission;
+uniform vec3 uFogColor;
 uniform bool uUseTexture;
 uniform bool uLighting;
 
@@ -45,6 +46,6 @@ void main() {
 
     // Subtle distance haze keeps the back edge of the table in the scene.
     float fog = smoothstep(9.0, 20.0, length(uCameraPosition - vWorldPosition));
-    result = mix(result, vec3(0.026, 0.014, 0.050), fog * 0.45);
+    result = mix(result, uFogColor, fog * 0.45);
     fragColor = vec4(result, 1.0);
 }

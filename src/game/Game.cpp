@@ -1,13 +1,20 @@
 #include "Game.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 namespace bj {
 namespace {
 
 constexpr int kWinCoins = 3;
+constexpr int kHandsPerRound = 5;
 constexpr std::size_t kMaxRelics = 4;
+
+int goalForRound(int round) {
+    // Evaluate the multiplication only while the result remains below the cap.
+    return round >= 8 ? 100 : 30 + 10 * (round - 1);
+}
 
 // Rejection sampling keeps seeded shuffles identical across standard libraries.
 std::uint32_t boundedRandom(std::mt19937& random, std::uint32_t bound) {
@@ -58,7 +65,7 @@ const std::vector<RelicInfo>& relicCatalog() {
     static const std::vector<RelicInfo> catalog = {
         {Relic::Precision, "Precision", "Win with 21 for +1 coin.", 6},
         {Relic::LongHand, "Long Hand", "Win with 4+ cards for +1 coin.", 6},
-        {Relic::SecondChance, "Second Chance", "Discard your first bust card. Once per run.", 8},
+        {Relic::SecondChance, "Second Chance", "Discard your first bust card. Once per round.", 8},
         {Relic::Streak, "Streak", "Every third consecutive win earns +1 coin.", 6},
         {Relic::RoyalPurse, "Royal Purse", "Win with a natural blackjack for +1 coin.", 2},
         {Relic::SoftTouch, "Soft Touch", "Win with a soft hand for +1 coin.", 2},
@@ -83,7 +90,7 @@ const Snapshot& Game::state() const {
 void Game::restart(std::uint32_t seed) {
     state_ = Snapshot{};
     state_.seed = seed;
-    state_.message = "Beat the dealer. A win earns 3 coins; a loss ends your run.";
+    state_.message = "Five hands to reach the round goal. Each win earns points and 3 coins.";
     cardRandom_.seed(seed);
     shopRandom_.seed(seed ^ 0x9e3779b9u);
     deck_.clear();
@@ -123,7 +130,7 @@ Card Game::draw() {
 }
 
 bool Game::deal() {
-    if (state_.phase != Phase::Ready) {
+    if (state_.phase != Phase::Ready || state_.handsLeft <= 0) {
         return false;
     }
     shuffleDeck();
@@ -131,6 +138,7 @@ bool Game::deal() {
     state_.dealer.clear();
     state_.score = ScoreBreakdown{};
     state_.outcome = Outcome::None;
+    --state_.handsLeft;
     state_.phase = Phase::PlayerTurn;
     state_.player.push_back(draw());
     state_.dealer.push_back(draw());
@@ -237,6 +245,7 @@ void Game::finishRound() {
             state_.score.bonus += 5;
         }
         state_.score.total = state_.score.base + state_.score.bonus;
+        state_.roundScore += state_.score.total;
         state_.totalScore += state_.score.total;
         state_.coins += state_.score.coins;
         ++state_.wins;
@@ -244,9 +253,9 @@ void Game::finishRound() {
         state_.message = player.blackjack ? "Blackjack! Coins and bonus points earned." : "You win! Coins and points earned.";
     } else if (state_.outcome == Outcome::Loss) {
         state_.streak = 0;
-        state_.message = player.bust ? "Bust! Your run is over." : "Dealer wins. Your run is over.";
+        state_.message = player.bust ? "Bust! This hand earns no points." : "Dealer wins this hand. No points earned.";
     } else {
-        state_.message = "Push. No reward; your run and streak stay alive.";
+        state_.message = "Push. No reward; your streak stays alive.";
     }
     state_.phase = Phase::RoundOver;
 }
@@ -255,11 +264,14 @@ bool Game::advance() {
     if (state_.phase != Phase::RoundOver) {
         return false;
     }
-    if (state_.outcome == Outcome::Loss) {
-        state_.phase = Phase::RunLost;
-        state_.message = "Run over. Start again and try another build.";
-    } else {
+    if (state_.roundScore >= state_.goal) {
         openShop();
+    } else if (state_.handsLeft == 0) {
+        state_.phase = Phase::RunLost;
+        state_.message = "Out of hands before the goal. Start again and try another build.";
+    } else {
+        state_.phase = Phase::Ready;
+        state_.message = "Keep playing. Reach the round goal before your five hands run out.";
     }
     return true;
 }
@@ -317,14 +329,20 @@ void Game::openShop() {
     previousOffers_ = state_.offers;
     boughtThisShop_.clear();
     state_.phase = Phase::Shop;
-    state_.message = "Choose from two upgrades, sell an owned upgrade, or continue.";
+    state_.message = "Round cleared! Choose an upgrade, sell an owned upgrade, or continue.";
 }
 
 bool Game::leaveShop() {
     if (state_.phase != Phase::Shop) {
         return false;
     }
-    ++state_.round;
+    if (state_.round < std::numeric_limits<int>::max()) {
+        ++state_.round;
+    }
+    state_.handsLeft = kHandsPerRound;
+    state_.roundScore = 0;
+    state_.goal = goalForRound(state_.round);
+    state_.usedSecondChance = false;
     state_.player.clear();
     state_.dealer.clear();
     state_.score = ScoreBreakdown{};
@@ -332,7 +350,7 @@ bool Game::leaveShop() {
     state_.offers.clear();
     boughtThisShop_.clear();
     state_.phase = Phase::Ready;
-    state_.message = "Next round. Beat the dealer to keep your run alive.";
+    state_.message = "New round. Five hands to reach the next score goal.";
     return true;
 }
 
