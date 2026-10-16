@@ -1,0 +1,31 @@
+name: Ошибка
+description: Сообщить о проблеме со сборкой, правилами или графикой.
+title: "[Bug]: "
+body:
+  - type: textarea
+    id: environment
+    attributes:
+      label: Окружение
+      description: ОС, компилятор, версия CMake, Debug/Release, ветка или commit. Для графики укажите GPU и драйвер.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Как повторить
+      description: Команды сборки или последовательность действий. Для правил укажите seed и нажатые кнопки.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемый результат
+    validations:
+      required: true
+  - type: textarea
+    id: observed
+    attributes:
+      label: Фактический результат
+      description: Приложите сообщение об ошибке, лог или снимок экрана, если они помогают воспроизведению.
+    validations:
+      required: true

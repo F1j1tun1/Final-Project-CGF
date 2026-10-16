@@ -1,0 +1,25 @@
+name: Улучшение
+description: Предложить изменение игры или инструментов проекта.
+title: "[Feature]: "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Задача
+      description: Какую проблему игрока или команды решает предложение?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Предлагаемое поведение
+      description: Опишите конкретный пример использования и границы изменения.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Как проверить готовность
+      description: Наблюдаемые условия, при которых задача выполнена. Укажите затронутый модуль, если он известен.
+    validations:
+      required: true

@@ -1,0 +1,9 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Configure desktop", "type": "process", "command": "cmake", "args": ["--preset", "desktop"], "options": { "cwd": "${workspaceFolder}" }, "problemMatcher": [] },
+    { "label": "Build desktop", "type": "process", "command": "cmake", "args": ["--build", "--preset", "desktop", "--parallel"], "options": { "cwd": "${workspaceFolder}" }, "dependsOn": "Configure desktop", "group": { "kind": "build", "isDefault": true }, "problemMatcher": "$msCompile" },
+    { "label": "Test rules", "type": "process", "command": "ctest", "args": ["--preset", "desktop"], "options": { "cwd": "${workspaceFolder}" }, "dependsOn": "Build desktop", "problemMatcher": [] },
+    { "label": "Run game", "type": "process", "command": "${command:cmake.launchTargetPath}", "options": { "cwd": "${workspaceFolder}" }, "dependsOn": "Build desktop", "problemMatcher": [] }
+  ]
+}

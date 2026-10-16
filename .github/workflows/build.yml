@@ -1,0 +1,73 @@
+name: Build and test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    name: ${{ matrix.os }} / ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        build_type: [Debug, Release]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Linux graphics dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev \
+            libxext-dev libgl1-mesa-dev mesa-utils xvfb xauth
+
+      - name: Configure desktop
+        run: >-
+          cmake --preset desktop
+          -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+          -DGLFW_BUILD_WAYLAND=OFF
+
+      - name: Build desktop
+        run: cmake --build --preset desktop --config ${{ matrix.build_type }} --parallel 2
+
+      - name: Test game rules
+        run: ctest --preset desktop -C ${{ matrix.build_type }} --no-tests=error --timeout 120
+
+      - name: OpenGL smoke test (software Mesa)
+        if: runner.os == 'Linux'
+        timeout-minutes: 3
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "true"
+        run: >-
+          timeout 120s xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24"
+          ./build/desktop/blackjack_forge --smoke --frames 600
+
+      - name: Install portable Windows game
+        if: runner.os == 'Windows'
+        run: cmake --install build/desktop --config ${{ matrix.build_type }} --prefix portable
+
+      - name: Upload Windows game
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: blackjack-forge-windows-${{ matrix.build_type }}
+          path: portable/
+          if-no-files-found: error
+          retention-days: 14
