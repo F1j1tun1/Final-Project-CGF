@@ -37,6 +37,7 @@ constexpr ImVec4 muted{0.73f, 0.66f, 0.80f, 1.0f};
 constexpr ImVec4 cream{0.98f, 0.93f, 0.81f, 1.0f};
 constexpr ImVec4 green{0.54f, 0.88f, 0.72f, 1.0f};
 constexpr ImVec4 red{1.0f, 0.48f, 0.49f, 1.0f};
+constexpr ImVec4 blue{0.30f, 0.72f, 1.0f, 1.0f};
 constexpr ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoDecoration |
     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
     ImGuiWindowFlags_NoBringToFrontOnFocus;
@@ -173,6 +174,9 @@ struct Interface {
     bool glBackend = false;
     ImFont* title = nullptr;
     ImFont* heading = nullptr;
+    ImFont* button = nullptr;
+    ImFont* number = nullptr;
+    ImFont* small = nullptr;
     explicit Interface(GLFWwindow* window, const std::filesystem::path& assets) {
         IMGUI_CHECKVERSION();
         ImGui::CreateContext();
@@ -183,24 +187,29 @@ struct Interface {
         font.OversampleH = 3;
         font.OversampleV = 2;
         const auto semibold = (assets / "fonts/CormorantGaramond-SemiBold.ttf").string();
-        io.FontDefault = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 23.0f, &font);
-        heading = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 33.0f, &font);
-        title = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 160.0f, &font);
-        if (!io.FontDefault || !heading || !title) {
+        const auto body = (assets / "fonts/SourceSans3-Regular.ttf").string();
+        const auto bold = (assets / "fonts/SourceSans3-Semibold.ttf").string();
+        io.FontDefault = io.Fonts->AddFontFromFileTTF(body.c_str(), 22.0f, &font);
+        heading = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 36.0f, &font);
+        title = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 200.0f, &font);
+        button = io.Fonts->AddFontFromFileTTF(bold.c_str(), 26.0f, &font);
+        number = io.Fonts->AddFontFromFileTTF(bold.c_str(), 46.0f, &font);
+        small = io.Fonts->AddFontFromFileTTF(body.c_str(), 18.0f, &font);
+        if (!io.FontDefault || !heading || !title || !button || !number || !small) {
             ImGui::DestroyContext();
             throw std::runtime_error("Missing Jester Jack fonts. Keep assets beside the executable.");
         }
         ImGui::StyleColorsDark();
         auto& style = ImGui::GetStyle();
-        style.WindowRounding = 9.0f;
-        style.FrameRounding = 5.0f;
+        style.WindowRounding = 12.0f;
+        style.FrameRounding = 7.0f;
         style.WindowBorderSize = 1.0f;
         style.FrameBorderSize = 1.0f;
         style.FramePadding = ImVec2(16, 8);
         style.WindowPadding = ImVec2(20, 16);
         style.ItemSpacing = ImVec2(12, 9);
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.085f, 0.045f, 0.13f, 0.97f);
-        style.Colors[ImGuiCol_Border] = ImVec4(0.63f, 0.43f, 0.22f, 0.72f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.075f, 0.095f, 0.11f, 0.98f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.29f, 0.35f, 0.37f, 0.96f);
         style.Colors[ImGuiCol_Text] = cream;
         style.Colors[ImGuiCol_TextDisabled] = muted;
         style.Colors[ImGuiCol_Button] = ImVec4(0.30f, 0.10f, 0.30f, 1.0f);
@@ -233,6 +242,7 @@ struct Interface {
 struct Session {
     bool menu = true;
     bool settings = false;
+    bool rules = false;
     bool started = false;
     bool fixedSeed = false;
     bool transitions = true;
@@ -246,6 +256,7 @@ struct Session {
         nextSeed = !started ? game.state().seed :
             (fixedSeed ? game.state().seed + 1 : freshSeed());
         settings = false;
+        rules = false;
         switched = false;
         fade = 0.0f;
         if (!transitions) update(1.0f, game);
@@ -298,6 +309,7 @@ void primaryAction(bj::Game& game, Commands& commands) {
     commands.apply([&]() {
         switch (game.state().phase) {
             case bj::Phase::Ready: return game.deal();
+            case bj::Phase::PlayerTurn: return game.stand();
             case bj::Phase::RoundOver: return game.advance();
             case bj::Phase::Shop: return game.leaveShop();
             default: return false;
@@ -307,13 +319,13 @@ void primaryAction(bj::Game& game, Commands& commands) {
 
 struct MenuLayout {
     ImVec2 origin;
-    float width = 245;
-    float height = 64;
+    float width = 270;
+    float height = 66;
     float step = 82;
 };
 
 MenuLayout menuLayout(ImVec2 display) {
-    return {{display.x * 0.075f, display.y * 0.36f}};
+    return {{display.x * 0.075f, display.y * 0.52f}};
 }
 
 void drawMenu(bj::Game& game, Session& session, const Interface& ui, GLFWwindow* window) {
@@ -323,8 +335,8 @@ void drawMenu(bj::Game& game, Session& session, const Interface& ui, GLFWwindow*
         IM_COL32(27, 15, 32, 125), IM_COL32(27, 15, 32, 0),
         IM_COL32(27, 15, 32, 0), IM_COL32(27, 15, 32, 155));
     const char* name = "Jester Jack";
-    const float textWidth = ui.title->CalcTextSizeA(160.0f, 10000, 0, name).x;
-    const float size = 160.0f * std::min(1.0f, display.x * 0.67f / textWidth);
+    const float textWidth = ui.title->CalcTextSizeA(200.0f, 10000, 0, name).x;
+    const float size = 200.0f * std::min(1.0f, display.x * 0.76f / textWidth);
     const ImVec2 titlePosition{display.x * 0.07f, display.y * 0.055f};
     backdrop->AddText(ui.title, size, {titlePosition.x + 3, titlePosition.y + 4}, IM_COL32(35, 17, 27, 180), name);
     backdrop->AddText(ui.title, size, titlePosition, ImGui::ColorConvertFloat4ToU32(cream), name);
@@ -334,11 +346,13 @@ void drawMenu(bj::Game& game, Session& session, const Interface& ui, GLFWwindow*
     ImGui::PushStyleColor(ImGuiCol_Button, {0.16f, 0.09f, 0.20f, 0.96f});
     beginPanel("##menu", layout.origin, {layout.width, 3 * layout.step}, true);
     ImGui::BeginDisabled(session.transitioning() || session.settings);
+    ImGui::PushFont(ui.button);
     if (ImGui::Button("START", {layout.width, layout.height})) session.start(game);
     ImGui::SetCursorPos({0, layout.step});
     if (ImGui::Button("OPTIONS", {layout.width, layout.height})) session.settings = true;
     ImGui::SetCursorPos({0, 2 * layout.step});
     if (ImGui::Button("EXIT", {layout.width, layout.height})) glfwSetWindowShouldClose(window, GLFW_TRUE);
+    ImGui::PopFont();
     ImGui::EndDisabled();
     ImGui::End();
     ImGui::PopStyleColor();
@@ -347,185 +361,403 @@ void drawMenu(bj::Game& game, Session& session, const Interface& ui, GLFWwindow*
         "Five hands. Reach the target.");
 }
 
+ImVec4 rarityColor(bj::Rarity rarity) {
+    switch (rarity) {
+        case bj::Rarity::Common: return {0.77f, 0.81f, 0.79f, 1};
+        case bj::Rarity::Uncommon: return {0.35f, 0.84f, 0.54f, 1};
+        case bj::Rarity::Rare: return {0.32f, 0.67f, 1.0f, 1};
+        case bj::Rarity::Epic: return {0.79f, 0.47f, 1.0f, 1};
+        case bj::Rarity::Legendary: return {1.0f, 0.70f, 0.25f, 1};
+    }
+    return cream;
+}
+
+const char* relicSummary(bj::Relic relic) {
+    switch (relic) {
+        case bj::Relic::Precision: return "21 win: +5 pts / +1 coin";
+        case bj::Relic::LongHand: return "4+ cards: +8 pts / +1 coin";
+        case bj::Relic::SecondChance: return "1 bust rescue per round";
+        case bj::Relic::Streak: return "Win streak: up to x1.4";
+        case bj::Relic::RoyalPurse: return "Blackjack: +1 coin";
+        case bj::Relic::SoftTouch: return "Soft win: +1 coin";
+        case bj::Relic::NarrowEscape: return "Dealer bust: +3 pts / +1 coin";
+        case bj::Relic::RedRibbon: return "Red pair win: +1 coin";
+        case bj::Relic::BlackVelvet: return "Black pair win: +1 coin";
+        case bj::Relic::EvenOdds: return "Even total win: +1 coin";
+        case bj::Relic::CourtFavor: return "J / Q / K win: +3 pts";
+        case bj::Relic::HumbleCrown: return "Win at 18 or less: +5 pts";
+    }
+    return "";
+}
+
+struct TableLayout {
+    float sidebar;
+    float contentX;
+    float contentWidth;
+    float boardY;
+    float boardHeight;
+    float actionY;
+};
+
+TableLayout tableLayout(ImVec2 display) {
+    const float sidebar = std::clamp(display.x * .24f, 280.0f, 340.0f);
+    const float contentX = sidebar + 24;
+    const float actionY = display.y - 154;
+    return {sidebar, contentX, display.x - contentX - 20, 172, actionY - 182, actionY};
+}
+
+ImVec2 dealButtonCenter(const TableLayout& layout) {
+    return {layout.contentX + 158, layout.actionY + 76};
+}
+
+void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
+    ImGui::BeginTooltip();
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 20);
+    ImGui::TextColored(rarityColor(item.rarity), "%s / %s", item.name, bj::rarityName(item.rarity));
+    ImGui::TextWrapped("%s", item.description);
+    ImGui::PushFont(ui.small);
+    ImGui::Text("Buy: %d coins    Sell: %d coins", item.cost, item.cost / 2);
+    ImGui::PopFont();
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+void drawRelicStrip(const bj::Game& game, const TableLayout& layout, const Interface& ui) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    beginPanel("##relics", {layout.contentX, 16}, {layout.contentWidth, 146}, true);
+    ImGui::TextColored(cream, "RELICS  %d / 4", static_cast<int>(game.state().owned.size()));
+    ImGui::SameLine();
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "Hover for effects");
+    ImGui::PopFont();
+    const float width = (layout.contentWidth - 36) / 4;
+    for (int slot = 0; slot < 4; ++slot) {
+        ImGui::PushID(slot);
+        ImGui::SetCursorPos({static_cast<float>(slot) * (width + 12), 34});
+        const bool filled = static_cast<std::size_t>(slot) < game.state().owned.size();
+        const auto* item = filled ? &relicInfo(game.state().owned[static_cast<std::size_t>(slot)]) : nullptr;
+        const ImVec4 accent = filled ? rarityColor(item->rarity) : ImVec4(.27f, .31f, .34f, 1);
+        ImGui::PushStyleColor(ImGuiCol_Border, accent);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, {.105f, .12f, .15f, .97f});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 9});
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4, 3});
+        ImGui::BeginChild("slot", {width, 112}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+        if (item) {
+            ImGui::TextColored(cream, "%s", item->name);
+            ImGui::PushFont(ui.small);
+            ImGui::TextColored(accent, "%s", bj::rarityName(item->rarity));
+            ImGui::TextWrapped("%s", item->id == bj::Relic::SecondChance && game.state().usedSecondChance
+                ? "Rescue used this round" : relicSummary(item->id));
+            ImGui::PopFont();
+        } else {
+            ImGui::SetCursorPosY(35);
+            ImGui::PushFont(ui.small);
+            ImGui::TextColored(muted, "Empty relic slot");
+            ImGui::PopFont();
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(2);
+        if (item && ImGui::IsItemHovered()) relicTooltip(*item, ui);
+        ImGui::PopID();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& session, const Commands& commands,
+                 const Interface& ui, float height) {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {16, 14});
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {8, 8});
+    beginPanel("##run", {16, 16}, {layout.sidebar - 16, height - 32});
+    ImGui::PushFont(ui.button);
+    ImGui::TextColored(gold, "ROUND %d", state.round);
+    ImGui::PopFont();
+    ImGui::Separator();
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {.23f, .13f, .15f, 1});
+    ImGui::BeginChild("target", {-1, 128}, ImGuiChildFlags_Borders);
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(cream, "SCORE AT LEAST");
+    ImGui::PopFont();
+    ImGui::PushFont(ui.number);
+    ImGui::TextColored(red, "%d", state.goal);
+    ImGui::PopFont();
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "points to clear this round");
+    ImGui::PopFont();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {.075f, .16f, .22f, 1});
+    ImGui::BeginChild("score", {-1, 122}, ImGuiChildFlags_Borders);
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(cream, "ROUND SCORE");
+    ImGui::PopFont();
+    ImGui::PushFont(ui.number);
+    ImGui::TextColored(blue, "%d", state.roundScore);
+    ImGui::PopFont();
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, blue);
+    ImGui::ProgressBar(std::min(1.0f, static_cast<float>(state.roundScore) / state.goal), {-1, 7}, "");
+    ImGui::PopStyleColor();
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+
+    const float half = (ImGui::GetContentRegionAvail().x - 8) * .5f;
+    for (int column = 0; column < 2; ++column) {
+        if (column) ImGui::SameLine();
+        ImGui::PushID(column);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, column ? ImVec4(.22f, .17f, .08f, 1) : ImVec4(.08f, .17f, .21f, 1));
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14, 8});
+        ImGui::BeginChild("counter", {half, 92}, ImGuiChildFlags_Borders);
+        ImGui::PushFont(ui.small);
+        ImGui::TextUnformatted(column ? "COINS" : "HANDS LEFT");
+        ImGui::PopFont();
+        ImGui::PushFont(ui.number);
+        ImGui::TextColored(column ? gold : blue, "%d", column ? state.coins : state.handsLeft);
+        ImGui::PopFont();
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+        ImGui::PopID();
+    }
+    if (height >= 820) {
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14, 8});
+        ImGui::BeginChild("hand-reward", {-1, 94}, ImGuiChildFlags_Borders);
+        ImGui::PushFont(ui.small);
+        ImGui::TextColored(muted, "HAND REWARD");
+        ImGui::PopFont();
+        ImGui::TextColored(green, "+%d points  /  +%d coins", state.score.total, state.score.coins);
+        ImGui::PushFont(ui.small);
+        ImGui::TextColored(muted, "(%d + %d)  x  %.1f", state.score.base, state.score.bonus, state.score.multiplier);
+        ImGui::PopFont();
+        ImGui::EndChild();
+        ImGui::PopStyleVar();
+    }
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "Run score: %d", state.totalScore);
+    ImGui::TextColored(muted, "%d more points needed", std::max(0, state.goal - state.roundScore));
+    ImGui::PopFont();
+
+    ImGui::SetCursorPosY(height - 32 - 108);
+    ImGui::BeginDisabled(commands.used || session.settings || session.rules || session.transitioning());
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {12, 4});
+    if (ImGui::Button("HOW TO PLAY", {-1, 36})) session.rules = true;
+    ImGui::PopStyleVar();
+    const float buttonWidth = (ImGui::GetContentRegionAvail().x - 8) * .5f;
+    ImGui::PushFont(ui.button);
+    if (ImGui::Button("MENU", {buttonWidth, 46})) session.menu = true;
+    ImGui::SameLine();
+    if (ImGui::Button("OPTIONS", {buttonWidth, 46})) session.settings = true;
+    ImGui::PopFont();
+    ImGui::EndDisabled();
+    ImGui::End();
+    ImGui::PopStyleVar(2);
+}
+
 void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
-    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 100}, display, IM_COL32(10, 4, 19, 165));
-    const float width = std::min(760.0f, display.x - 100);
-    const float height = std::min(630.0f, display.y - 124);
-    beginPanel("##shop", {(display.x - width) * 0.5f, std::max(100.0f, (display.y - height) * 0.5f)}, {width, height});
-    heading("THE JESTER'S WARES", ui);
-    ImGui::Text("Coins: %d     Relics: %d / 4", state.coins, static_cast<int>(state.owned.size()));
-    ImGui::TextColored(muted, "Two offers. Choose your next trick.");
-    const float offerY = ImGui::GetCursorPosY() + 5;
-    const float cardWidth = (width - 54) * 0.5f;
+    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, display, IM_COL32(8, 9, 18, 190));
+    const float width = std::min(900.0f, display.x - 64);
+    const float height = std::min(760.0f, display.y - 48);
+    beginPanel("##shop", {(display.x - width) * .5f, (display.y - height) * .5f}, {width, height});
+    heading("RELIC SHOP", ui);
+    ImGui::TextColored(gold, "%d coins", state.coins);
+    ImGui::SameLine();
+    ImGui::Text(" /  %d of 4 relic slots used", static_cast<int>(state.owned.size()));
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "Round cleared. Choose an upgrade or save your coins.");
+    ImGui::PopFont();
+    const float offerY = ImGui::GetCursorPosY() + 4;
+    const float cardWidth = (width - 54) * .5f;
+    const float offerHeight = height < 700 ? 216.0f : 240.0f;
     for (std::size_t i = 0; i < state.offers.size(); ++i) {
         const auto& item = relicInfo(state.offers[i]);
+        const auto accent = rarityColor(item.rarity);
         ImGui::PushID(static_cast<int>(item.id));
-        const float x = 20 + static_cast<float>(i) * (cardWidth + 14);
-        ImGui::SetCursorPos({x, offerY});
-        ImGui::BeginChild("offer", {cardWidth, 190}, ImGuiChildFlags_Borders);
-        ImGui::PushFont(ui.heading);
-        ImGui::TextColored(gold, "%s", item.name);
+        ImGui::SetCursorPos({20 + static_cast<float>(i) * (cardWidth + 14), offerY});
+        ImGui::PushStyleColor(ImGuiCol_Border, accent);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, {.105f, .12f, .15f, 1});
+        ImGui::BeginChild("offer", {cardWidth, offerHeight}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+        ImGui::PushFont(ui.button);
+        ImGui::TextColored(cream, "%s", item.name);
         ImGui::PopFont();
+        ImGui::PushFont(ui.small);
+        ImGui::TextColored(accent, "%s", bj::rarityName(item.rarity));
         ImGui::TextWrapped("%s", item.description);
-        ImGui::SetCursorPosY(123);
+        ImGui::PopFont();
+        ImGui::SetCursorPosY(offerHeight - 60);
         const bool owned = game.hasRelic(item.id);
         const bool purchased = game.boughtThisShop(item.id);
-        ImGui::BeginDisabled(commands.blocked || commands.used || owned ||
-            purchased || game.state().owned.size() >= 4 || game.state().coins < item.cost);
-        const std::string label = owned ? "PURCHASED" : purchased ? "SOLD" :
+        const bool full = game.state().owned.size() >= 4;
+        const bool affordable = game.state().coins >= item.cost;
+        const std::string label = owned ? "EQUIPPED" : purchased ? "SOLD THIS VISIT" : full ? "4 / 4 EQUIPPED" :
+            !affordable ? "NEED " + std::to_string(item.cost) + " COINS" :
             "BUY / " + std::to_string(item.cost) + " COINS";
-        if (ImGui::Button(label.c_str(), {-1, 43})) commands.apply([&]() { return game.buy(item.id); });
+        ImGui::PushFont(ui.button);
+        ImGui::BeginDisabled(commands.blocked || commands.used || owned || purchased || full || !affordable);
+        if (ImGui::Button(label.c_str(), {-1, 44})) commands.apply([&]() { return game.buy(item.id); });
         ImGui::EndDisabled();
+        ImGui::PopFont();
         ImGui::EndChild();
+        ImGui::PopStyleColor(2);
         ImGui::PopID();
     }
-    ImGui::SetCursorPos({20, offerY + 203});
+    ImGui::SetCursorPos({20, offerY + offerHeight + 13});
     ImGui::Separator();
-    ImGui::TextColored(muted, "YOUR RELICS   /   Sell for half the purchase price");
+    ImGui::TextUnformatted("YOUR RELICS");
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "Sell for half the purchase price. A sale frees one slot.");
+    ImGui::PopFont();
     const float inventoryY = ImGui::GetCursorPosY();
-    if (state.owned.empty()) ImGui::TextDisabled("Your pockets are empty. For now.");
+    if (state.owned.empty()) ImGui::TextDisabled("No relics equipped yet.");
     for (std::size_t i = 0; i < state.owned.size(); ++i) {
         const auto& item = relicInfo(state.owned[i]);
         ImGui::PushID(100 + static_cast<int>(item.id));
-        ImGui::SetCursorPos({20, inventoryY + static_cast<float>(i) * 32});
-        ImGui::TextColored(cream, "%s", item.name);
+        ImGui::SetCursorPos({20, inventoryY + static_cast<float>(i) * 38});
+        ImGui::TextColored(rarityColor(item.rarity), "%s", item.name);
+        if (ImGui::IsItemHovered()) relicTooltip(item, ui);
+        ImGui::SameLine(300);
+        ImGui::PushFont(ui.small);
+        ImGui::TextColored(rarityColor(item.rarity), "%s", bj::rarityName(item.rarity));
+        ImGui::PopFont();
         ImGui::SameLine(width - 190);
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {12, 2});
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {12, 3});
         ImGui::BeginDisabled(commands.blocked || commands.used);
         const std::string label = "SELL / " + std::to_string(item.cost / 2);
-        if (ImGui::Button(label.c_str(), {150, 28})) commands.apply([&]() { return game.sell(item.id); });
+        if (ImGui::Button(label.c_str(), {150, 31})) commands.apply([&]() { return game.sell(item.id); });
         ImGui::EndDisabled();
         ImGui::PopStyleVar();
         ImGui::PopID();
     }
-    ImGui::SetCursorPos({20, height - 60});
+    ImGui::SetCursorPos({20, height - 64});
+    ImGui::PushFont(ui.button);
     ImGui::BeginDisabled(commands.blocked || commands.used);
-    if (ImGui::Button("NEXT ROUND [SPACE]", {280, 44})) commands.apply([&]() { return game.leaveShop(); });
+    if (ImGui::Button("NEXT ROUND [SPACE]", {330, 46})) commands.apply([&]() { return game.leaveShop(); });
     ImGui::EndDisabled();
+    ImGui::PopFont();
     ImGui::End();
 }
 
-void drawTable(bj::Game& game, Commands& commands, Session& session, const Interface& ui) {
+void drawGameOver(bj::Game& game, Session& session, const Interface& ui, GLFWwindow* window) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
-    const float w = display.x, h = display.y;
-    const float side = w < 1250 ? 205.0f : 240.0f;
-    beginPanel("##header", {24, 12}, {w - 48, 86}, true);
-    ImGui::PushFont(ui.heading);
-    ImGui::TextColored(gold, "JESTER JACK");
+    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, display, IM_COL32(85, 8, 17, 170));
+    beginPanel("##end", {display.x * .5f - 310, display.y * .5f - 230}, {620, 460}, true);
+    ImGui::PushFont(ui.number);
+    ImGui::SetWindowFontScale(1.55f);
+    const float titleWidth = ImGui::CalcTextSize("GAME OVER").x;
+    ImGui::SetCursorPosX((620 - titleWidth) * .5f);
+    ImGui::TextColored(cream, "GAME OVER");
+    ImGui::SetWindowFontScale(1);
     ImGui::PopFont();
-    ImGui::SameLine(290);
-    ImGui::TextColored(muted, "THE FOOL'S TABLE");
-    ImGui::SetCursorPos({w - 360, 18});
-    ImGui::BeginDisabled(session.transitioning() || session.settings);
-    if (ImGui::Button("MENU")) session.menu = true;
-    ImGui::SameLine();
-    if (ImGui::Button("SETTINGS [F1]")) session.settings = true;
+    ImGui::SetCursorPos({45, 100});
+    ImGui::Text("Round %d ended at %d / %d points.", state.round, state.roundScore, state.goal);
+    ImGui::SetCursorPos({45, 133});
+    ImGui::TextColored(muted, "No hands left. Try a different build.");
+    ImGui::SetCursorPos({45, 170});
+    ImGui::TextColored(gold, "Run score: %d    Hand wins: %d", state.totalScore, state.wins);
+    ImGui::PushFont(ui.small);
+    ImGui::SetCursorPos({45, 202});
+    ImGui::TextColored(muted, "Seed %u", state.seed);
+    ImGui::PopFont();
+    ImGui::PushFont(ui.button);
+    ImGui::PushStyleColor(ImGuiCol_Button, {.23f, .24f, .26f, 1});
+    ImGui::BeginDisabled(session.settings || session.rules || session.transitioning());
+    ImGui::SetCursorPos({145, 244});
+    if (ImGui::Button("RETRY [SPACE]", {330, 50})) session.start(game);
+    ImGui::SetCursorPos({145, 306});
+    if (ImGui::Button("MAIN MENU", {330, 50})) session.menu = true;
+    ImGui::SetCursorPos({145, 368});
+    if (ImGui::Button("QUIT GAME", {330, 50})) glfwSetWindowShouldClose(window, GLFW_TRUE);
     ImGui::EndDisabled();
+    ImGui::PopStyleColor();
+    ImGui::PopFont();
     ImGui::End();
+}
 
+void drawTable(bj::Game& game, Commands& commands, Session& session, const Interface& ui, GLFWwindow* window) {
+    const auto state = game.state();
+    const auto display = ImGui::GetIO().DisplaySize;
+    const auto layout = tableLayout(display);
+    if (state.phase == bj::Phase::RunLost) {
+        drawGameOver(game, session, ui, window);
+        return;
+    }
     if (state.phase == bj::Phase::Shop) {
         drawShop(game, commands, ui);
         return;
     }
-    if (state.phase == bj::Phase::RunLost) {
-        beginPanel("##end", {w * 0.5f - 270, h * 0.5f - 170}, {540, 340});
-        heading("THE JOKE'S ON YOU", ui);
-        ImGui::TextWrapped("Out of hands. The round target was not reached.");
-        ImGui::Spacing();
-        ImGui::Text("Round %d: %d / %d points", state.round, state.roundScore, state.goal);
-        ImGui::Text("Total score: %d     Hand wins: %d", state.totalScore, state.wins);
-        ImGui::TextColored(muted, "Seed: %u", state.seed);
-        ImGui::Spacing();
-        ImGui::BeginDisabled(session.transitioning() || session.settings);
-        if (ImGui::Button("NEW RUN [SPACE]", {245, 44})) session.start(game);
-        ImGui::SameLine();
-        if (ImGui::Button("MENU", {160, 44})) session.menu = true;
-        ImGui::EndDisabled();
-        ImGui::End();
-        return;
-    }
-
-    beginPanel("##run", {24, 112}, {side, 330});
-    const std::string roundLabel = "ROUND " + std::to_string(state.round);
-    heading(roundLabel.c_str(), ui);
-    ImGui::SetWindowFontScale(1.6f);
-    ImGui::TextColored(gold, "%d / %d", state.roundScore, state.goal);
-    ImGui::SetWindowFontScale(1.0f);
-    ImGui::TextColored(muted, "ROUND POINTS");
-    ImGui::ProgressBar(std::min(1.0f, static_cast<float>(state.roundScore) / state.goal), {-1, 8}, "");
-    ImGui::Spacing();
-    ImGui::Text("Hands left     %d", state.handsLeft);
-    ImGui::TextColored(gold, "Coins           %d", state.coins);
-    ImGui::Text("Total score     %d", state.totalScore);
-    ImGui::End();
-
-    beginPanel("##guide", {24, 460}, {side, h - 484});
-    heading("THE RULES", ui);
-    ImGui::TextWrapped(h < 820 ? "Reach the target in five hands." :
-        "Get closer to 21 than the dealer. Aces count as 1 or 11.");
-    if (h >= 820) ImGui::TextWrapped("Score wins across five hands. Reach the round target to visit the shop.");
-    ImGui::TextColored(muted, "H: Hit   S: Stand");
-    ImGui::TextColored(muted, "Space  /  Continue");
-    ImGui::End();
-
-    beginPanel("##relics", {w - side - 24, 112}, {side, h - 148});
-    heading("YOUR RELICS", ui);
-    ImGui::TextColored(muted, "%d / 4 equipped", static_cast<int>(state.owned.size()));
-    if (state.owned.empty()) {
-        ImGui::Spacing();
-        ImGui::TextWrapped("A little luck. A little mischief. Visit the shop after a round.");
-    }
-    for (const auto id : state.owned) {
-        const auto& item = relicInfo(id);
-        ImGui::Spacing();
-        ImGui::TextColored(gold, "%s", item.name);
-        ImGui::TextWrapped("%s", item.description);
-        if (id == bj::Relic::SecondChance)
-            ImGui::TextColored(muted, "%s", state.usedSecondChance ? "Spent this round" : "One rescue ready");
-        ImGui::Separator();
-    }
-    ImGui::End();
-
-    const float centerWidth = w - 2 * side - 100;
-    beginPanel("##dealer", {side + 50, 110}, {centerWidth, 80}, true);
-    if (state.dealer.empty()) ImGui::TextColored(muted, "DEALER  /  Your seat is ready");
+    drawSidebar(state, layout, session, commands, ui, display.y);
+    drawRelicStrip(game, layout, ui);
+    beginPanel("##dealer", {layout.contentX + 18, layout.boardY + 8}, {layout.contentWidth - 36, 50}, true);
+    if (state.dealer.empty()) ImGui::TextColored(muted, "DEALER / Waiting for a hand");
     else if (state.phase == bj::Phase::PlayerTurn)
-        ImGui::Text("DEALER  /  %d + hidden card", bj::evaluateHand({state.dealer.front()}).total);
-    else ImGui::Text("DEALER  /  %d", bj::evaluateHand(state.dealer).total);
+        ImGui::Text("DEALER / %d + hidden card", bj::evaluateHand({state.dealer.front()}).total);
+    else ImGui::Text("DEALER / %d", bj::evaluateHand(state.dealer).total);
     ImGui::End();
 
-    beginPanel("##actions", {side + 50, h - 216}, {centerWidth, 192});
+    beginPanel("##actions", {layout.contentX, layout.actionY}, {layout.contentWidth, 138});
     const auto hand = bj::evaluateHand(state.player);
-    ImGui::TextColored(muted, "YOUR HAND");
-    ImGui::SameLine();
-    if (state.player.empty()) ImGui::TextUnformatted("--");
-    else ImGui::TextColored(hand.bust ? red : green, "%d%s", hand.total, hand.soft ? "  (soft)" : "");
+    ImGui::SetCursorPos({18, 10});
+    ImGui::PushFont(ui.button);
+    if (state.phase == bj::Phase::Ready) ImGui::TextColored(cream, "Ready for your next hand");
+    else if (state.phase == bj::Phase::RoundOver) {
+        const auto color = state.outcome == bj::Outcome::Win ? green : state.outcome == bj::Outcome::Loss ? red : gold;
+        ImGui::TextColored(color, "%s  /  +%d points  /  +%d coins",
+            state.outcome == bj::Outcome::Win ? "YOU WIN" : state.outcome == bj::Outcome::Loss ? "HOUSE WINS" : "PUSH",
+            state.score.total, state.score.coins);
+    } else ImGui::TextColored(hand.bust ? red : cream, "YOUR HAND: %d%s", hand.total, hand.soft ? " (soft)" : "");
+    ImGui::PopFont();
+    ImGui::SetCursorPos({18, 50});
+    ImGui::PushFont(ui.button);
     ImGui::BeginDisabled(commands.blocked || commands.used);
     if (state.phase == bj::Phase::PlayerTurn) {
-        if (ImGui::Button("HIT [H]", {145, 44})) commands.apply([&]() { return game.hit(); });
+        ImGui::PushStyleColor(ImGuiCol_Button, {.08f, .35f, .30f, 1});
+        if (ImGui::Button("HIT [H]", {152, 52})) commands.apply([&]() { return game.hit(); });
+        ImGui::PopStyleColor();
         ImGui::SameLine();
-        if (ImGui::Button("STAND [S]", {145, 44})) commands.apply([&]() { return game.stand(); });
+        ImGui::PushStyleColor(ImGuiCol_Button, {.43f, .22f, .10f, 1});
+        if (ImGui::Button("STAND [SPACE]", {220, 52})) commands.apply([&]() { return game.stand(); });
+        ImGui::PopStyleColor();
     } else if (state.phase == bj::Phase::Ready) {
-        if (ImGui::Button("DEAL HAND [SPACE]", {245, 44})) commands.apply([&]() { return game.deal(); });
+        if (ImGui::Button("DEAL HAND [SPACE]", {280, 52})) commands.apply([&]() { return game.deal(); });
     } else if (state.phase == bj::Phase::RoundOver) {
-        const ImVec4 color = state.outcome == bj::Outcome::Win ? green :
-            (state.outcome == bj::Outcome::Loss ? red : gold);
-        ImGui::TextColored(color, "%s  /  +%d points  /  +%d coins", state.outcome == bj::Outcome::Win ? "YOU WIN" :
-            (state.outcome == bj::Outcome::Loss ? "HOUSE WINS" : "PUSH"), state.score.total, state.score.coins);
-        const char* next = state.roundScore >= state.goal ? "VISIT SHOP [SPACE]" :
-            state.handsLeft == 0 ? "END RUN [SPACE]" : "NEXT HAND [SPACE]";
-        if (ImGui::Button(next, {245, 40}))
+        if (ImGui::Button(state.roundScore >= state.goal ? "SHOP [SPACE]" : "CONTINUE [SPACE]", {280, 52}))
             commands.apply([&]() { return game.advance(); });
     }
     ImGui::EndDisabled();
-    if (state.phase != bj::Phase::Shop) ImGui::TextWrapped("%s", state.message.c_str());
+    ImGui::PopFont();
+    ImGui::SetCursorPos({18, 110});
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "%s", state.phase == bj::Phase::PlayerTurn ? "H draws a card. Space or S lets the dealer play." :
+        state.phase == bj::Phase::Ready ? "Every deal uses one of the round's five hands." :
+        state.roundScore >= state.goal ? "Target reached. Your next stop is the relic shop." :
+        "This hand is finished. Keep scoring toward the round target.");
+    ImGui::PopFont();
     ImGui::End();
-
 }
 
+void drawRules(Session& session, const Interface& ui) {
+    if (!session.rules) return;
+    const auto display = ImGui::GetIO().DisplaySize;
+    ImGui::SetNextWindowPos({display.x * .5f - 310, display.y * .5f - 270});
+    ImGui::SetNextWindowSize({620, 540});
+    ImGui::SetNextWindowFocus();
+    if (ImGui::Begin("HOW TO PLAY", &session.rules, ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize |
+        ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse)) {
+        heading("THE FOOL'S TABLE", ui);
+        ImGui::TextWrapped("Each round gives you five hands to reach the points target.");
+        ImGui::BulletText("Beat the dealer without going over 21.");
+        ImGui::BulletText("Aces count as 1 or 11. Dealer stands on 17.");
+        ImGui::TextWrapped("A win earns the hand total in points and 3 coins, plus relic bonuses. A natural blackjack adds 10 points.");
+        ImGui::TextWrapped("A loss or push earns no points and uses a hand. Reach the target to shop. Run out of hands below the target and the run ends.");
+        ImGui::TextWrapped("Equip up to 4 relics. Hover one to read its effect. Shop sales return half its price.");
+        if (ImGui::Button("GOT IT", {160, 44})) session.rules = false;
+    }
+    ImGui::End();
+}
 void drawSettings(Session& session, gfx::RenderSettings& settings, const Interface& ui) {
     if (!session.settings) return;
     const auto display = ImGui::GetIO().DisplaySize;
@@ -555,6 +787,10 @@ gfx::Scene makeScene(const bj::Snapshot& state, float time, bool menu) {
     scene.menu = menu;
     scene.time = time;
     scene.coins = state.coins;
+    const auto display = ImGui::GetIO().DisplaySize;
+    const auto layout = tableLayout(display);
+    scene.tableViewport = {layout.contentX / display.x, layout.boardY / display.y,
+        layout.contentWidth / display.x, layout.boardHeight / display.y};
     for (const auto& card : state.player)
         scene.player.push_back({card.rank, static_cast<int>(card.suit), false});
     for (std::size_t i = 0; i < state.dealer.size(); ++i) {
@@ -611,13 +847,20 @@ int main(int argc, char** argv) {
             game.deal();
         }
         int frame = 0;
+        int fullShopResizeFrame = -1;
         double previousTime = glfwGetTime();
         std::set<std::string> captured;
         while (!glfwWindowShouldClose(window.handle)) {
             glfwPollEvents();
             if (options.smoke) {
-                if (frame == 0 || frame == 100 || frame == 395) glfwSetWindowSize(window.handle, 1100, 720);
-                if (frame == 8 || frame == 160 || frame == 445) glfwSetWindowSize(window.handle, 1440, 900);
+                if (frame == 0 || frame == 100) glfwSetWindowSize(window.handle, 1100, 720);
+                if (frame == 8 || frame == 160) glfwSetWindowSize(window.handle, 1440, 900);
+                if (fullShopResizeFrame < 0 && game.state().phase == bj::Phase::Shop && game.state().owned.size() == 4)
+                    fullShopResizeFrame = frame;
+                if (frame == fullShopResizeFrame && fullShopResizeFrame >= 0)
+                    glfwSetWindowSize(window.handle, 1100, 720);
+                if (fullShopResizeFrame >= 0 && frame == fullShopResizeFrame + 20)
+                    glfwSetWindowSize(window.handle, 1440, 900);
             }
             const double now = glfwGetTime();
             const float dt = options.hidden && options.frames > 0 ? 1.0f / 60.0f :
@@ -641,26 +884,57 @@ int main(int argc, char** argv) {
                     io.AddMousePosEvent(layout.origin.x + layout.width * 0.5f, layout.origin.y + layout.height * 0.5f);
                     io.AddMouseButtonEvent(0, frame == 10);
                 }
+                if (!options.demo && options.seed == 42 && !options.noAnimation) {
+                    if (frame == 67 || frame == 68) {
+                        const auto center = dealButtonCenter(tableLayout(io.DisplaySize));
+                        io.AddMousePosEvent(center.x, center.y);
+                        io.AddMouseButtonEvent(0, frame == 67);
+                    }
+                    if (frame == 70 || frame == 90) io.AddKeyEvent(ImGuiKey_Space, true);
+                    if (frame == 71 || frame == 91) io.AddKeyEvent(ImGuiKey_Space, false);
+                    if (frame == 73 || frame == 74) {
+                        const auto layout = tableLayout(io.DisplaySize);
+                        io.AddMousePosEvent(layout.sidebar * .5f + 8, io.DisplaySize.y - 106);
+                        io.AddMouseButtonEvent(0, frame == 73);
+                    }
+                    if (frame == 76) io.AddKeyEvent(ImGuiKey_Escape, true);
+                    if (frame == 77) io.AddKeyEvent(ImGuiKey_Escape, false);
+                    if (frame == 83 || frame == 84) {
+                        const auto layout = tableLayout(io.DisplaySize);
+                        io.AddMousePosEvent(layout.sidebar - 90, io.DisplaySize.y - 58);
+                        io.AddMouseButtonEvent(0, frame == 83);
+                    }
+                    if (frame == 86) io.AddKeyEvent(ImGuiKey_F1, true);
+                    if (frame == 87) io.AddKeyEvent(ImGuiKey_F1, false);
+                }
             }
             ImGui::NewFrame();
-            Commands commands{session.menu || session.settings || session.transitioning()};
+            Commands commands{session.menu || session.settings || session.rules || session.transitioning()};
             if (ImGui::IsKeyPressed(ImGuiKey_Escape, false)) {
-                if (session.settings) session.settings = false;
+                if (session.rules) session.rules = false;
+                else if (session.settings) session.settings = false;
                 else if (!session.transitioning()) session.menu = true;
             }
-            if (ImGui::IsKeyPressed(ImGuiKey_F1, false) && !session.transitioning())
+            if (ImGui::IsKeyPressed(ImGuiKey_F1, false) && !session.transitioning()) {
+                session.rules = false;
                 session.settings = !session.settings;
-            commands.blocked = session.menu || session.settings || session.transitioning();
-            if (!ImGui::GetIO().WantTextInput && !session.settings && !session.transitioning()) {
+            }
+            commands.blocked = session.menu || session.settings || session.rules || session.transitioning();
+            if (!ImGui::GetIO().WantTextInput && !session.settings && !session.rules && !session.transitioning()) {
                 if (ImGui::IsKeyPressed(ImGuiKey_H, false)) commands.apply([&]() { return game.hit(); });
                 if (ImGui::IsKeyPressed(ImGuiKey_S, false)) commands.apply([&]() { return game.stand(); });
-                if (ImGui::IsKeyPressed(ImGuiKey_Space, false) && !ImGui::GetIO().WantCaptureKeyboard) {
-                    if (session.menu || game.state().phase == bj::Phase::RunLost) session.start(game);
+                // Space belongs to the primary game action, including when a button has focus.
+                // Enter remains available for activating a focused UI control.
+                if (ImGui::IsKeyPressed(ImGuiKey_Space, false) && !commands.used) {
+                    if (session.menu || game.state().phase == bj::Phase::RunLost) {
+                        session.start(game);
+                        commands.used = true;
+                    }
                     else primaryAction(game, commands);
                 }
             }
             // The smoke path traverses the real menu/fade and the game commands.
-            if (options.autoplay && frame > 0 && frame % 10 == 0 && !session.transitioning() && !session.settings) {
+            if (options.autoplay && frame > 0 && frame % 10 == 0 && !session.transitioning() && !session.settings && !session.rules) {
                 if ((session.menu && !options.smoke) || game.state().phase == bj::Phase::RunLost) session.start(game);
                 else autoplayStep(game, commands);
                 std::cout << "Frame " << frame << ": round=" << game.state().round
@@ -670,11 +944,19 @@ int main(int argc, char** argv) {
                     << " coins=" << game.state().coins << " seed=" << game.state().seed << '\n';
             }
             if (session.menu) drawMenu(game, session, interface, window.handle);
-            else drawTable(game, commands, session, interface);
+            else drawTable(game, commands, session, interface, window.handle);
             drawSettings(session, settings, interface);
+            drawRules(session, interface);
             if (options.smoke && ((frame == 2 && !session.settings) || (frame == 8 && session.settings) ||
                 (!options.demo && frame == 12 && (options.noAnimation ? session.menu : !session.transitioning()))))
                 throw std::runtime_error("Smoke input failed: Settings/Start did not respond.");
+            if (options.smoke && !options.demo && options.seed == 42 && !options.noAnimation &&
+                ((frame == 69 && (game.state().handsLeft != 4 || game.state().phase != bj::Phase::PlayerTurn)) ||
+                 (frame == 71 && game.state().phase != bj::Phase::RoundOver) ||
+                 (frame == 75 && !session.rules) || (frame == 78 && session.rules) ||
+                 (frame == 85 && !session.settings) || (frame == 88 && session.settings) ||
+                 (frame == 91 && (game.state().handsLeft != 3 || session.settings || session.rules || session.menu))))
+                throw std::runtime_error("Smoke input failed: Space did not deal/stand after a mouse click.");
             const float sceneTime = options.hidden && options.frames > 0 ? frame / 60.0f : static_cast<float>(now);
             renderer.render(makeScene(game.state(), sceneTime, session.menu), settings, width, height);
             if (session.transitioning()) ImGui::GetForegroundDrawList()->AddRectFilled(
@@ -684,7 +966,7 @@ int main(int argc, char** argv) {
             const GLenum error = glGetError();
             if (error != GL_NO_ERROR) throw std::runtime_error("OpenGL error: " + std::to_string(error));
             if (!options.captures.empty() && !session.transitioning() && !commands.used) {
-                const std::string name = session.settings ? "settings" : session.menu ? "menu" :
+                const std::string name = session.rules ? "rules" : session.settings ? "settings" : session.menu ? "menu" :
                     game.state().phase == bj::Phase::Shop ? (game.state().owned.size() == 4 ? "shop-full" : "shop") :
                     game.state().phase == bj::Phase::RunLost ? "end" :
                     game.state().phase == bj::Phase::RoundOver && game.state().roundScore >= game.state().goal ? "round-clear" :

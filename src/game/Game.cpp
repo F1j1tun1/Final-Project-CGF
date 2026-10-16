@@ -1,6 +1,8 @@
 #include "Game.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 
@@ -61,20 +63,42 @@ HandValue evaluateHand(const std::vector<Card>& hand) {
     return value;
 }
 
+const char* rarityName(Rarity rarity) {
+    switch (rarity) {
+    case Rarity::Common: return "Common";
+    case Rarity::Uncommon: return "Uncommon";
+    case Rarity::Rare: return "Rare";
+    case Rarity::Epic: return "Epic";
+    case Rarity::Legendary: return "Legendary";
+    }
+    return "Unknown";
+}
+
+int rarityWeight(Rarity rarity) {
+    switch (rarity) {
+    case Rarity::Common: return 50;
+    case Rarity::Uncommon: return 28;
+    case Rarity::Rare: return 14;
+    case Rarity::Epic: return 6;
+    case Rarity::Legendary: return 2;
+    }
+    return 0;
+}
+
 const std::vector<RelicInfo>& relicCatalog() {
     static const std::vector<RelicInfo> catalog = {
-        {Relic::Precision, "Precision", "Win with 21 for +1 coin.", 6},
-        {Relic::LongHand, "Long Hand", "Win with 4+ cards for +1 coin.", 6},
-        {Relic::SecondChance, "Second Chance", "Discard your first bust card. Once per round.", 8},
-        {Relic::Streak, "Streak", "Every third consecutive win earns +1 coin.", 6},
-        {Relic::RoyalPurse, "Royal Purse", "Win with a natural blackjack for +1 coin.", 2},
-        {Relic::SoftTouch, "Soft Touch", "Win with a soft hand for +1 coin.", 2},
-        {Relic::NarrowEscape, "Narrow Escape", "Win when the dealer busts for +1 coin.", 4},
-        {Relic::RedRibbon, "Red Ribbon", "Win with two red opening cards for +1 coin.", 4},
-        {Relic::BlackVelvet, "Black Velvet", "Win with two black opening cards for +1 coin.", 4},
-        {Relic::EvenOdds, "Even Odds", "Win with an even hand total for +1 coin.", 4},
-        {Relic::CourtFavor, "Court Favor", "Win with at least one J, Q or K for +3 points.", 2},
-        {Relic::HumbleCrown, "Humble Crown", "Win with 18 or less for +5 points.", 2}
+        {Relic::Precision, "Precision", "Win with 21 for +1 coin and +5 points.", 6, Rarity::Rare},
+        {Relic::LongHand, "Long Hand", "Win with 4+ cards for +1 coin and +8 points.", 6, Rarity::Rare},
+        {Relic::SecondChance, "Second Chance", "Discard your first bust card. Once per round.", 10, Rarity::Legendary},
+        {Relic::Streak, "Streak", "+0.1x per earlier consecutive win (max 1.4x). Every third win earns +1 coin.", 8, Rarity::Epic},
+        {Relic::RoyalPurse, "Royal Purse", "Win with a natural blackjack for +1 coin.", 2, Rarity::Common},
+        {Relic::SoftTouch, "Soft Touch", "Win with a soft hand for +1 coin.", 2, Rarity::Common},
+        {Relic::NarrowEscape, "Narrow Escape", "Win when the dealer busts for +1 coin and +3 points.", 6, Rarity::Rare},
+        {Relic::RedRibbon, "Red Ribbon", "Win with two red opening cards for +1 coin.", 4, Rarity::Uncommon},
+        {Relic::BlackVelvet, "Black Velvet", "Win with two black opening cards for +1 coin.", 4, Rarity::Uncommon},
+        {Relic::EvenOdds, "Even Odds", "Win with an even hand total for +1 coin.", 4, Rarity::Uncommon},
+        {Relic::CourtFavor, "Court Favor", "Win with at least one J, Q or K for +3 points.", 2, Rarity::Common},
+        {Relic::HumbleCrown, "Humble Crown", "Win with 18 or less for +5 points.", 2, Rarity::Common}
     };
     return catalog;
 }
@@ -209,12 +233,14 @@ void Game::finishRound() {
         state_.score.coins = kWinCoins;
         if (hasRelic(Relic::LongHand) && state_.player.size() >= 4) {
             ++state_.score.coins;
+            state_.score.bonus += 8;
         }
         if (hasRelic(Relic::Streak) && (state_.streak + 1) % 3 == 0) {
             ++state_.score.coins;
         }
         if (hasRelic(Relic::Precision) && player.total == 21) {
             ++state_.score.coins;
+            state_.score.bonus += 5;
         }
         if (hasRelic(Relic::RoyalPurse) && player.blackjack) {
             ++state_.score.coins;
@@ -224,6 +250,7 @@ void Game::finishRound() {
         }
         if (hasRelic(Relic::NarrowEscape) && dealer.bust) {
             ++state_.score.coins;
+            state_.score.bonus += 3;
         }
         const bool firstRed = isRed(state_.player[0]);
         const bool secondRed = isRed(state_.player[1]);
@@ -244,7 +271,11 @@ void Game::finishRound() {
         if (hasRelic(Relic::HumbleCrown) && player.total <= 18) {
             state_.score.bonus += 5;
         }
-        state_.score.total = state_.score.base + state_.score.bonus;
+        if (hasRelic(Relic::Streak)) {
+            state_.score.multiplier += .1f * static_cast<float>(std::min(state_.streak, 4));
+        }
+        state_.score.total = static_cast<int>(std::lround(
+            static_cast<float>(state_.score.base + state_.score.bonus) * state_.score.multiplier));
         state_.roundScore += state_.score.total;
         state_.totalScore += state_.score.total;
         state_.coins += state_.score.coins;
@@ -257,7 +288,10 @@ void Game::finishRound() {
     } else {
         state_.message = "Push. No reward; your streak stays alive.";
     }
-    state_.phase = Phase::RoundOver;
+    state_.phase = state_.handsLeft == 0 && state_.roundScore < state_.goal ? Phase::RunLost : Phase::RoundOver;
+    if (state_.phase == Phase::RunLost) {
+        state_.message = "Out of hands before the goal. Start again and try another build.";
+    }
 }
 
 bool Game::advance() {
@@ -308,24 +342,49 @@ bool Game::sell(Relic relic) {
 }
 
 void Game::openShop() {
-    std::vector<Relic> candidates;
-    std::vector<Relic> repeats;
-    for (const auto& item : relicCatalog()) {
-        if (hasRelic(item.id)) {
-            continue;
+    constexpr std::array<Rarity, 5> rarities{
+        Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic, Rarity::Legendary
+    };
+    state_.offers.clear();
+    for (int slot = 0; slot < 2; ++slot) {
+        std::array<std::vector<Relic>, 5> eligible;
+        std::array<std::vector<Relic>, 5> fresh;
+        for (const auto& item : relicCatalog()) {
+            if (hasRelic(item.id) || std::find(state_.offers.begin(), state_.offers.end(), item.id) != state_.offers.end()) {
+                continue;
+            }
+            const auto tier = static_cast<std::size_t>(item.rarity);
+            eligible[tier].push_back(item.id);
+            if (std::find(previousOffers_.begin(), previousOffers_.end(), item.id) == previousOffers_.end()) {
+                fresh[tier].push_back(item.id);
+            }
         }
-        const bool previous = std::find(previousOffers_.begin(), previousOffers_.end(), item.id) != previousOffers_.end();
-        (previous ? repeats : candidates).push_back(item.id);
+        int totalWeight = 0;
+        for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
+            if (!eligible[tier].empty()) {
+                totalWeight += rarityWeight(rarities[tier]);
+            }
+        }
+        if (totalWeight == 0) {
+            break;
+        }
+        int roll = static_cast<int>(boundedRandom(shopRandom_, static_cast<std::uint32_t>(totalWeight)));
+        for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
+            if (eligible[tier].empty()) {
+                continue;
+            }
+            const int weight = rarityWeight(rarities[tier]);
+            if (roll < weight) {
+                // Prefer a fresh item inside the chosen rarity. An earlier offer may
+                // repeat when necessary, so anti-repeat never removes an available tier.
+                const auto& pool = fresh[tier].empty() ? eligible[tier] : fresh[tier];
+                const auto index = boundedRandom(shopRandom_, static_cast<std::uint32_t>(pool.size()));
+                state_.offers.push_back(pool[index]);
+                break;
+            }
+            roll -= weight;
+        }
     }
-    // Prefer fresh offers. Reuse an earlier offer only if the eligible pool is too small.
-    if (candidates.size() < 2) {
-        candidates.insert(candidates.end(), repeats.begin(), repeats.end());
-    }
-    for (std::size_t i = candidates.size(); i > 1; --i) {
-        const auto j = boundedRandom(shopRandom_, static_cast<std::uint32_t>(i));
-        std::swap(candidates[i - 1], candidates[j]);
-    }
-    state_.offers.assign(candidates.begin(), candidates.begin() + std::min<std::size_t>(2, candidates.size()));
     previousOffers_ = state_.offers;
     boughtThisShop_.clear();
     state_.phase = Phase::Shop;

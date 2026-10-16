@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
@@ -51,6 +52,11 @@ bool sameState(const bj::Snapshot& a, const bj::Snapshot& b) {
 
 bool contains(const std::vector<bj::Relic>& relics, bj::Relic relic) {
     return std::find(relics.begin(), relics.end(), relic) != relics.end();
+}
+
+bj::Rarity rarityOf(bj::Relic relic) {
+    const auto& catalog = bj::relicCatalog();
+    return std::find_if(catalog.begin(), catalog.end(), [relic](const bj::RelicInfo& item) { return item.id == relic; })->rarity;
 }
 
 void checkBlockedActions(bj::Game& game) {
@@ -123,11 +129,11 @@ int resultRank(const bj::Snapshot& state) {
 // Explore legal continuations on copies to exercise later shops and upgrades.
 // This is only a test search policy, not the strategy shipped in the game.
 bj::Game finishBest(bj::Game game) {
-    if (game.state().phase == bj::Phase::RoundOver) return game;
+    if (game.state().phase == bj::Phase::RoundOver || game.state().phase == bj::Phase::RunLost) return game;
     bj::Game best = game;
     int bestRank = -1;
     for (int action = 0; action < 52; ++action) {
-        if (game.state().phase == bj::Phase::RoundOver) {
+        if (game.state().phase == bj::Phase::RoundOver || game.state().phase == bj::Phase::RunLost) {
             if (resultRank(game.state()) > bestRank) best = game;
             break;
         }
@@ -218,11 +224,99 @@ void testUnbiasedOpeningDistribution() {
               << dealerNaturals << '/' << samples << " (" << dealerFrequency * 100.0 << "%)\n";
 }
 
+void testRarityDistribution() {
+    constexpr std::array<bj::Rarity, 5> rarities{
+        bj::Rarity::Common, bj::Rarity::Uncommon, bj::Rarity::Rare, bj::Rarity::Epic, bj::Rarity::Legendary
+    };
+    constexpr std::array<int, 5> weights{50, 28, 14, 6, 2};
+    constexpr std::array<const char*, 5> names{"Common", "Uncommon", "Rare", "Epic", "Legendary"};
+    constexpr std::array<int, 5> tierSizes{4, 3, 3, 1, 1};
+    constexpr std::array<bj::Rarity, 12> assignments{
+        bj::Rarity::Rare, bj::Rarity::Rare, bj::Rarity::Legendary, bj::Rarity::Epic,
+        bj::Rarity::Common, bj::Rarity::Common, bj::Rarity::Rare, bj::Rarity::Uncommon,
+        bj::Rarity::Uncommon, bj::Rarity::Uncommon, bj::Rarity::Common, bj::Rarity::Common
+    };
+    constexpr std::array<int, 12> costs{6, 6, 10, 8, 2, 2, 6, 4, 4, 4, 2, 2};
+    for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
+        check(bj::rarityWeight(rarities[tier]) == weights[tier] && std::string(bj::rarityName(rarities[tier])) == names[tier],
+            "rarity metadata exposes the documented names and base weights");
+    }
+    check(bj::rarityWeight(static_cast<bj::Rarity>(99)) == 0
+        && std::string(bj::rarityName(static_cast<bj::Rarity>(99))) == "Unknown", "unknown rarity metadata is harmless");
+    for (const auto& item : bj::relicCatalog()) {
+        const auto index = static_cast<std::size_t>(item.id);
+        check(item.rarity == assignments[index] && item.cost == costs[index], "each upgrade has its agreed rarity and purchase price");
+    }
+
+    int shops = 0;
+    std::array<int, 5> firstCounts{};
+    std::array<int, 12> itemCounts{};
+    std::array<std::array<int, 5>, 5> secondCounts{};
+    for (std::uint32_t seed = 0; seed < 40000; ++seed) {
+        bj::Game game(seed);
+        for (int attempt = 0; attempt < 5 && game.state().phase == bj::Phase::Ready; ++attempt) {
+            game.deal();
+            game = finishBest(game);
+            if (game.state().phase == bj::Phase::RunLost) break;
+            game.advance();
+            if (game.state().phase != bj::Phase::Shop) continue;
+            const auto& offers = game.state().offers;
+            check(offers.size() == 2 && offers[0] != offers[1], "weighted first shops contain two distinct choices");
+            if (offers.size() != 2) break;
+            const auto first = static_cast<std::size_t>(rarityOf(offers[0]));
+            const auto second = static_cast<std::size_t>(rarityOf(offers[1]));
+            ++firstCounts[first];
+            ++itemCounts[static_cast<std::size_t>(offers[0])];
+            ++secondCounts[first][second];
+            ++shops;
+        }
+    }
+    check(shops > 25000, "distribution test reaches enough first shops through legal play");
+    for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
+        const double probability = static_cast<double>(weights[tier]) / 100.0;
+        const double expected = shops * probability;
+        const double tolerance = 6.0 * std::sqrt(shops * probability * (1.0 - probability)) + 10.0;
+        check(std::abs(firstCounts[tier] - expected) < tolerance,
+            std::string(names[tier]) + " first-slot frequency follows its tier weight, independent of tier size");
+
+        // The first choice removes Epic or Legendary's singleton from slot two.
+        // Other tiers retain their base weight because they still contain eligible items.
+        const int remainingWeight = 100 - (tierSizes[tier] == 1 ? weights[tier] : 0);
+        for (std::size_t second = 0; second < rarities.size(); ++second) {
+            const bool unavailable = second == tier && tierSizes[tier] == 1;
+            if (unavailable) {
+                check(secondCounts[tier][second] == 0, "second slot never duplicates a singleton Epic or Legendary choice");
+                continue;
+            }
+            const double conditional = static_cast<double>(weights[second]) / remainingWeight;
+            const double conditionalExpected = firstCounts[tier] * conditional;
+            const double conditionalTolerance = 6.0 * std::sqrt(firstCounts[tier] * conditional * (1.0 - conditional)) + 10.0;
+            check(std::abs(secondCounts[tier][second] - conditionalExpected) < conditionalTolerance,
+                "slot two renormalizes rarity weights only when a tier has no eligible item left");
+        }
+    }
+    for (const auto& item : bj::relicCatalog()) {
+        const auto tier = static_cast<std::size_t>(item.rarity);
+        const double probability = static_cast<double>(weights[tier]) / (100.0 * tierSizes[tier]);
+        const double expected = shops * probability;
+        const double tolerance = 6.0 * std::sqrt(shops * probability * (1.0 - probability)) + 10.0;
+        check(std::abs(itemCounts[static_cast<std::size_t>(item.id)] - expected) < tolerance,
+            std::string(item.name) + " is uniform among the fresh items inside its selected rarity");
+    }
+    std::cout << "First-shop rarity samples: " << shops;
+    for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
+        std::cout << "; " << names[tier] << ' ' << firstCounts[tier] << " ("
+                  << std::fixed << std::setprecision(3) << 100.0 * firstCounts[tier] / shops << "%)";
+    }
+    std::cout << '\n';
+}
+
 struct Coverage {
     int wins = 0, pushes = 0, losses = 0, soft17 = 0, longRuns = 0;
     int clearedRounds = 0, failedRounds = 0, lastHandClears = 0, earlyClears = 0;
     int lossContinues = 0, pushContinues = 0, winContinues = 0, lastHandWinFails = 0;
     int cappedGoals = 0, shieldResets = 0, maxRound = 1;
+    int streakBoosts = 0, streakCaps = 0;
     int purchases = 0, sales = 0, reoffers = 0, fullBuilds = 0, cardStreams = 0;
     int shields = 0, spentShields = 0, persistentShields = 0;
     std::array<int, 12> active{};
@@ -249,33 +343,41 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
     for (auto relic : before.owned) {
         bool active = false;
         int bonus = 0;
+        int coinBonus = 1;
         switch (relic) {
-        case bj::Relic::Precision: active = player.total == 21; break;
-        case bj::Relic::LongHand: active = result.player.size() >= 4; break;
+        case bj::Relic::Precision: active = player.total == 21; bonus = 5; break;
+        case bj::Relic::LongHand: active = result.player.size() >= 4; bonus = 8; break;
         case bj::Relic::Streak: active = (before.streak + 1) % 3 == 0; break;
         case bj::Relic::RoyalPurse: active = player.blackjack; break;
         case bj::Relic::SoftTouch: active = player.soft; break;
-        case bj::Relic::NarrowEscape: active = dealer.bust; break;
+        case bj::Relic::NarrowEscape: active = dealer.bust; bonus = 3; break;
         case bj::Relic::RedRibbon: active = red(result.player[0]) && red(result.player[1]); break;
         case bj::Relic::BlackVelvet: active = !red(result.player[0]) && !red(result.player[1]); break;
         case bj::Relic::EvenOdds: active = player.total % 2 == 0; break;
         case bj::Relic::CourtFavor:
             active = std::any_of(result.player.begin(), result.player.end(), [](const bj::Card& card) { return card.rank > 10; });
             bonus = 3;
+            coinBonus = 0;
             break;
-        case bj::Relic::HumbleCrown: active = player.total <= 18; bonus = 5; break;
+        case bj::Relic::HumbleCrown: active = player.total <= 18; bonus = 5; coinBonus = 0; break;
         case bj::Relic::SecondChance: continue;
         }
         const auto index = static_cast<std::size_t>(relic);
         ++(active ? coverage.active[index] : coverage.inactive[index]);
         if (active) {
-            expectedCoins += bonus == 0 ? 1 : 0;
+            expectedCoins += coinBonus;
             expectedBonus += bonus;
         }
     }
+    const std::array<float, 5> streakMultipliers{1.0f, 1.1f, 1.2f, 1.3f, 1.4f};
+    const float expectedMultiplier = contains(before.owned, bj::Relic::Streak)
+        ? streakMultipliers[static_cast<std::size_t>(std::min(before.streak, 4))] : 1.0f;
+    coverage.streakBoosts += expectedMultiplier > 1.0f ? 1 : 0;
+    coverage.streakCaps += contains(before.owned, bj::Relic::Streak) && before.streak > 4 ? 1 : 0;
+    const int expectedTotal = static_cast<int>(std::lround(static_cast<float>(player.total + expectedBonus) * expectedMultiplier));
     check(result.score.base == player.total && result.score.bonus == expectedBonus
-        && result.score.total == player.total + expectedBonus && result.score.multiplier == 1.0f,
-        "points match the natural and conditional score upgrades");
+        && result.score.total == expectedTotal && std::abs(result.score.multiplier - expectedMultiplier) < 0.00001f,
+        "points combine natural and relic bonuses before applying the capped streak multiplier");
     check(result.score.coins == expectedCoins && result.coins == before.coins + expectedCoins,
         "win income is three coins plus eligible modest bonuses");
     check(result.totalScore == before.totalScore + result.score.total && result.roundScore == before.roundScore + result.score.total
@@ -294,7 +396,7 @@ void probeShield(bj::Game game, Coverage& coverage) {
             check(game.state().phase == bj::Phase::PlayerTurn && game.state().coins == before.coins
                 && game.state().totalScore == before.totalScore, "shield rescue does not award a win");
         }
-        if (before.usedSecondChance && game.state().phase == bj::Phase::RoundOver
+        if (before.usedSecondChance && (game.state().phase == bj::Phase::RoundOver || game.state().phase == bj::Phase::RunLost)
             && bj::evaluateHand(game.state().player).bust) {
             ++coverage.spentShields;
             check(game.state().outcome == bj::Outcome::Loss, "spent shield cannot rescue another bust");
@@ -307,7 +409,7 @@ void testSeededRunsAndShop() {
     const auto& catalog = bj::relicCatalog();
     check(catalog.size() == 12, "catalogue has twelve choices");
     for (const auto& item : catalog) {
-        check(item.cost > 0 && item.cost <= 8 && item.cost % 2 == 0
+        check(item.cost > 0 && item.cost <= 10 && item.cost % 2 == 0
             && item.name[0] != '\0' && item.description[0] != '\0', "bounded even prices and descriptive text");
         check(std::count_if(catalog.begin(), catalog.end(), [&](const bj::RelicInfo& other) { return item.id == other.id; }) == 1,
             "unique catalogue identifiers");
@@ -330,7 +432,8 @@ void testSeededRunsAndShop() {
             probeShield(game, coverage);
             game = finishBest(game);
             const auto result = game.state();
-            check(result.phase == bj::Phase::RoundOver && result.outcome == expectedOutcome(result), "hand resolves by blackjack comparison");
+            check((result.phase == bj::Phase::RoundOver || result.phase == bj::Phase::RunLost)
+                && result.outcome == expectedOutcome(result), "hand resolves by blackjack comparison");
             const auto player = bj::evaluateHand(result.player);
             const auto dealer = bj::evaluateHand(result.dealer);
             bool seen[52] = {};
@@ -358,20 +461,21 @@ void testSeededRunsAndShop() {
             coverage.maxRound = std::max(coverage.maxRound, result.round);
             coverage.cappedGoals += result.round >= 8 && result.goal == 100 ? 1 : 0;
             checkBlockedActions(game);
-            check(game.advance(), "advance succeeds after a finished hand");
-            check(game.state().coins == result.coins && game.state().totalScore == result.totalScore
-                && game.state().roundScore == result.roundScore && game.state().handsLeft == result.handsLeft,
-                "advance never repeats rewards or spends another hand");
             if (result.roundScore < result.goal && result.handsLeft == 0) {
                 ++coverage.failedRounds;
                 coverage.lastHandWinFails += result.outcome == bj::Outcome::Win ? 1 : 0;
-                check(game.state().phase == bj::Phase::RunLost, "unmet goal after all five hands ends the run");
+                check(game.state().phase == bj::Phase::RunLost, "unmet goal after all five hands ends the run immediately");
                 checkBlockedActions(game);
                 game.restart(seed);
                 const bj::Game fresh(seed);
                 check(sameState(fresh.state(), game.state()), "restart after defeat clears full run state");
                 break;
             }
+            check(result.phase == bj::Phase::RoundOver, "a surviving hand or final-hand goal clear keeps its result screen");
+            check(game.advance(), "advance succeeds after a surviving hand");
+            check(game.state().coins == result.coins && game.state().totalScore == result.totalScore
+                && game.state().roundScore == result.roundScore && game.state().handsLeft == result.handsLeft,
+                "advance never repeats rewards or spends another hand");
             if (result.roundScore < result.goal) {
                 coverage.lossContinues += result.outcome == bj::Outcome::Loss ? 1 : 0;
                 coverage.pushContinues += result.outcome == bj::Outcome::Push ? 1 : 0;
@@ -388,9 +492,16 @@ void testSeededRunsAndShop() {
             check(game.state().phase == bj::Phase::Shop, "only a cleared round opens the shop, including a last-hand clear");
             const auto offers = game.state().offers;
             check(offers.size() == 2 && offers[0] != offers[1], "shop offers exactly two distinct upgrades");
+            std::vector<bj::Relic> earlierSlots;
             for (auto relic : offers) {
                 check(!game.hasRelic(relic), "shops do not offer an active upgrade");
-                check(!contains(previousOffers, relic), "next shop avoids both preceding offers");
+                if (contains(previousOffers, relic)) {
+                    check(std::none_of(catalog.begin(), catalog.end(), [&](const bj::RelicInfo& item) {
+                        return item.rarity == rarityOf(relic) && !game.hasRelic(item.id)
+                            && !contains(previousOffers, item.id) && !contains(earlierSlots, item.id);
+                    }), "an earlier offer repeats only when its selected rarity has no fresh eligible item");
+                }
+                earlierSlots.push_back(relic);
                 coverage.reoffers += contains(sold, relic) ? 1 : 0;
             }
             previousOffers = offers;
@@ -477,6 +588,7 @@ void testSeededRunsAndShop() {
     check(coverage.longRuns > 0, "runs continue beyond five rounds and old three-stage structure");
     check(coverage.soft17 > 0, "soft-17 dealer stands exercised");
     check(coverage.cappedGoals > 0, "longer runs exercise the one-hundred-point target cap");
+    check(coverage.streakBoosts > 0 && coverage.streakCaps > 0, "Epic Streak multiplies winning points and remains capped after four earlier wins");
     check(coverage.purchases > 0 && coverage.sales > 0 && coverage.reoffers > 0 && coverage.fullBuilds > 0,
         "simulation buys, sells, reoffers sold upgrades and reaches four active upgrades");
     check(coverage.cardStreams > 0, "transactions compared against no-shopping runs");
@@ -503,6 +615,7 @@ int main() {
         testHands();
         testDeterminismAndBlockedRandomness();
         testUnbiasedOpeningDistribution();
+        testRarityDistribution();
         testSeededRunsAndShop();
     } catch (const std::exception& error) {
         std::cerr << "Unexpected exception: " << error.what() << '\n';

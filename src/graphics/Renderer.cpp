@@ -599,14 +599,16 @@ struct Renderer::Impl {
     }
 
     void drawCasino(float time, bool animate) {
-        const glm::vec3 stone{.34f, .25f, .31f};
-        const glm::vec3 plum{.19f, .095f, .25f};
-        const glm::vec3 gold{.62f, .43f, .22f};
-        const glm::vec3 crimson{.37f, .10f, .15f};
-        const glm::vec3 trim{.58f, .46f, .36f};
+        const glm::vec3 stone{.40f, .22f, .35f};
+        const glm::vec3 plum{.29f, .10f, .38f};
+        const glm::vec3 gold{.78f, .53f, .24f};
+        const glm::vec3 crimson{.55f, .13f, .23f};
+        const glm::vec3 trim{.62f, .46f, .35f};
         const glm::vec3 window{.96f, .55f, .22f};
-        glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -2.0f});
-        building = glm::rotate(building, -.75f, glm::vec3(0, 1, 0));
+        constexpr float streetAngle = -.70f;
+        glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -3.0f});
+        building = glm::rotate(building, streetAngle, glm::vec3(0, 1, 0));
+        building = glm::scale(building, {1.35f, 1.12f, 1.12f});
         const auto block = [&](glm::vec3 position, glm::vec3 size, glm::vec3 color,
                                float emission = 0.0f) {
             draw(cube, building * transform(position, size), color, 0,
@@ -615,20 +617,16 @@ struct Renderer::Impl {
 
         // A diagonal street and shallow forecourt connect the facade to the evening scene.
         draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.16f, .13f, .15f});
-        constexpr float roadAngle = -.58f;
-        draw(cube, transform({-1, -.006f, 3.5f}, {45, .035f, 3.25f}, roadAngle),
-             {.075f, .068f, .095f});
-        for (const float side : {-1.0f, 1.0f}) {
-            const glm::vec3 edge(-1.0f + std::sin(roadAngle) * side * 1.70f, .012f,
-                                 3.5f + std::cos(roadAngle) * side * 1.70f);
-            draw(cube, transform(edge, {45, .055f, .15f}, roadAngle), {.32f, .27f, .28f});
-        }
-        for (int i = -10; i < 12; ++i) {
-            const float offset = static_cast<float>(i) * 1.65f;
-            draw(cube, transform({-1.0f + std::cos(roadAngle) * offset, .016f,
-                                 3.5f - std::sin(roadAngle) * offset},
-                                {.83f, .015f, .055f}, roadAngle), {.53f, .41f, .26f});
-        }
+        // The road, curb and forecourt share a basis: their edges meet and stay parallel.
+        constexpr float streetCenter = 5.55f;
+        constexpr float streetWidth = 3.25f;
+        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.075f, .068f, .095f});
+        for (const float side : {-1.0f, 1.0f})
+            block({.6f, .037f, streetCenter + side * streetWidth * .5f},
+                  {60, .055f, .15f}, {.38f, .29f, .31f});
+        for (int i = -18; i < 19; ++i)
+            block({static_cast<float>(i) * 1.65f, .016f, streetCenter},
+                  {.83f, .015f, .055f}, {.59f, .46f, .28f});
         block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.27f, .22f, .25f});
         for (int i = -4; i <= 5; ++i)
             block({static_cast<float>(i) * .92f, .07f, 2.55f}, {.016f, .012f, 2.55f}, {.20f, .16f, .20f});
@@ -646,7 +644,7 @@ struct Renderer::Impl {
             block({x, 1.96f, 1.69f}, {.17f, 3.43f, .19f}, trim);
 
         block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.30f, .25f, .27f});
-        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.27f, .21f, .28f});
+        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.34f, .19f, .32f});
         block({3.65f, 2.73f, -.22f}, {2.61f, .16f, 3.36f}, plum);
         block({3.65f, 2.84f, -.22f}, {2.66f, .055f, 3.42f}, gold);
         block({3.65f, .56f, 1.35f}, {2.40f, .59f, .10f}, plum);
@@ -756,10 +754,25 @@ struct Renderer::Impl {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (scene.menu) drawSky(width, height);
 
+        int renderWidth = width;
+        int renderHeight = height;
+        if (!scene.menu) {
+            const auto& area = scene.tableViewport;
+            const int left = std::clamp(static_cast<int>(area.left * static_cast<float>(width)), 0, width - 1);
+            const int top = std::clamp(static_cast<int>(area.top * static_cast<float>(height)), 0, height - 1);
+            const int right = std::clamp(static_cast<int>((area.left + area.width) * static_cast<float>(width)),
+                                         left + 1, width);
+            const int bottom = std::clamp(static_cast<int>((area.top + area.height) * static_cast<float>(height)),
+                                          top + 1, height);
+            renderWidth = right - left;
+            renderHeight = bottom - top;
+            glViewport(left, height - bottom, renderWidth, renderHeight);
+        }
+
         const float yaw = glm::radians(settings.yaw);
         const float pitch = glm::radians(std::clamp(settings.pitch, 20.0f, 85.0f));
         const float distance = std::clamp(settings.distance, 5.0f, 18.0f);
-        const float aspect = static_cast<float>(width) / static_cast<float>(height);
+        const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
         const float menuDistance = 15.5f * std::max(1.0f, 1.45f / aspect);
         const glm::vec3 eye = scene.menu ? glm::vec3(0, 4.8f, menuDistance)
             : glm::vec3(distance * std::cos(pitch) * std::sin(yaw),

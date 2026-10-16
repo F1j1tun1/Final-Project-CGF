@@ -30,11 +30,16 @@ enum class Relic {
     NarrowEscape, RedRibbon, BlackVelvet, EvenOdds, CourtFavor, HumbleCrown
 };
 
+enum class Rarity { Common, Uncommon, Rare, Epic, Legendary };
+const char* rarityName(Rarity rarity);
+int rarityWeight(Rarity rarity);
+
 struct RelicInfo {
     Relic id;
     const char* name;
     const char* description;
     int cost;
+    Rarity rarity;
 };
 
 const std::vector<RelicInfo>& relicCatalog();

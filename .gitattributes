@@ -14,6 +14,6 @@
 *.ttf binary
 
 # Preserve the upstream font license verbatim, including its original spaces.
-assets/fonts/OFL-CormorantGaramond.txt -whitespace
+assets/fonts/OFL-*.txt -whitespace
 
 third_party/** linguist-vendored
