@@ -218,6 +218,28 @@ Mesh makeCylinder(int segments) {
     return makeMesh(vertices, indices);
 }
 
+Mesh makeSphere(int slices, int rings) {
+    std::vector<float> vertices;
+    std::vector<std::uint32_t> indices;
+    for (int ring = 0; ring <= rings; ++ring) {
+        const float v = static_cast<float>(ring) / static_cast<float>(rings);
+        const float latitude = v * pi;
+        for (int slice = 0; slice <= slices; ++slice) {
+            const float u = static_cast<float>(slice) / static_cast<float>(slices);
+            const float longitude = u * 2.0f * pi;
+            const glm::vec3 p(std::sin(latitude) * std::cos(longitude),
+                              std::cos(latitude), std::sin(latitude) * std::sin(longitude));
+            vertices.insert(vertices.end(), {p.x, p.y, p.z, p.x, p.y, p.z, u, v});
+            if (ring < rings && slice < slices) {
+                const auto n = static_cast<std::uint32_t>(ring * (slices + 1) + slice);
+                const auto next = n + static_cast<std::uint32_t>(slices + 1);
+                indices.insert(indices.end(), {n, next, n + 1, n + 1, next, next + 1});
+            }
+        }
+    }
+    return makeMesh(vertices, indices);
+}
+
 using Pixel = std::array<unsigned char, 3>;
 struct Bitmap {
     int width;
@@ -236,24 +258,42 @@ struct Bitmap {
         for (int py = y; py < y + h; ++py)
             for (int px = x; px < x + w; ++px) set(px, py, color);
     }
+    void blend(int x, int y, Pixel color, float coverage) {
+        if (x < 0 || y < 0 || x >= width || y >= height) return;
+        const auto at = static_cast<std::size_t>((y * width + x) * 3);
+        for (int channel = 0; channel < 3; ++channel) {
+            data[at + channel] = static_cast<unsigned char>(std::round(
+                static_cast<float>(data[at + channel]) * (1.0f - coverage)
+                + static_cast<float>(color[channel]) * coverage));
+        }
+    }
 };
 
-std::array<unsigned char, 7> glyph(char c) {
+using Stroke = std::array<float, 4>;
+std::vector<Stroke> glyph(char c) {
     switch (c) {
-    case 'A': return {14, 17, 17, 31, 17, 17, 17};
-    case '2': return {14, 17, 1, 2, 4, 8, 31};
-    case '3': return {30, 1, 1, 14, 1, 1, 30};
-    case '4': return {2, 6, 10, 18, 31, 2, 2};
-    case '5': return {31, 16, 16, 30, 1, 1, 30};
-    case '6': return {14, 16, 16, 30, 17, 17, 14};
-    case '7': return {31, 1, 2, 4, 8, 8, 8};
-    case '8': return {14, 17, 17, 14, 17, 17, 14};
-    case '9': return {14, 17, 17, 15, 1, 1, 14};
-    case '1': return {4, 12, 4, 4, 4, 4, 14};
-    case '0': return {14, 17, 19, 21, 25, 17, 14};
-    case 'J': return {7, 2, 2, 2, 18, 18, 12};
-    case 'Q': return {14, 17, 17, 17, 21, 18, 13};
-    case 'K': return {17, 18, 20, 24, 20, 18, 17};
+    case 'A': return {{0,6,2,0}, {2,0,4,6}, {.7f,4,3.3f,4}, {-.3f,6,.8f,6}, {3.2f,6,4.3f,6}};
+    case '2': return {{0,1,1,0}, {1,0,3,0}, {3,0,4,1}, {4,1,4,2}, {4,2,0,6}, {0,6,4,6}};
+    case '3': return {{0,0,4,0}, {4,0,2,2.7f}, {2,2.7f,3.3f,3}, {3.3f,3,4,4},
+                      {4,4,4,5}, {4,5,3,6}, {3,6,1,6}, {1,6,0,5.3f}};
+    case '4': return {{3,0,0,4}, {0,4,4.3f,4}, {3,0,3,6}, {2.2f,6,3.8f,6}};
+    case '5': return {{4,0,0,0}, {0,0,0,2.7f}, {0,2.7f,3,2.7f}, {3,2.7f,4,3.7f},
+                      {4,3.7f,4,5}, {4,5,3,6}, {3,6,1,6}, {1,6,0,5.3f}};
+    case '6': return {{3.6f,0,2,0}, {2,0,.5f,1.5f}, {.5f,1.5f,0,3.8f}, {0,3.8f,0,5},
+                      {0,5,1,6}, {1,6,3,6}, {3,6,4,5}, {4,5,4,3.6f}, {4,3.6f,3,2.8f}, {3,2.8f,.2f,3}};
+    case '7': return {{0,0,4,0}, {4,0,1.1f,6}};
+    case '8': return {{1,0,3,0}, {3,0,4,1}, {4,1,3.7f,2.1f}, {3.7f,2.1f,.4f,3.7f},
+                      {.4f,3.7f,0,5}, {0,5,1,6}, {1,6,3,6}, {3,6,4,5}, {4,5,3.6f,3.7f},
+                      {3.6f,3.7f,.3f,2.1f}, {.3f,2.1f,0,1}, {0,1,1,0}};
+    case '9': return {{.4f,6,2,6}, {2,6,3.5f,4.5f}, {3.5f,4.5f,4,2.2f}, {4,2.2f,4,1},
+                      {4,1,3,0}, {3,0,1,0}, {1,0,0,1}, {0,1,0,2.4f}, {0,2.4f,1,3.2f}, {1,3.2f,3.8f,3}};
+    case '1': return {{.7f,1.3f,2.2f,0}, {2.2f,0,2.2f,6}, {.7f,6,3.7f,6}};
+    case '0': return {{1,0,3,0}, {3,0,4,1.3f}, {4,1.3f,4,4.7f}, {4,4.7f,3,6},
+                      {3,6,1,6}, {1,6,0,4.7f}, {0,4.7f,0,1.3f}, {0,1.3f,1,0}};
+    case 'J': return {{1,0,4,0}, {3,0,3,4.8f}, {3,4.8f,2.2f,6}, {2.2f,6,.7f,6}, {.7f,6,0,4.8f}};
+    case 'Q': return {{1,0,3,0}, {3,0,4,1.3f}, {4,1.3f,4,4.7f}, {4,4.7f,3,6},
+                      {3,6,1,6}, {1,6,0,4.7f}, {0,4.7f,0,1.3f}, {0,1.3f,1,0}, {2.5f,4.4f,4.4f,6.4f}};
+    case 'K': return {{.3f,0,.3f,6}, {.3f,3.4f,4,0}, {1.6f,2.3f,4,6}, {-.2f,0,.8f,0}, {-.2f,6,.8f,6}};
     default: return {};
     }
 }
@@ -263,17 +303,24 @@ void drawText(Bitmap& bitmap, const std::string& text, int left, int top,
     int cursor = left;
     for (char c : text) {
         const auto shape = glyph(c);
-        for (int y = 0; y < 7; ++y) {
-            for (int x = 0; x < 5; ++x) {
-                if ((shape[static_cast<std::size_t>(y)] & (1 << (4 - x))) == 0) continue;
-                for (int sy = 0; sy < scale; ++sy) {
-                    for (int sx = 0; sx < scale; ++sx) {
-                        const int px = cursor + x * scale + sx;
-                        const int py = top + y * scale + sy;
-                        bitmap.set(rotate180 ? bitmap.width - 1 - px : px,
-                                   rotate180 ? bitmap.height - 1 - py : py, color);
-                    }
+        const float weight = static_cast<float>(scale) * .27f;
+        for (int py = top - scale; py < top + 8 * scale; ++py) {
+            for (int px = cursor - scale; px < cursor + 6 * scale; ++px) {
+                float distance = 1000.0f;
+                const glm::vec2 point(static_cast<float>(px) + .5f, static_cast<float>(py) + .5f);
+                for (const auto& stroke : shape) {
+                    const glm::vec2 a(static_cast<float>(cursor) + stroke[0] * static_cast<float>(scale),
+                                      static_cast<float>(top) + stroke[1] * static_cast<float>(scale));
+                    const glm::vec2 b(static_cast<float>(cursor) + stroke[2] * static_cast<float>(scale),
+                                      static_cast<float>(top) + stroke[3] * static_cast<float>(scale));
+                    const glm::vec2 delta = b - a;
+                    const float t = std::clamp(glm::dot(point - a, delta) / glm::dot(delta, delta), 0.0f, 1.0f);
+                    distance = std::min(distance, glm::length(point - (a + delta * t)));
                 }
+                const float coverage = std::clamp(weight + .5f - distance, 0.0f, 1.0f);
+                if (coverage > 0)
+                    bitmap.blend(rotate180 ? bitmap.width - 1 - px : px,
+                                 rotate180 ? bitmap.height - 1 - py : py, color, coverage);
             }
         }
         cursor += 6 * scale;
@@ -360,19 +407,19 @@ Bitmap cardBitmap(int rank, int suit) {
 
 Bitmap cardBackBitmap() {
     Bitmap bitmap(160, 224, {231, 220, 187});
-    bitmap.rectangle(7, 7, 146, 210, {19, 44, 65});
+    bitmap.rectangle(7, 7, 146, 210, {58, 24, 83});
     for (int y = 12; y < 212; ++y) {
         for (int x = 12; x < 148; ++x) {
             const int diagonal = (x + y) % 18;
             const int otherDiagonal = (x - y + 224) % 18;
-            if (diagonal < 2 || otherDiagonal < 2) bitmap.set(x, y, {56, 86, 101});
+            if (diagonal < 2 || otherDiagonal < 2) bitmap.set(x, y, {126, 60, 117});
         }
     }
     bitmap.rectangle(12, 12, 136, 2, {181, 149, 78});
     bitmap.rectangle(12, 210, 136, 2, {181, 149, 78});
     bitmap.rectangle(12, 12, 2, 200, {181, 149, 78});
     bitmap.rectangle(146, 12, 2, 200, {181, 149, 78});
-    drawSuit(bitmap, 0, 80, 112, 38, {205, 175, 106});
+    drawSuit(bitmap, 1, 80, 112, 38, {221, 181, 89});
     return bitmap;
 }
 
@@ -442,9 +489,12 @@ glm::mat4 transform(glm::vec3 position, glm::vec3 scale, float rotation = 0.0f) 
 
 struct Renderer::Impl {
     Program program;
+    Program skyProgram;
     Mesh cube;
     Mesh plane;
     Mesh cylinder;
+    Mesh sphere;
+    Mesh sky;
     Textures textures;
     std::array<GLuint, 52> cardFaces{};
     GLuint white = 0;
@@ -453,15 +503,22 @@ struct Renderer::Impl {
     GLuint chip = 0;
     struct Locations {
         GLint model, view, projection, normal, color, uvScale, camera, light,
-              intensity, shininess, specular, useTexture, lighting;
+              intensity, shininess, specular, emission, fogColor, useTexture, lighting;
     } u{};
+    GLint skyResolution = -1;
     bool texturesEnabled = true;
 
     explicit Impl(const std::filesystem::path& root) {
         program.load(root / "shaders" / "table.vert", root / "shaders" / "table.frag");
+        skyProgram.load(root / "shaders" / "sky.vert", root / "shaders" / "sky.frag");
         cube = makeCube();
         plane = makeTopPlane();
         cylinder = makeCylinder(80);
+        sphere = makeSphere(24, 16);
+        sky = makeMesh({-1, -1, 0, 0, 0, 1, 0, 0,
+                         3, -1, 0, 0, 0, 1, 2, 0,
+                        -1,  3, 0, 0, 0, 1, 0, 2}, {0, 1, 2});
+        skyResolution = glGetUniformLocation(skyProgram.id, "uResolution");
         white = textures.upload(Bitmap(1, 1, {255, 255, 255}));
         felt = textures.upload(feltBitmap(), true);
         back = textures.upload(cardBackBitmap());
@@ -481,6 +538,8 @@ struct Renderer::Impl {
         u.intensity = uniform("uLightIntensity");
         u.shininess = uniform("uShininess");
         u.specular = uniform("uSpecular");
+        u.emission = uniform("uEmission");
+        u.fogColor = uniform("uFogColor");
         u.useTexture = uniform("uUseTexture");
         u.lighting = uniform("uLighting");
         glUseProgram(program.id);
@@ -490,7 +549,7 @@ struct Renderer::Impl {
 
     void draw(const Mesh& mesh, const glm::mat4& model, glm::vec3 color,
               GLuint texture = 0, glm::vec2 uvScale = glm::vec2(1.0f),
-              float specular = .08f, float shininess = 32.0f) {
+              float specular = .08f, float shininess = 32.0f, float emission = 0.0f) {
         const glm::mat3 normal = glm::transpose(glm::inverse(glm::mat3(model)));
         glUniformMatrix4fv(u.model, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix3fv(u.normal, 1, GL_FALSE, glm::value_ptr(normal));
@@ -498,11 +557,151 @@ struct Renderer::Impl {
         glUniform2fv(u.uvScale, 1, glm::value_ptr(uvScale));
         glUniform1f(u.shininess, shininess);
         glUniform1f(u.specular, specular);
+        glUniform1f(u.emission, emission);
         glUniform1i(u.useTexture, texturesEnabled && texture != 0 ? GL_TRUE : GL_FALSE);
         glBindTexture(GL_TEXTURE_2D, texture ? texture : white);
         mesh.draw();
     }
 
+    void beam(glm::vec3 from, glm::vec3 to, float radius, glm::vec3 color,
+              const glm::mat4& root = glm::mat4(1)) {
+        const glm::vec3 delta = to - from;
+        const float length = glm::length(delta);
+        if (length < .0001f) return;
+        const glm::vec3 direction = delta / length;
+        const glm::vec3 axis = glm::cross(glm::vec3(0, 1, 0), direction);
+        glm::mat4 model = glm::translate(glm::mat4(1), (from + to) * .5f);
+        if (glm::length(axis) > .0001f) {
+            model = glm::rotate(model, std::acos(std::clamp(direction.y, -1.0f, 1.0f)),
+                                glm::normalize(axis));
+        } else if (direction.y < 0) {
+            model = glm::rotate(model, pi, glm::vec3(1, 0, 0));
+        }
+        draw(cylinder, root * glm::scale(model, {radius, length, radius}), color,
+             0, glm::vec2(1), .25f);
+    }
+
+    void diamond(glm::vec3 position, float size, glm::vec3 color,
+                 const glm::mat4& root = glm::mat4(1)) {
+        glm::mat4 model = glm::translate(glm::mat4(1), position);
+        model = glm::rotate(model, pi * .25f, glm::vec3(0, 0, 1));
+        draw(cube, root * glm::scale(model, {size, size, .025f}), color);
+    }
+
+    void drawSky(int width, int height) {
+        glDisable(GL_DEPTH_TEST);
+        glDepthMask(GL_FALSE);
+        glUseProgram(skyProgram.id);
+        glUniform2f(skyResolution, static_cast<float>(width), static_cast<float>(height));
+        sky.draw();
+        glDepthMask(GL_TRUE);
+        glEnable(GL_DEPTH_TEST);
+    }
+
+    void drawCasino(float time, bool animate) {
+        const glm::vec3 stone{.40f, .22f, .35f};
+        const glm::vec3 plum{.29f, .10f, .38f};
+        const glm::vec3 gold{.78f, .53f, .24f};
+        const glm::vec3 crimson{.55f, .13f, .23f};
+        const glm::vec3 trim{.62f, .46f, .35f};
+        const glm::vec3 window{.96f, .55f, .22f};
+        constexpr float streetAngle = -.70f;
+        glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -3.0f});
+        building = glm::rotate(building, streetAngle, glm::vec3(0, 1, 0));
+        building = glm::scale(building, {1.35f, 1.12f, 1.12f});
+        const auto block = [&](glm::vec3 position, glm::vec3 size, glm::vec3 color,
+                               float emission = 0.0f) {
+            draw(cube, building * transform(position, size), color, 0,
+                 glm::vec2(1), .08f, 32, emission);
+        };
+
+        // A diagonal street and shallow forecourt connect the facade to the evening scene.
+        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.16f, .13f, .15f});
+        // The road, curb and forecourt share a basis: their edges meet and stay parallel.
+        constexpr float streetCenter = 5.55f;
+        constexpr float streetWidth = 3.25f;
+        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.075f, .068f, .095f});
+        for (const float side : {-1.0f, 1.0f})
+            block({.6f, .037f, streetCenter + side * streetWidth * .5f},
+                  {60, .055f, .15f}, {.38f, .29f, .31f});
+        for (int i = -18; i < 19; ++i)
+            block({static_cast<float>(i) * 1.65f, .016f, streetCenter},
+                  {.83f, .015f, .055f}, {.59f, .46f, .28f});
+        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.27f, .22f, .25f});
+        for (int i = -4; i <= 5; ++i)
+            block({static_cast<float>(i) * .92f, .07f, 2.55f}, {.016f, .012f, 2.55f}, {.20f, .16f, .20f});
+
+        // A modest two-storey casino, with a lower annex and flat cornices.
+        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.34f, .29f, .28f});
+        block({0, 1.98f, 0}, {5.25f, 3.60f, 3.20f}, stone);
+        block({0, .54f, 1.63f}, {5.30f, .65f, .10f}, plum);
+        block({0, 2.05f, 1.66f}, {5.40f, .12f, .13f}, trim);
+        block({0, 3.52f, 1.65f}, {5.38f, .40f, .14f}, plum);
+        block({0, 3.86f, 0}, {5.65f, .20f, 3.65f}, crimson);
+        block({0, 3.99f, 0}, {5.72f, .065f, 3.71f}, gold);
+        block({0, 4.08f, -.1f}, {5.34f, .14f, 3.25f}, plum);
+        for (const float x : {-2.48f, 2.48f})
+            block({x, 1.96f, 1.69f}, {.17f, 3.43f, .19f}, trim);
+
+        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.30f, .25f, .27f});
+        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.34f, .19f, .32f});
+        block({3.65f, 2.73f, -.22f}, {2.61f, .16f, 3.36f}, plum);
+        block({3.65f, 2.84f, -.22f}, {2.66f, .055f, 3.42f}, gold);
+        block({3.65f, .56f, 1.35f}, {2.40f, .59f, .10f}, plum);
+        block({3.65f, 1.92f, 1.35f}, {2.45f, .085f, .13f}, trim);
+
+        // Recessed windows are lit from within; no street or interior characters.
+        const auto frontWindow = [&](float x, float y, float z, float width, float height) {
+            block({x, y, z}, {width + .12f, height + .12f, .10f}, trim);
+            block({x, y, z + .065f}, {width, height, .045f}, window, .55f);
+            block({x, y, z + .10f}, {.035f, height + .01f, .035f}, plum);
+            block({x, y, z + .10f}, {width + .01f, .035f, .035f}, plum);
+        };
+        for (const float x : {-1.63f, 1.63f}) {
+            frontWindow(x, 1.23f, 1.67f, .63f, 1.02f);
+            frontWindow(x, 2.73f, 1.67f, .63f, .90f);
+        }
+        for (const float x : {3.08f, 4.20f}) frontWindow(x, 1.25f, 1.36f, .56f, .95f);
+        for (const float z : {-.94f, .38f}) {
+            block({4.845f, 1.25f, z}, {.10f, 1.07f, .69f}, trim);
+            block({4.91f, 1.25f, z}, {.045f, .95f, .57f}, window, .45f);
+            block({4.94f, 1.25f, z}, {.03f, .98f, .035f}, plum);
+            block({4.94f, 1.25f, z}, {.03f, .035f, .60f}, plum);
+        }
+
+        // A red double door and restrained three-bell emblem carry the jester theme.
+        block({0, 1.10f, 1.69f}, {1.43f, 1.83f, .15f}, trim);
+        block({0, 1.10f, 1.79f}, {1.23f, 1.66f, .085f}, plum);
+        for (const float side : {-1.0f, 1.0f}) {
+            block({side * .30f, 1.08f, 1.85f}, {.55f, 1.56f, .075f}, crimson);
+            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.62f, .37f, .22f}, .20f);
+            draw(sphere, building * transform({side * .09f, .98f, 1.94f}, {.035f, .035f, .025f}), gold);
+        }
+        block({0, .22f, 2.02f}, {1.90f, .16f, .76f}, trim);
+        block({0, .11f, 2.36f}, {2.17f, .12f, .68f}, {.40f, .33f, .31f});
+        block({0, 2.89f, 1.71f}, {1.63f, .81f, .12f}, gold);
+        block({0, 2.89f, 1.79f}, {1.48f, .66f, .05f}, plum);
+        diamond({0, 2.77f, 1.84f}, .28f, crimson, building);
+        for (int i = -1; i <= 1; ++i) {
+            const float x = static_cast<float>(i) * .37f;
+            beam({0, 2.80f, 1.87f}, {x, 3.09f, 1.87f}, .024f, gold, building);
+            draw(sphere, building * transform({x, 3.10f, 1.87f}, {.07f, .07f, .045f}), gold,
+                 0, glm::vec2(1), .2f, 32, .10f);
+        }
+        for (const float x : {-3.10f, 5.28f}) {
+            const float pulse = animate ? .025f * std::sin(time * 1.4f + x) : 0.0f;
+            draw(cylinder, building * transform({x, 1.0f, 2.1f}, {.042f, 2.0f, .042f}), {.30f, .23f, .24f});
+            block({x, 2.05f, 2.1f}, {.25f, .39f, .25f}, window, .55f + pulse);
+            block({x, 2.29f, 2.1f}, {.34f, .08f, .34f}, plum);
+        }
+    }
+
+    void drawRoom() {
+        // Keep attention on the cards: a dim room with only a quiet skirting line.
+        draw(cube, transform({0, -.90f, 0}, {28, .25f, 24}), {.045f, .033f, .055f});
+        draw(cube, transform({0, 1.80f, -5.35f}, {24, 6, .22f}), {.037f, .027f, .048f});
+        draw(cube, transform({0, -.40f, -5.17f}, {24, .055f, .09f}), {.13f, .095f, .07f});
+    }
     void drawCard(const VisualCard& card, glm::vec3 position, float rotation = 0.0f) {
         // A solid cuboid gives visible paper edges; its upper face receives the card texture.
         const glm::mat4 model = transform(position, {.74f, .045f, 1.08f}, rotation);
@@ -527,7 +726,7 @@ struct Renderer::Impl {
             const float z = rowZ + std::abs(slot) * .014f;
             // A small contact-shadow decal anchors the lifted paper to the felt.
             draw(plane, transform({x + .025f, -.001f, z + .025f}, {.79f, .008f, 1.13f}, angle),
-                 {.018f, .10f, .075f});
+                 {.055f, .014f, .085f});
             drawCard(cards[i], {x, .047f + bob + static_cast<float>(i) * .002f, z},
                      dealer ? angle : -angle);
         }
@@ -551,43 +750,82 @@ struct Renderer::Impl {
         glDisable(GL_BLEND);
         glDisable(GL_CULL_FACE);
         glDisable(GL_SCISSOR_TEST);
-        glClearColor(.025f, .035f, .045f, 1.0f);
+        glClearColor(.026f, .014f, .050f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        if (scene.menu) drawSky(width, height);
+
+        int renderWidth = width;
+        int renderHeight = height;
+        if (!scene.menu) {
+            const auto& area = scene.tableViewport;
+            const int left = std::clamp(static_cast<int>(area.left * static_cast<float>(width)), 0, width - 1);
+            const int top = std::clamp(static_cast<int>(area.top * static_cast<float>(height)), 0, height - 1);
+            const int right = std::clamp(static_cast<int>((area.left + area.width) * static_cast<float>(width)),
+                                         left + 1, width);
+            const int bottom = std::clamp(static_cast<int>((area.top + area.height) * static_cast<float>(height)),
+                                          top + 1, height);
+            renderWidth = right - left;
+            renderHeight = bottom - top;
+            glViewport(left, height - bottom, renderWidth, renderHeight);
+        }
 
         const float yaw = glm::radians(settings.yaw);
         const float pitch = glm::radians(std::clamp(settings.pitch, 20.0f, 85.0f));
         const float distance = std::clamp(settings.distance, 5.0f, 18.0f);
-        const glm::vec3 eye(distance * std::cos(pitch) * std::sin(yaw),
-                            distance * std::sin(pitch),
-                            distance * std::cos(pitch) * std::cos(yaw));
-        const glm::mat4 view = glm::lookAt(eye, glm::vec3(0, 0, 0), glm::vec3(0, 1, 0));
+        const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
+        const float menuDistance = 15.5f * std::max(1.0f, 1.45f / aspect);
+        const glm::vec3 eye = scene.menu ? glm::vec3(0, 4.8f, menuDistance)
+            : glm::vec3(distance * std::cos(pitch) * std::sin(yaw),
+                        distance * std::sin(pitch),
+                        distance * std::cos(pitch) * std::cos(yaw));
+        const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
+                                                                         : glm::vec3(0, 0, 0),
+                                         glm::vec3(0, 1, 0));
         const glm::mat4 projection = glm::perspective(glm::radians(43.0f),
-            static_cast<float>(width) / static_cast<float>(height), .1f, 60.0f);
+            aspect, .1f, 60.0f);
         glUseProgram(program.id);
         glActiveTexture(GL_TEXTURE0);
         glUniformMatrix4fv(u.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(u.projection, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(u.camera, 1, glm::value_ptr(eye));
-        glUniform3f(u.light, -3.0f, 7.0f, 3.0f);
+        glUniform3f(u.light, scene.menu ? -5.0f : -3.0f, 7.0f, 4.0f);
+        if (scene.menu) glUniform3f(u.fogColor, .25f, .17f, .22f);
+        else glUniform3f(u.fogColor, .026f, .014f, .050f);
         glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         texturesEnabled = settings.textures;
 
+        if (scene.menu) {
+            drawCasino(scene.time, settings.animate);
+            glBindVertexArray(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+            glUseProgram(0);
+            return;
+        }
+
+        drawRoom();
+
         // Layered elliptical cylinders form the table and its narrow brass rim.
         draw(cylinder, transform({0, -.35f, 0}, {4.2f, .5f, 3.0f}),
-             {.095f, .063f, .049f}, 0, glm::vec2(1), .22f, 48.0f);
+             {.15f, .048f, .13f}, 0, glm::vec2(1), .22f, 48.0f);
         draw(cylinder, transform({0, -.085f, 0}, {4.05f, .06f, 2.85f}),
-             {.62f, .43f, .17f}, 0, glm::vec2(1), .5f, 72.0f);
+             {.78f, .52f, .18f}, 0, glm::vec2(1), .5f, 72.0f);
         draw(cylinder, transform({0, -.045f, 0}, {3.95f, .04f, 2.75f}),
-             {.045f, .073f, .063f}, 0, glm::vec2(1), .1f);
+             {.105f, .025f, .15f}, 0, glm::vec2(1), .1f);
         draw(cylinder, transform({0, -.025f, 0}, {3.83f, .04f, 2.62f}),
-             {.045f, .30f, .215f}, felt, {14, 11}, .015f, 8.0f);
+             {.26f, .075f, .35f}, felt, {14, 11}, .015f, 8.0f);
 
         // Quiet gold geometry marks the middle of the playing field.
-        const glm::vec3 mutedGold{.32f, .34f, .19f};
+        const glm::vec3 mutedGold{.54f, .35f, .18f};
         draw(cube, transform({-1.55f, .002f, 0}, {2.2f, .007f, .012f}), mutedGold);
         draw(cube, transform({1.55f, .002f, 0}, {2.2f, .007f, .012f}), mutedGold);
         draw(cube, transform({0, .002f, 0}, {.16f, .008f, .16f}, pi * .25f), mutedGold);
+        for (const float side : {-1.0f, 1.0f}) {
+            draw(cube, transform({side * 2.84f, .002f, side * 1.32f}, {.22f, .008f, .22f}, pi * .25f),
+                 {.44f, .14f, .24f});
+            draw(cube, transform({side * 2.63f, .002f, side * 1.53f}, {.16f, .008f, .16f}, pi * .25f),
+                 mutedGold);
+        }
 
         // Deck: offset layers make thickness and the transformation pipeline visible.
         for (int i = 0; i < 12; ++i) {
@@ -600,7 +838,7 @@ struct Renderer::Impl {
 
         const int available = std::clamp(scene.coins, 0, 1000);
         drawChipStack(-3.0f, -.12f, 2 + std::min(available / 10, 5), {.66f, .17f, .14f}, .3f);
-        drawChipStack(-2.56f, -.40f, 2 + std::min(available / 20, 4), {.15f, .31f, .57f}, 1.0f);
+        drawChipStack(-2.56f, -.40f, 2 + std::min(available / 20, 4), {.37f, .15f, .58f}, 1.0f);
         drawChipStack(-2.53f, .24f, 1 + std::min(available / 30, 3), {.67f, .49f, .19f}, 2.0f);
 
         drawHand(scene.dealer, -1.12f, scene.time, settings.animate, true);

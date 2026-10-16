@@ -2,12 +2,12 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Blackjack Forge (Windows)", "type": "cppvsdbg", "request": "launch",
+      "name": "Jester Jack (Windows)", "type": "cppvsdbg", "request": "launch",
       "program": "${command:cmake.launchTargetPath}", "args": [],
       "cwd": "${workspaceFolder}", "preLaunchTask": "Build desktop", "console": "integratedTerminal"
     },
     {
-      "name": "Blackjack Forge (Linux/macOS)", "type": "cppdbg", "request": "launch",
+      "name": "Jester Jack (Linux/macOS)", "type": "cppdbg", "request": "launch",
       "program": "${command:cmake.launchTargetPath}", "args": [],
       "cwd": "${workspaceFolder}", "preLaunchTask": "Build desktop", "externalConsole": false
     }

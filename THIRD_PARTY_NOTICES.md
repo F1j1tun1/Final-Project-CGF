@@ -19,3 +19,13 @@ imgui 1.91.9b  fd37507c8476a6d14cc7c4b352401f31bcbd0f0d995d35390811e968c466f46e
 ```
 
 The game uses its own procedural meshes and textures; no Balatro artwork, audio or source code is included. Select the license for your team's own code before publicly publishing the repository.
+
+## Jester Jack fonts
+
+Jester Jack includes unmodified Cormorant Garamond Regular and SemiBold TrueType fonts by Christian Thalmann and the Cormorant Project Authors. They are licensed under the **SIL Open Font License 1.1**, preserved in `assets/fonts/OFL-CormorantGaramond.txt` and copied with the assets into builds and installed packages.
+
+Source: [google-fonts-bower/cormorantgaramond-bower](https://github.com/google-fonts-bower/cormorantgaramond-bower/tree/bcf5515652e4d99eb3e42e41ed5f4285a315a175), commit `bcf5515652e4d99eb3e42e41ed5f4285a315a175`, acquired 16 October 2026. Exact source links and SHA-256 hashes are recorded in [assets/fonts/README.md](assets/fonts/README.md). The game does not depend on proprietary system fonts.
+
+Readable body text, labels and buttons use unmodified **Source Sans 3 Regular and Semibold** static TrueType fonts, Copyright 2010-2024 Adobe, with Reserved Font Name `Source`. They are licensed under the **SIL Open Font License 1.1**, preserved in `assets/fonts/OFL-SourceSans3.txt` and distributed with the assets.
+
+Source: official [adobe-fonts/source-sans](https://github.com/adobe-fonts/source-sans/tree/87b37a2daaed80fcb8e8ccb0085c4d72ddade12e), release commit `87b37a2daaed80fcb8e8ccb0085c4d72ddade12e`, acquired 16 October 2026. Exact source links and SHA-256 hashes are recorded in [assets/fonts/README.md](assets/fonts/README.md). Cormorant Garamond remains the display font for the main title.

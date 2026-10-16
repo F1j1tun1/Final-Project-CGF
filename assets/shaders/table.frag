@@ -13,6 +13,8 @@ uniform vec3 uLightPosition;
 uniform float uLightIntensity;
 uniform float uShininess;
 uniform float uSpecular;
+uniform float uEmission;
+uniform vec3 uFogColor;
 uniform bool uUseTexture;
 uniform bool uLighting;
 
@@ -38,12 +40,12 @@ void main() {
         : 0.0;
     float attenuation = 1.0 / (1.0 + 0.012 * distanceToLight * distanceToLight);
     vec3 warmLight = vec3(1.0, 0.94, 0.82);
-    vec3 result = surface * 0.34
+    vec3 result = surface * (0.34 + uEmission)
         + (surface * diffuse + vec3(specular))
           * warmLight * uLightIntensity * attenuation;
 
     // Subtle distance haze keeps the back edge of the table in the scene.
     float fog = smoothstep(9.0, 20.0, length(uCameraPosition - vWorldPosition));
-    result = mix(result, vec3(0.025, 0.035, 0.045), fog * 0.45);
+    result = mix(result, uFogColor, fog * 0.45);
     fragColor = vec4(result, 1.0);
 }

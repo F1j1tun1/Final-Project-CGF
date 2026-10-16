@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(BlackjackForge VERSION 0.1.0 LANGUAGES C CXX)
+project(JesterJack VERSION 0.2.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -13,7 +13,7 @@ target_include_directories(blackjack_core PUBLIC src)
 
 function(bj_warnings target)
     if(MSVC)
-        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8)
+        target_compile_options(${target} PRIVATE /W4 /permissive- /utf-8 /EHsc)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
     endif()

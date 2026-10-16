@@ -12,17 +12,27 @@ struct VisualCard {
     bool faceDown = false;
 };
 
+// Normalized framebuffer rectangle, measured from the top-left like the UI.
+struct Viewport {
+    float left = 0.0f;
+    float top = 0.0f;
+    float width = 1.0f;
+    float height = 1.0f;
+};
+
 struct Scene {
     std::vector<VisualCard> player;
     std::vector<VisualCard> dealer;
     int coins = 0;
     float time = 0.0f;
+    bool menu = false;
+    Viewport tableViewport;
 };
 
 struct RenderSettings {
     float yaw = 0.0f;
     float pitch = 53.0f;
-    float distance = 10.0f;
+    float distance = 8.3f;
     float lightIntensity = 1.2f;
     bool textures = true;
     bool lighting = true;
