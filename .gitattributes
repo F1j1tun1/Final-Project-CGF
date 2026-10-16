@@ -1,0 +1,15 @@
+# Keep source, shaders, documentation and scripts consistent across Windows/Linux.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.zip binary
+*.pdf binary
+
+third_party/** linguist-vendored
