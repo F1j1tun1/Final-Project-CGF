@@ -175,6 +175,7 @@ struct Interface {
     ImFont* title = nullptr;
     ImFont* heading = nullptr;
     ImFont* button = nullptr;
+    ImFont* menuButton = nullptr;
     ImFont* number = nullptr;
     ImFont* small = nullptr;
     explicit Interface(GLFWwindow* window, const std::filesystem::path& assets) {
@@ -193,9 +194,10 @@ struct Interface {
         heading = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 36.0f, &font);
         title = io.Fonts->AddFontFromFileTTF(semibold.c_str(), 200.0f, &font);
         button = io.Fonts->AddFontFromFileTTF(bold.c_str(), 26.0f, &font);
+        menuButton = io.Fonts->AddFontFromFileTTF(bold.c_str(), 34.0f, &font);
         number = io.Fonts->AddFontFromFileTTF(bold.c_str(), 46.0f, &font);
         small = io.Fonts->AddFontFromFileTTF(body.c_str(), 18.0f, &font);
-        if (!io.FontDefault || !heading || !title || !button || !number || !small) {
+        if (!io.FontDefault || !heading || !title || !button || !menuButton || !number || !small) {
             ImGui::DestroyContext();
             throw std::runtime_error("Missing Jester Jack fonts. Keep assets beside the executable.");
         }
@@ -319,9 +321,9 @@ void primaryAction(bj::Game& game, Commands& commands) {
 
 struct MenuLayout {
     ImVec2 origin;
-    float width = 270;
-    float height = 66;
-    float step = 82;
+    float width = 350;
+    float height = 86;
+    float step = 102;
 };
 
 MenuLayout menuLayout(ImVec2 display) {
@@ -343,19 +345,28 @@ void drawMenu(bj::Game& game, Session& session, const Interface& ui, GLFWwindow*
 
     const auto layout = menuLayout(display);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    ImGui::PushStyleColor(ImGuiCol_Button, {0.16f, 0.09f, 0.20f, 0.96f});
     beginPanel("##menu", layout.origin, {layout.width, 3 * layout.step}, true);
     ImGui::BeginDisabled(session.transitioning() || session.settings);
-    ImGui::PushFont(ui.button);
-    if (ImGui::Button("START", {layout.width, layout.height})) session.start(game);
+    ImGui::PushFont(ui.menuButton);
+    const auto button = [&](const char* label, ImVec4 normal, ImVec4 hover, ImVec4 active) {
+        ImGui::PushStyleColor(ImGuiCol_Button, normal);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, active);
+        const bool pressed = ImGui::Button(label, {layout.width, layout.height});
+        ImGui::PopStyleColor(3);
+        return pressed;
+    };
+    if (button("START", {.13f, .40f, .23f, 1}, {.19f, .53f, .31f, 1}, {.10f, .32f, .18f, 1}))
+        session.start(game);
     ImGui::SetCursorPos({0, layout.step});
-    if (ImGui::Button("OPTIONS", {layout.width, layout.height})) session.settings = true;
+    if (button("OPTIONS", {.29f, .31f, .34f, 1}, {.40f, .43f, .46f, 1}, {.22f, .24f, .27f, 1}))
+        session.settings = true;
     ImGui::SetCursorPos({0, 2 * layout.step});
-    if (ImGui::Button("EXIT", {layout.width, layout.height})) glfwSetWindowShouldClose(window, GLFW_TRUE);
+    if (button("EXIT", {.56f, .16f, .20f, 1}, {.70f, .23f, .27f, 1}, {.44f, .11f, .14f, 1}))
+        glfwSetWindowShouldClose(window, GLFW_TRUE);
     ImGui::PopFont();
     ImGui::EndDisabled();
     ImGui::End();
-    ImGui::PopStyleColor();
     ImGui::PopStyleVar();
     backdrop->AddText({layout.origin.x, display.y - 49}, IM_COL32(234, 213, 190, 225),
         "Five hands. Reach the target.");
@@ -370,6 +381,26 @@ ImVec4 rarityColor(bj::Rarity rarity) {
         case bj::Rarity::Legendary: return {1.0f, 0.70f, 0.25f, 1};
     }
     return cream;
+}
+
+void rarityBadge(bj::Rarity rarity, const Interface& ui) {
+    const auto color = ImGui::ColorConvertFloat4ToU32(rarityColor(rarity));
+    const char* label = bj::rarityName(rarity);
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImVec2 text = ui.button->CalcTextSizeA(26, 1000, 0, label);
+    ImGui::Dummy({text.x + 20, 32});
+    auto* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(origin, {origin.x + text.x + 20, origin.y + 32}, color, 5);
+    draw->AddText(ui.button, 26, {origin.x + 10, origin.y + 3}, IM_COL32(17, 22, 28, 255), label);
+}
+
+void drawCoinIcon(ImDrawList* draw, ImVec2 center, float radius, const Interface& ui) {
+    const ImU32 rim = IM_COL32(166, 103, 27, 255);
+    draw->AddCircleFilled({center.x - 7, center.y + 4}, radius, rim, 32);
+    draw->AddCircleFilled(center, radius, ImGui::ColorConvertFloat4ToU32(gold), 32);
+    draw->AddCircle(center, radius - 4, rim, 32, 2);
+    const ImVec2 mark = ui.button->CalcTextSizeA(26, 1000, 0, "$");
+    draw->AddText(ui.button, 26, {center.x - mark.x * .5f, center.y - mark.y * .5f}, rim, "$");
 }
 
 const char* relicSummary(bj::Relic relic) {
@@ -403,7 +434,7 @@ TableLayout tableLayout(ImVec2 display) {
     const float sidebar = std::clamp(display.x * .24f, 280.0f, 340.0f);
     const float contentX = sidebar + 24;
     const float actionY = display.y - 154;
-    return {sidebar, contentX, display.x - contentX - 20, 172, actionY - 182, actionY};
+    return {sidebar, contentX, display.x - contentX - 20, 202, actionY - 212, actionY};
 }
 
 ImVec2 dealButtonCenter(const TableLayout& layout) {
@@ -424,7 +455,7 @@ void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
 
 void drawRelicStrip(const bj::Game& game, const TableLayout& layout, const Interface& ui) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    beginPanel("##relics", {layout.contentX, 16}, {layout.contentWidth, 146}, true);
+    beginPanel("##relics", {layout.contentX, 16}, {layout.contentWidth, 174}, true);
     ImGui::TextColored(cream, "RELICS  %d / 4", static_cast<int>(game.state().owned.size()));
     ImGui::SameLine();
     ImGui::PushFont(ui.small);
@@ -438,25 +469,34 @@ void drawRelicStrip(const bj::Game& game, const TableLayout& layout, const Inter
         const auto* item = filled ? &relicInfo(game.state().owned[static_cast<std::size_t>(slot)]) : nullptr;
         const ImVec4 accent = filled ? rarityColor(item->rarity) : ImVec4(.27f, .31f, .34f, 1);
         ImGui::PushStyleColor(ImGuiCol_Border, accent);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, {.105f, .12f, .15f, .97f});
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 9});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, filled
+            ? ImVec4(.07f + accent.x * .16f, .08f + accent.y * .16f, .10f + accent.z * .16f, .99f)
+            : ImVec4(.105f, .12f, .15f, .97f));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, filled ? 2.0f : 1.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 10});
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4, 3});
-        ImGui::BeginChild("slot", {width, 112}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+        ImGui::BeginChild("slot", {width, 140}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
         if (item) {
-            ImGui::TextColored(cream, "%s", item->name);
+            const ImVec2 namePosition = ImGui::GetCursorScreenPos();
+            const float available = ImGui::GetContentRegionAvail().x;
+            const float nameWidth = ui.button->CalcTextSizeA(26, 1000, 0, item->name).x;
+            const float nameSize = 26 * std::min(1.0f, available / nameWidth);
+            ImGui::Dummy({available, 26});
+            ImGui::GetWindowDrawList()->AddText(ui.button, nameSize, namePosition,
+                ImGui::ColorConvertFloat4ToU32(cream), item->name);
+            rarityBadge(item->rarity, ui);
             ImGui::PushFont(ui.small);
-            ImGui::TextColored(accent, "%s", bj::rarityName(item->rarity));
             ImGui::TextWrapped("%s", item->id == bj::Relic::SecondChance && game.state().usedSecondChance
                 ? "Rescue used this round" : relicSummary(item->id));
             ImGui::PopFont();
         } else {
-            ImGui::SetCursorPosY(35);
+            ImGui::SetCursorPosY(49);
             ImGui::PushFont(ui.small);
             ImGui::TextColored(muted, "Empty relic slot");
             ImGui::PopFont();
         }
         ImGui::EndChild();
-        ImGui::PopStyleVar(2);
+        ImGui::PopStyleVar(3);
         ImGui::PopStyleColor(2);
         if (item && ImGui::IsItemHovered()) relicTooltip(*item, ui);
         ImGui::PopID();
@@ -562,10 +602,22 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
     const float width = std::min(900.0f, display.x - 64);
     const float height = std::min(760.0f, display.y - 48);
     beginPanel("##shop", {(display.x - width) * .5f, (display.y - height) * .5f}, {width, height});
-    heading("RELIC SHOP", ui);
-    ImGui::TextColored(gold, "%d coins", state.coins);
-    ImGui::SameLine();
-    ImGui::Text(" /  %d of 4 relic slots used", static_cast<int>(state.owned.size()));
+    const ImVec2 header = ImGui::GetCursorScreenPos();
+    ImGui::PushFont(ui.heading);
+    ImGui::TextColored(gold, "RELIC SHOP");
+    ImGui::PopFont();
+    const std::string coins = std::to_string(state.coins);
+    const float numberWidth = ui.number->CalcTextSizeA(46, 1000, 0, coins.c_str()).x;
+    const float labelWidth = ui.small->CalcTextSizeA(18, 1000, 0, "COINS").x;
+    const float walletX = ImGui::GetWindowPos().x + width - 20 - labelWidth - numberWidth - 72;
+    auto* draw = ImGui::GetWindowDrawList();
+    drawCoinIcon(draw, {walletX + 22, header.y + 25}, 21, ui);
+    draw->AddText(ui.number, 46, {walletX + 54, header.y}, ImGui::ColorConvertFloat4ToU32(gold), coins.c_str());
+    draw->AddText(ui.small, 18, {walletX + 66 + numberWidth, header.y + 19},
+        ImGui::ColorConvertFloat4ToU32(gold), "COINS");
+    ImGui::SetCursorScreenPos({header.x, header.y + 56});
+    ImGui::Separator();
+    ImGui::Text("%d of 4 relic slots used", static_cast<int>(state.owned.size()));
     ImGui::PushFont(ui.small);
     ImGui::TextColored(muted, "Round cleared. Choose an upgrade or save your coins.");
     ImGui::PopFont();
@@ -579,12 +631,13 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
         ImGui::SetCursorPos({20 + static_cast<float>(i) * (cardWidth + 14), offerY});
         ImGui::PushStyleColor(ImGuiCol_Border, accent);
         ImGui::PushStyleColor(ImGuiCol_ChildBg, {.105f, .12f, .15f, 1});
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2);
         ImGui::BeginChild("offer", {cardWidth, offerHeight}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
         ImGui::PushFont(ui.button);
         ImGui::TextColored(cream, "%s", item.name);
         ImGui::PopFont();
+        rarityBadge(item.rarity, ui);
         ImGui::PushFont(ui.small);
-        ImGui::TextColored(accent, "%s", bj::rarityName(item.rarity));
         ImGui::TextWrapped("%s", item.description);
         ImGui::PopFont();
         ImGui::SetCursorPosY(offerHeight - 60);
@@ -601,6 +654,7 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
         ImGui::EndDisabled();
         ImGui::PopFont();
         ImGui::EndChild();
+        ImGui::PopStyleVar();
         ImGui::PopStyleColor(2);
         ImGui::PopID();
     }
@@ -619,9 +673,7 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
         ImGui::TextColored(rarityColor(item.rarity), "%s", item.name);
         if (ImGui::IsItemHovered()) relicTooltip(item, ui);
         ImGui::SameLine(300);
-        ImGui::PushFont(ui.small);
-        ImGui::TextColored(rarityColor(item.rarity), "%s", bj::rarityName(item.rarity));
-        ImGui::PopFont();
+        rarityBadge(item.rarity, ui);
         ImGui::SameLine(width - 190);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {12, 3});
         ImGui::BeginDisabled(commands.blocked || commands.used);
