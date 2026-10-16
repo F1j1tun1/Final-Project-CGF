@@ -17,6 +17,7 @@
 
 #include "game/Game.hpp"
 #include "graphics/Renderer.hpp"
+#include "presentation/CardSuit.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -177,6 +178,7 @@ struct Interface {
     ImFont* button = nullptr;
     ImFont* menuButton = nullptr;
     ImFont* number = nullptr;
+    ImFont* largeNumber = nullptr;
     ImFont* small = nullptr;
     explicit Interface(GLFWwindow* window, const std::filesystem::path& assets) {
         IMGUI_CHECKVERSION();
@@ -196,8 +198,9 @@ struct Interface {
         button = io.Fonts->AddFontFromFileTTF(bold.c_str(), 26.0f, &font);
         menuButton = io.Fonts->AddFontFromFileTTF(bold.c_str(), 34.0f, &font);
         number = io.Fonts->AddFontFromFileTTF(bold.c_str(), 46.0f, &font);
+        largeNumber = io.Fonts->AddFontFromFileTTF(bold.c_str(), 88.0f, &font);
         small = io.Fonts->AddFontFromFileTTF(body.c_str(), 18.0f, &font);
-        if (!io.FontDefault || !heading || !title || !button || !menuButton || !number || !small) {
+        if (!io.FontDefault || !heading || !title || !button || !menuButton || !number || !largeNumber || !small) {
             ImGui::DestroyContext();
             throw std::runtime_error("Missing Jester Jack fonts. Keep assets beside the executable.");
         }
@@ -288,10 +291,44 @@ struct Commands {
     }
 };
 
-void beginPanel(const char* name, ImVec2 position, ImVec2 size, bool transparent = false) {
+struct HandFeedback {
+    std::vector<bj::Card> previous;
+    std::uint32_t seed = 0;
+    int round = 0;
+    int handsLeft = -1;
+    bool usedSecondChance = false;
+    bj::Card card{1, bj::Suit::Clubs};
+    int delta = 0;
+    float remaining = 0;
+
+    void observe(const bj::Snapshot& state, float dt, bool visible) {
+        remaining = std::max(0.0f, remaining - dt);
+        const bool sameHand = seed == state.seed && round == state.round && handsLeft == state.handsLeft;
+        const bool appended = state.player.size() == previous.size() + 1 && !previous.empty() &&
+            std::equal(previous.begin(), previous.end(), state.player.begin(), [](const bj::Card& a, const bj::Card& b) {
+                return a.rank == b.rank && a.suit == b.suit;
+            });
+        if (!visible || !sameHand || state.phase == bj::Phase::Ready || state.phase == bj::Phase::Shop ||
+            state.player.empty() || usedSecondChance != state.usedSecondChance) {
+            remaining = 0;
+        } else if (appended) {
+            card = state.player.back();
+            delta = bj::evaluateHand(state.player).total - bj::evaluateHand(previous).total;
+            remaining = 1.5f;
+        }
+        previous = state.player;
+        seed = state.seed;
+        round = state.round;
+        handsLeft = state.handsLeft;
+        usedSecondChance = state.usedSecondChance;
+    }
+};
+
+void beginPanel(const char* name, ImVec2 position, ImVec2 size, bool transparent = false,
+                ImGuiWindowFlags extraFlags = 0) {
     ImGui::SetNextWindowPos(position);
     ImGui::SetNextWindowSize(size);
-    ImGui::Begin(name, nullptr, panelFlags | (transparent ? ImGuiWindowFlags_NoBackground : 0));
+    ImGui::Begin(name, nullptr, panelFlags | extraFlags | (transparent ? ImGuiWindowFlags_NoBackground : 0));
 }
 
 void heading(const char* text, const Interface& ui) {
@@ -417,6 +454,7 @@ const char* relicSummary(bj::Relic relic) {
         case bj::Relic::EvenOdds: return "Even total win: +1 coin";
         case bj::Relic::CourtFavor: return "J / Q / K win: +3 pts";
         case bj::Relic::HumbleCrown: return "Win at 18 or less: +5 pts";
+        case bj::Relic::BlackjackBonus: return "Natural blackjack: +5 pts";
     }
     return "";
 }
@@ -438,7 +476,7 @@ TableLayout tableLayout(ImVec2 display) {
 }
 
 ImVec2 dealButtonCenter(const TableLayout& layout) {
-    return {layout.contentX + 158, layout.actionY + 76};
+    return {layout.contentX + 168, layout.actionY + 77};
 }
 
 void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
@@ -707,7 +745,9 @@ void drawGameOver(bj::Game& game, Session& session, const Interface& ui, GLFWwin
     ImGui::SetCursorPos({45, 100});
     ImGui::Text("Round %d ended at %d / %d points.", state.round, state.roundScore, state.goal);
     ImGui::SetCursorPos({45, 133});
-    ImGui::TextColored(muted, "No hands left. Try a different build.");
+    ImGui::TextColored(bj::evaluateHand(state.player).bust ? red : cream, "Your hand: %d%s   /   Dealer: %d",
+        bj::evaluateHand(state.player).total, bj::evaluateHand(state.player).bust ? " (BUST)" : "",
+        bj::evaluateHand(state.dealer).total);
     ImGui::SetCursorPos({45, 170});
     ImGui::TextColored(gold, "Run score: %d    Hand wins: %d", state.totalScore, state.wins);
     ImGui::PushFont(ui.small);
@@ -729,7 +769,54 @@ void drawGameOver(bj::Game& game, Session& session, const Interface& ui, GLFWwin
     ImGui::End();
 }
 
-void drawTable(bj::Game& game, Commands& commands, Session& session, const Interface& ui, GLFWwindow* window) {
+void centeredText(ImDrawList* draw, ImFont* font, float size, float centerX, float y, ImU32 color,
+                  const std::string& text) {
+    const float width = font->CalcTextSizeA(size, 10000, 0, text.c_str()).x;
+    draw->AddText(font, size, {centerX - width * .5f, y}, color, text.c_str());
+}
+
+std::string cardName(const bj::Card& card) {
+    const char* suits[] = {"Clubs", "Diamonds", "Hearts", "Spades"};
+    const std::string rank = card.rank == 1 ? "A" : card.rank == 11 ? "J" :
+        card.rank == 12 ? "Q" : card.rank == 13 ? "K" : std::to_string(card.rank);
+    return rank + " of " + suits[static_cast<int>(card.suit)];
+}
+
+void drawHandValue(const bj::Snapshot& state, const HandFeedback& feedback, const TableLayout& layout,
+                   const Interface& ui) {
+    const ImVec2 origin{layout.contentX + layout.contentWidth - 210, layout.actionY - 38};
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    beginPanel("##hand-value", origin, {210, 180}, true, ImGuiWindowFlags_NoInputs);
+    auto* draw = ImGui::GetWindowDrawList();
+    const float centerX = origin.x + 105;
+    const auto hand = bj::evaluateHand(state.player);
+    if (feedback.remaining > 0) {
+        const float alpha = std::min(1.0f, feedback.remaining / .25f);
+        const std::string change = (feedback.delta >= 0 ? "+" : "") + std::to_string(feedback.delta);
+        const float textWidth = ui.menuButton->CalcTextSizeA(34, 1000, 0, change.c_str()).x;
+        const float left = centerX - (textWidth + 40) * .5f;
+        const auto ink = ImGui::ColorConvertFloat4ToU32({cream.x, cream.y, cream.z, alpha});
+        const bool redSuit = feedback.card.suit == bj::Suit::Hearts || feedback.card.suit == bj::Suit::Diamonds;
+        const ImVec4 suit = redSuit ? red : cream;
+        draw->AddRectFilled({origin.x + 12, origin.y}, {origin.x + 198, origin.y + 56},
+            IM_COL32(14, 19, 26, static_cast<int>(225 * alpha)), 8);
+        draw->AddText(ui.menuButton, 34, {left, origin.y}, ink, change.c_str());
+        presentation::drawCardSuit(draw, feedback.card.suit, {left + textWidth + 24, origin.y + 18}, 27,
+            ImGui::ColorConvertFloat4ToU32({suit.x, suit.y, suit.z, alpha}));
+        centeredText(draw, ui.small, 18, centerX, origin.y + 35, ink, cardName(feedback.card));
+    }
+    const char* label = hand.bust ? "YOUR HAND / BUST" : hand.soft ? "YOUR HAND / SOFT" :
+        state.phase == bj::Phase::Ready && !state.player.empty() ? "LAST HAND" : "YOUR HAND";
+    centeredText(draw, ui.small, 18, centerX, origin.y + 60, ImGui::ColorConvertFloat4ToU32(muted), label);
+    centeredText(draw, ui.largeNumber, 88, centerX, origin.y + 78,
+        ImGui::ColorConvertFloat4ToU32(hand.bust ? red : cream),
+        state.player.empty() ? "--" : std::to_string(hand.total));
+    ImGui::End();
+    ImGui::PopStyleVar();
+}
+
+void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedback& feedback,
+               const Interface& ui, GLFWwindow* window) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
     const auto layout = tableLayout(display);
@@ -743,52 +830,80 @@ void drawTable(bj::Game& game, Commands& commands, Session& session, const Inter
     }
     drawSidebar(state, layout, session, commands, ui, display.y);
     drawRelicStrip(game, layout, ui);
-    beginPanel("##dealer", {layout.contentX + 18, layout.boardY + 8}, {layout.contentWidth - 36, 50}, true);
-    if (state.dealer.empty()) ImGui::TextColored(muted, "DEALER / Waiting for a hand");
-    else if (state.phase == bj::Phase::PlayerTurn)
-        ImGui::Text("DEALER / %d + hidden card", bj::evaluateHand({state.dealer.front()}).total);
-    else ImGui::Text("DEALER / %d", bj::evaluateHand(state.dealer).total);
-    ImGui::End();
-
-    beginPanel("##actions", {layout.contentX, layout.actionY}, {layout.contentWidth, 138});
-    const auto hand = bj::evaluateHand(state.player);
-    ImGui::SetCursorPos({18, 10});
-    ImGui::PushFont(ui.button);
-    if (state.phase == bj::Phase::Ready) ImGui::TextColored(cream, "Ready for your next hand");
-    else if (state.phase == bj::Phase::RoundOver) {
-        const auto color = state.outcome == bj::Outcome::Win ? green : state.outcome == bj::Outcome::Loss ? red : gold;
-        ImGui::TextColored(color, "%s  /  +%d points  /  +%d coins",
-            state.outcome == bj::Outcome::Win ? "YOU WIN" : state.outcome == bj::Outcome::Loss ? "HOUSE WINS" : "PUSH",
-            state.score.total, state.score.coins);
-    } else ImGui::TextColored(hand.bust ? red : cream, "YOUR HAND: %d%s", hand.total, hand.soft ? " (soft)" : "");
-    ImGui::PopFont();
-    ImGui::SetCursorPos({18, 50});
-    ImGui::PushFont(ui.button);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    beginPanel("##actions", {layout.contentX + 18, layout.actionY + 42}, {440, 96}, true);
+    ImGui::PushFont(ui.menuButton);
     ImGui::BeginDisabled(commands.blocked || commands.used);
     if (state.phase == bj::Phase::PlayerTurn) {
         ImGui::PushStyleColor(ImGuiCol_Button, {.08f, .35f, .30f, 1});
-        if (ImGui::Button("HIT [H]", {152, 52})) commands.apply([&]() { return game.hit(); });
+        if (ImGui::Button("HIT", {176, 70})) commands.apply([&]() { return game.hit(); });
         ImGui::PopStyleColor();
-        ImGui::SameLine();
+        ImGui::SameLine(192);
         ImGui::PushStyleColor(ImGuiCol_Button, {.43f, .22f, .10f, 1});
-        if (ImGui::Button("STAND [SPACE]", {220, 52})) commands.apply([&]() { return game.stand(); });
+        if (ImGui::Button("STAND", {230, 70})) commands.apply([&]() { return game.stand(); });
         ImGui::PopStyleColor();
     } else if (state.phase == bj::Phase::Ready) {
-        if (ImGui::Button("DEAL HAND [SPACE]", {280, 52})) commands.apply([&]() { return game.deal(); });
+        if (ImGui::Button("DEAL HAND", {300, 70})) commands.apply([&]() { return game.deal(); });
     } else if (state.phase == bj::Phase::RoundOver) {
-        if (ImGui::Button(state.roundScore >= state.goal ? "SHOP [SPACE]" : "CONTINUE [SPACE]", {280, 52}))
+        if (ImGui::Button(state.roundScore >= state.goal ? "SHOP" : "CONTINUE", {300, 70}))
             commands.apply([&]() { return game.advance(); });
     }
     ImGui::EndDisabled();
     ImGui::PopFont();
-    ImGui::SetCursorPos({18, 110});
     ImGui::PushFont(ui.small);
-    ImGui::TextColored(muted, "%s", state.phase == bj::Phase::PlayerTurn ? "H draws a card. Space or S lets the dealer play." :
-        state.phase == bj::Phase::Ready ? "Every deal uses one of the round's five hands." :
-        state.roundScore >= state.goal ? "Target reached. Your next stop is the relic shop." :
-        "This hand is finished. Keep scoring toward the round target.");
+    ImGui::SetCursorPos({0, 76});
+    ImGui::TextColored(muted, "%s", state.phase == bj::Phase::PlayerTurn ? "H" : "SPACE");
+    if (state.phase == bj::Phase::PlayerTurn) {
+        ImGui::SameLine(192);
+        ImGui::TextColored(muted, "SPACE / S");
+    }
     ImGui::PopFont();
     ImGui::End();
+    ImGui::PopStyleVar();
+
+    const auto& current = game.state();
+    feedback.observe(current, 0, !session.menu);
+    if (current.phase == bj::Phase::RunLost) {
+        drawGameOver(game, session, ui, window);
+        return;
+    }
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+    beginPanel("##dealer", {layout.contentX + 18, layout.boardY + 8}, {250, 102}, true, ImGuiWindowFlags_NoInputs);
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted, "DEALER");
+    ImGui::PopFont();
+    const auto dealer = bj::evaluateHand(current.dealer);
+    const std::string dealerText = current.dealer.empty() ? "--" : current.phase == bj::Phase::PlayerTurn
+        ? std::to_string(bj::evaluateHand({current.dealer.front()}).total) + " + ?" : std::to_string(dealer.total);
+    auto* draw = ImGui::GetWindowDrawList();
+    const ImVec2 dealerOrigin = ImGui::GetWindowPos();
+    draw->AddText(ui.largeNumber, 64, {dealerOrigin.x, dealerOrigin.y + 21},
+        ImGui::ColorConvertFloat4ToU32(current.phase != bj::Phase::PlayerTurn && dealer.bust ? red : cream), dealerText.c_str());
+    ImGui::End();
+
+    beginPanel("##hand-reward", {layout.contentX + 18, layout.actionY - 34}, {layout.contentWidth - 250, 74}, true,
+        ImGuiWindowFlags_NoInputs);
+    if (current.phase == bj::Phase::RoundOver) {
+        const auto hand = bj::evaluateHand(current.player);
+        const ImVec4 color = current.outcome == bj::Outcome::Win ? green : current.outcome == bj::Outcome::Loss ? red : gold;
+        ImGui::PushFont(ui.small);
+        ImGui::TextColored(color, "%s / +%d COINS", current.outcome == bj::Outcome::Win
+            ? (hand.blackjack ? "BLACKJACK" : "YOU WIN") : current.outcome == bj::Outcome::Loss
+            ? (hand.bust ? "BUST" : "HOUSE WINS") : "PUSH", current.score.coins);
+        ImGui::PopFont();
+        ImGui::SetCursorPosY(23);
+        ImGui::PushFont(ui.number);
+        ImGui::TextColored(color, "+%d POINTS", current.score.total);
+        ImGui::PopFont();
+    } else if (current.phase == bj::Phase::Ready) {
+        ImGui::SetCursorPosY(26);
+        ImGui::PushFont(ui.button);
+        ImGui::TextColored(muted, "READY TO DEAL");
+        ImGui::PopFont();
+    }
+    ImGui::End();
+    ImGui::PopStyleVar();
+    drawHandValue(current, feedback, layout, ui);
 }
 
 void drawRules(Session& session, const Interface& ui) {
@@ -803,7 +918,7 @@ void drawRules(Session& session, const Interface& ui) {
         ImGui::TextWrapped("Each round gives you five hands to reach the points target.");
         ImGui::BulletText("Beat the dealer without going over 21.");
         ImGui::BulletText("Aces count as 1 or 11. Dealer stands on 17.");
-        ImGui::TextWrapped("A win earns the hand total in points and 3 coins, plus relic bonuses. A natural blackjack adds 10 points.");
+        ImGui::TextWrapped("A win earns the hand total in points and 3 coins. Natural blackjack is 21 points; only relics add bonus points.");
         ImGui::TextWrapped("A loss or push earns no points and uses a hand. Reach the target to shop. Run out of hands below the target and the run ends.");
         ImGui::TextWrapped("Equip up to 4 relics. Hover one to read its effect. Shop sales return half its price.");
         if (ImGui::Button("GOT IT", {160, 44})) session.rules = false;
@@ -891,6 +1006,7 @@ int main(int argc, char** argv) {
         gfx::RenderSettings settings;
         bj::Game game(options.seed);
         Session session;
+        HandFeedback feedback;
         session.fixedSeed = options.fixedSeed || options.smoke;
         session.transitions = !options.noAnimation;
         if (options.demo) {
@@ -995,10 +1111,12 @@ int main(int argc, char** argv) {
                     << " phase=" << static_cast<int>(game.state().phase)
                     << " coins=" << game.state().coins << " seed=" << game.state().seed << '\n';
             }
+            feedback.observe(game.state(), dt, !session.menu && !session.transitioning());
             if (session.menu) drawMenu(game, session, interface, window.handle);
-            else drawTable(game, commands, session, interface, window.handle);
+            else drawTable(game, commands, session, feedback, interface, window.handle);
             drawSettings(session, settings, interface);
             drawRules(session, interface);
+            feedback.observe(game.state(), 0, !session.menu && !session.transitioning());
             if (options.smoke && ((frame == 2 && !session.settings) || (frame == 8 && session.settings) ||
                 (!options.demo && frame == 12 && (options.noAnimation ? session.menu : !session.transitioning()))))
                 throw std::runtime_error("Smoke input failed: Settings/Start did not respond.");
@@ -1024,7 +1142,22 @@ int main(int argc, char** argv) {
                     game.state().phase == bj::Phase::RoundOver && game.state().roundScore >= game.state().goal ? "round-clear" :
                     game.state().phase == bj::Phase::RoundOver && game.state().outcome == bj::Outcome::Loss &&
                         game.state().handsLeft > 0 ? "hand-loss" : "table";
-                if (captured.insert(name).second) saveScreenshot(options.captures / (name + ".png"), width, height);
+                const auto capture = [&](const std::string& tag) {
+                    if (captured.insert(tag).second) saveScreenshot(options.captures / (tag + ".png"), width, height);
+                };
+                capture(name);
+                const auto hand = bj::evaluateHand(game.state().player);
+                if (feedback.remaining > 0 && !session.menu && !session.settings && !session.rules &&
+                    game.state().phase != bj::Phase::RunLost) {
+                    capture("card-gain");
+                    if (feedback.delta <= 0) capture("ace-recount");
+                }
+                if (hand.bust && game.state().phase == bj::Phase::RoundOver) capture("bust");
+                if (hand.blackjack && game.state().outcome == bj::Outcome::Win &&
+                    game.state().phase == bj::Phase::RoundOver) {
+                    capture("blackjack");
+                    if (game.hasRelic(bj::Relic::BlackjackBonus)) capture("blackjack-bonus");
+                }
             }
             if (options.smoke && !options.captures.empty() && (frame == 25 || frame == 38 || frame == 51))
                 saveScreenshot(options.captures / ("fade-" + std::to_string(frame) + ".png"), width, height);

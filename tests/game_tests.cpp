@@ -187,6 +187,124 @@ void testDeterminismAndBlockedRandomness() {
         || !sameCards(first.state().dealer, other.state().dealer), "different seeds change the opening deal");
 }
 
+void testNaturalBaseAndActualBust() {
+    bool naturalWin = false;
+    bool naturalPush = false;
+    bool actualBust = false;
+    for (std::uint32_t seed = 0; seed < 10000 && !(naturalWin && naturalPush && actualBust); ++seed) {
+        bj::Game game(seed);
+        game.deal();
+        const auto result = game.state();
+        const auto player = bj::evaluateHand(result.player);
+        if (!naturalWin && player.blackjack && result.outcome == bj::Outcome::Win) {
+            naturalWin = true;
+            check(result.score.base == 21 && result.score.bonus == 0 && result.score.total == 21
+                && result.roundScore == 21 && result.totalScore == 21, "an unupgraded natural scores exactly twenty-one, without an automatic bonus");
+            check(result.score.coins == 3 && result.coins == 3 && result.handsLeft == 4,
+                "a natural pays normal win income and consumes one hand");
+            check(result.phase == bj::Phase::RoundOver && game.advance()
+                && game.state().phase == bj::Phase::Ready && game.state().roundScore == 21,
+                "a first-hand natural alone does not clear the thirty-point round goal");
+        }
+        if (!naturalPush && player.blackjack && result.outcome == bj::Outcome::Push) {
+            naturalPush = true;
+            check(result.score.base == 0 && result.score.bonus == 0 && result.score.total == 0
+                && result.score.coins == 0 && result.roundScore == 0, "two natural blackjacks push and award no points or coins");
+        }
+        if (!actualBust && result.phase == bj::Phase::PlayerTurn) {
+            auto probe = game;
+            for (int action = 0; action < 52 && probe.state().phase == bj::Phase::PlayerTurn; ++action) {
+                probe.hit();
+                const auto value = bj::evaluateHand(probe.state().player);
+                if (value.bust) {
+                    actualBust = true;
+                    check(value.total > 21 && probe.state().outcome == bj::Outcome::Loss
+                        && probe.state().score.base == 0 && probe.state().score.bonus == 0
+                        && probe.state().score.total == 0 && probe.state().score.coins == 0,
+                        "an actual hit bust retains its real above-twenty-one total and awards nothing");
+                    check(probe.state().phase == bj::Phase::RoundOver && probe.state().handsLeft == 4
+                        && probe.advance() && probe.state().phase == bj::Phase::Ready,
+                        "an early bust ends only that hand and retains the other four attempts");
+                }
+            }
+        }
+    }
+    check(naturalWin && naturalPush && actualBust, "bounded legal seed search covers a natural win, natural push and actual bust");
+}
+
+void testBlackjackBonusCounterfactual() {
+    int naturalWins = 0;
+    int ordinaryTwentyOnes = 0;
+    int losses = 0;
+    int pushes = 0;
+    int comparedHands = 0;
+    for (std::uint32_t seed = 0; seed < 5000
+        && (naturalWins == 0 || ordinaryTwentyOnes == 0 || losses == 0 || pushes == 0); ++seed) {
+        bj::Game plain(seed);
+        bool offered = false;
+        for (int attempt = 0; attempt < 30 && plain.state().phase == bj::Phase::Ready; ++attempt) {
+            plain.deal();
+            plain = finishBest(plain);
+            if (plain.state().phase == bj::Phase::RunLost) break;
+            plain.advance();
+            if (plain.state().phase != bj::Phase::Shop) continue;
+            offered = contains(plain.state().offers, bj::Relic::BlackjackBonus) && plain.state().coins >= 4;
+            if (offered) break;
+            plain.leaveShop();
+        }
+        if (!offered) continue;
+        auto upgraded = plain;
+        check(upgraded.buy(bj::Relic::BlackjackBonus) && upgraded.state().owned.size() == 1,
+            "the counterfactual run acquires Blackjack Bonus through its real shop offer");
+        plain.leaveShop();
+        upgraded.leaveShop();
+        int accumulatedBonus = 0;
+        for (int attempt = 0; attempt < 5; ++attempt) {
+            check(plain.deal() && upgraded.deal(), "both comparison runs deal through the public command API");
+            for (int action = 0; action < 52 && plain.state().phase == bj::Phase::PlayerTurn
+                && upgraded.state().phase == bj::Phase::PlayerTurn; ++action) {
+                if (bj::evaluateHand(plain.state().player).total < 17) {
+                    plain.hit();
+                    upgraded.hit();
+                } else {
+                    plain.stand();
+                    upgraded.stand();
+                }
+            }
+            const auto baseline = plain.state();
+            const auto boosted = upgraded.state();
+            const auto player = bj::evaluateHand(baseline.player);
+            const bool eligible = baseline.outcome == bj::Outcome::Win && player.blackjack;
+            const int extraPoints = eligible ? 5 : 0;
+            accumulatedBonus += extraPoints;
+            ++comparedHands;
+            check(sameCards(baseline.player, boosted.player) && sameCards(baseline.dealer, boosted.dealer)
+                && baseline.outcome == boosted.outcome, "buying the natural bonus never changes dealt cards or the winner");
+            check(boosted.score.base == baseline.score.base && boosted.score.bonus == baseline.score.bonus + extraPoints
+                && boosted.score.total == baseline.score.total + extraPoints,
+                "Blackjack Bonus adds five points only to a winning two-card natural");
+            check(boosted.score.coins == baseline.score.coins && boosted.coins == baseline.coins - 4,
+                "Blackjack Bonus costs four coins and never adds extra win income");
+            check(boosted.roundScore == baseline.roundScore + accumulatedBonus
+                && boosted.totalScore == baseline.totalScore + accumulatedBonus,
+                "only the earned natural bonus changes accumulated round and run points");
+            naturalWins += eligible ? 1 : 0;
+            ordinaryTwentyOnes += baseline.outcome == bj::Outcome::Win && player.total == 21 && !player.blackjack ? 1 : 0;
+            losses += baseline.outcome == bj::Outcome::Loss ? 1 : 0;
+            pushes += baseline.outcome == bj::Outcome::Push ? 1 : 0;
+            checkBlockedActions(upgraded);
+            if (baseline.phase == bj::Phase::RunLost || boosted.phase == bj::Phase::RunLost
+                || baseline.roundScore >= baseline.goal || boosted.roundScore >= boosted.goal) break;
+            check(plain.advance() && upgraded.advance() && plain.state().phase == bj::Phase::Ready
+                && upgraded.state().phase == bj::Phase::Ready, "comparison hands continue normally below the goal");
+        }
+    }
+    check(naturalWins > 0 && ordinaryTwentyOnes > 0 && losses > 0 && pushes > 0,
+        "bounded shop-and-play search tests the bonus on naturals, ordinary winning twenty-ones, losses and pushes");
+    std::cout << "Blackjack Bonus comparison: " << comparedHands << " hands; natural wins " << naturalWins
+              << ", ordinary winning twenty-ones " << ordinaryTwentyOnes << ", losses " << losses << ", pushes " << pushes << '\n';
+}
+
 void testUnbiasedOpeningDistribution() {
     constexpr std::uint32_t samples = 40000;
     int naturals = 0;
@@ -230,13 +348,14 @@ void testRarityDistribution() {
     };
     constexpr std::array<int, 5> weights{50, 28, 14, 6, 2};
     constexpr std::array<const char*, 5> names{"Common", "Uncommon", "Rare", "Epic", "Legendary"};
-    constexpr std::array<int, 5> tierSizes{4, 3, 3, 1, 1};
-    constexpr std::array<bj::Rarity, 12> assignments{
+    constexpr std::array<int, 5> tierSizes{4, 4, 3, 1, 1};
+    constexpr std::array<bj::Rarity, 13> assignments{
         bj::Rarity::Rare, bj::Rarity::Rare, bj::Rarity::Legendary, bj::Rarity::Epic,
         bj::Rarity::Common, bj::Rarity::Common, bj::Rarity::Rare, bj::Rarity::Uncommon,
-        bj::Rarity::Uncommon, bj::Rarity::Uncommon, bj::Rarity::Common, bj::Rarity::Common
+        bj::Rarity::Uncommon, bj::Rarity::Uncommon, bj::Rarity::Common, bj::Rarity::Common,
+        bj::Rarity::Uncommon
     };
-    constexpr std::array<int, 12> costs{6, 6, 10, 8, 2, 2, 6, 4, 4, 4, 2, 2};
+    constexpr std::array<int, 13> costs{6, 6, 10, 8, 2, 2, 6, 4, 4, 4, 2, 2, 4};
     for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
         check(bj::rarityWeight(rarities[tier]) == weights[tier] && std::string(bj::rarityName(rarities[tier])) == names[tier],
             "rarity metadata exposes the documented names and base weights");
@@ -250,7 +369,7 @@ void testRarityDistribution() {
 
     int shops = 0;
     std::array<int, 5> firstCounts{};
-    std::array<int, 12> itemCounts{};
+    std::array<int, 13> itemCounts{};
     std::array<std::array<int, 5>, 5> secondCounts{};
     for (std::uint32_t seed = 0; seed < 40000; ++seed) {
         bj::Game game(seed);
@@ -317,10 +436,11 @@ struct Coverage {
     int lossContinues = 0, pushContinues = 0, winContinues = 0, lastHandWinFails = 0;
     int cappedGoals = 0, shieldResets = 0, maxRound = 1;
     int streakBoosts = 0, streakCaps = 0;
+    int naturalPrecisionStacks = 0, naturalStreakStacks = 0;
     int purchases = 0, sales = 0, reoffers = 0, fullBuilds = 0, cardStreams = 0;
     int shields = 0, spentShields = 0, persistentShields = 0;
-    std::array<int, 12> active{};
-    std::array<int, 12> inactive{};
+    std::array<int, 13> active{};
+    std::array<int, 13> inactive{};
 };
 
 bool red(const bj::Card& card) {
@@ -339,7 +459,7 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
         return;
     }
     int expectedCoins = 3;
-    int expectedBonus = player.blackjack ? 10 : 0;
+    int expectedBonus = 0;
     for (auto relic : before.owned) {
         bool active = false;
         int bonus = 0;
@@ -360,6 +480,7 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
             coinBonus = 0;
             break;
         case bj::Relic::HumbleCrown: active = player.total <= 18; bonus = 5; coinBonus = 0; break;
+        case bj::Relic::BlackjackBonus: active = player.blackjack; bonus = 5; coinBonus = 0; break;
         case bj::Relic::SecondChance: continue;
         }
         const auto index = static_cast<std::size_t>(relic);
@@ -374,10 +495,13 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
         ? streakMultipliers[static_cast<std::size_t>(std::min(before.streak, 4))] : 1.0f;
     coverage.streakBoosts += expectedMultiplier > 1.0f ? 1 : 0;
     coverage.streakCaps += contains(before.owned, bj::Relic::Streak) && before.streak > 4 ? 1 : 0;
+    const bool naturalBonus = player.blackjack && contains(before.owned, bj::Relic::BlackjackBonus);
+    coverage.naturalPrecisionStacks += naturalBonus && contains(before.owned, bj::Relic::Precision) ? 1 : 0;
+    coverage.naturalStreakStacks += naturalBonus && expectedMultiplier > 1.0f ? 1 : 0;
     const int expectedTotal = static_cast<int>(std::lround(static_cast<float>(player.total + expectedBonus) * expectedMultiplier));
     check(result.score.base == player.total && result.score.bonus == expectedBonus
         && result.score.total == expectedTotal && std::abs(result.score.multiplier - expectedMultiplier) < 0.00001f,
-        "points combine natural and relic bonuses before applying the capped streak multiplier");
+        "points add only owned relic bonuses before applying the capped streak multiplier");
     check(result.score.coins == expectedCoins && result.coins == before.coins + expectedCoins,
         "win income is three coins plus eligible modest bonuses");
     check(result.totalScore == before.totalScore + result.score.total && result.roundScore == before.roundScore + result.score.total
@@ -407,7 +531,7 @@ void probeShield(bj::Game game, Coverage& coverage) {
 void testSeededRunsAndShop() {
     Coverage coverage;
     const auto& catalog = bj::relicCatalog();
-    check(catalog.size() == 12, "catalogue has twelve choices");
+    check(catalog.size() == 13, "catalogue has thirteen choices");
     for (const auto& item : catalog) {
         check(item.cost > 0 && item.cost <= 10 && item.cost % 2 == 0
             && item.name[0] != '\0' && item.description[0] != '\0', "bounded even prices and descriptive text");
@@ -589,6 +713,8 @@ void testSeededRunsAndShop() {
     check(coverage.soft17 > 0, "soft-17 dealer stands exercised");
     check(coverage.cappedGoals > 0, "longer runs exercise the one-hundred-point target cap");
     check(coverage.streakBoosts > 0 && coverage.streakCaps > 0, "Epic Streak multiplies winning points and remains capped after four earlier wins");
+    check(coverage.naturalPrecisionStacks > 0 && coverage.naturalStreakStacks > 0,
+        "Blackjack Bonus stacks with Precision and is included before a Streak multiplier");
     check(coverage.purchases > 0 && coverage.sales > 0 && coverage.reoffers > 0 && coverage.fullBuilds > 0,
         "simulation buys, sells, reoffers sold upgrades and reaches four active upgrades");
     check(coverage.cardStreams > 0, "transactions compared against no-shopping runs");
@@ -614,6 +740,8 @@ int main() {
     try {
         testHands();
         testDeterminismAndBlockedRandomness();
+        testNaturalBaseAndActualBust();
+        testBlackjackBonusCounterfactual();
         testUnbiasedOpeningDistribution();
         testRarityDistribution();
         testSeededRunsAndShop();

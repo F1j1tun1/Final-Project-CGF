@@ -27,7 +27,8 @@ enum class Outcome { None, Win, Loss, Push };
 enum class Phase { Ready, PlayerTurn, RoundOver, Shop, RunLost };
 enum class Relic {
     Precision, LongHand, SecondChance, Streak, RoyalPurse, SoftTouch,
-    NarrowEscape, RedRibbon, BlackVelvet, EvenOdds, CourtFavor, HumbleCrown
+    NarrowEscape, RedRibbon, BlackVelvet, EvenOdds, CourtFavor, HumbleCrown,
+    BlackjackBonus
 };
 
 enum class Rarity { Common, Uncommon, Rare, Epic, Legendary };

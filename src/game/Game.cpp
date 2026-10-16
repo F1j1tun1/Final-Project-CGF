@@ -98,7 +98,8 @@ const std::vector<RelicInfo>& relicCatalog() {
         {Relic::BlackVelvet, "Black Velvet", "Win with two black opening cards for +1 coin.", 4, Rarity::Uncommon},
         {Relic::EvenOdds, "Even Odds", "Win with an even hand total for +1 coin.", 4, Rarity::Uncommon},
         {Relic::CourtFavor, "Court Favor", "Win with at least one J, Q or K for +3 points.", 2, Rarity::Common},
-        {Relic::HumbleCrown, "Humble Crown", "Win with 18 or less for +5 points.", 2, Rarity::Common}
+        {Relic::HumbleCrown, "Humble Crown", "Win with 18 or less for +5 points.", 2, Rarity::Common},
+        {Relic::BlackjackBonus, "Blackjack Bonus", "Win with a natural blackjack for +5 points.", 4, Rarity::Uncommon}
     };
     return catalog;
 }
@@ -227,8 +228,8 @@ void Game::finishRound() {
     state_.score = ScoreBreakdown{};
     if (state_.outcome == Outcome::Win) {
         state_.score.base = player.total;
-        if (player.blackjack) {
-            state_.score.bonus += 10;
+        if (hasRelic(Relic::BlackjackBonus) && player.blackjack) {
+            state_.score.bonus += 5;
         }
         state_.score.coins = kWinCoins;
         if (hasRelic(Relic::LongHand) && state_.player.size() >= 4) {
@@ -281,7 +282,7 @@ void Game::finishRound() {
         state_.coins += state_.score.coins;
         ++state_.wins;
         ++state_.streak;
-        state_.message = player.blackjack ? "Blackjack! Coins and bonus points earned." : "You win! Coins and points earned.";
+        state_.message = player.blackjack ? "Blackjack! Points and coins earned." : "You win! Coins and points earned.";
     } else if (state_.outcome == Outcome::Loss) {
         state_.streak = 0;
         state_.message = player.bust ? "Bust! This hand earns no points." : "Dealer wins this hand. No points earned.";
