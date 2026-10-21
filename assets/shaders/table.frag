@@ -155,8 +155,8 @@ void main() {
         result += surface * vec3(1.0, 0.48, 0.16) * glow
             * (0.35 + candleDiffuse * 1.6) * uRoomLight;
     }
-    {
-        vec3 lamp = vec3(-4.70, 1.25, -5.75);
+    for (int i = 0; i < 2; ++i) {
+        vec3 lamp = vec3(i == 0 ? -4.70 : 4.70, 3.10, -5.75);
         vec3 delta = lamp - vWorldPosition;
         float glow = 1.0 / (1.0 + dot(delta, delta) * 2.1);
         float lampDiffuse = max(dot(normal, normalize(delta)), 0.0);

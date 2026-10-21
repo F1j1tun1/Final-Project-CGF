@@ -99,25 +99,21 @@
         roomPortal(-10.80f,1.02f,2.20f,1.28f,.64f);
         roomPortal(-16.00f,.82f,1.90f,1.00f,.38f);
 
-        // The wings share the old burgundy/plum palette with uneven gathering.
-        draw(curtain,transform({-3.80f,-.0775f,-6.35f},{.72f,.93f,1},.04f),
-             {.27f,.030f,.085f},felt,{7,8},.035f,16,.025f,1,.95f,2);
-        draw(curtain,transform({3.95f,-.01f,-6.50f},{.82f,1.02f,1},-.05f),
-             {.22f,.027f,.075f},felt,{8,8},.035f,16,.025f,1,.95f,2);
-        draw(curtain,transform({-7.20f,-.0625f,-7.05f},{.64f,.95f,1},.06f),
-             {.145f,.040f,.22f},felt,{6,8},.03f,16,.015f,1,.9f,2);
-        draw(curtain,transform({7.40f,-.025f,-7.20f},{.72f,1.0f,1},-.06f),
-             {.115f,.032f,.18f},felt,{7,8},.03f,16,.015f,1,.9f,2);
-        roomCurtainRail({-3.80f,-.0775f,-6.35f},{.72f,.93f,1},.04f);
-        roomCurtainRail({3.95f,-.01f,-6.50f},{.82f,1.02f,1},-.05f);
-        roomCurtainRail({-7.20f,-.0625f,-7.05f},{.64f,.95f,1},.06f);
-        roomCurtainRail({7.40f,-.025f,-7.20f},{.72f,1.0f,1},-.06f);
-        draw(cube,transform({-3.80f,1.10f,-5.99f},{1.50f,.055f,.055f}),bronze*.82f);
-        draw(cube,transform({3.95f,.86f,-6.13f},{1.70f,.055f,.055f}),bronze*.78f);
-        diamond({-3.80f,.93f,-5.94f},.15f,bronze);
-        diamond({3.95f,.69f,-6.08f},.15f,bronze*.9f);
-
+        // Mirrored wings share level hems, rails and matching tiebacks.
         for (const float side : {-1.0f,1.0f}) {
+            const glm::vec3 inner{side*3.90f,-.04f,-6.425f};
+            const glm::vec3 outer{side*7.25f,-.04f,-7.125f};
+            const glm::vec3 innerScale{-side*.77f,.98f,1};
+            const glm::vec3 outerScale{-side*.68f,.98f,1};
+            draw(curtain,transform(inner,innerScale),{.245f,.029f,.080f},
+                 felt,{7,8},.035f,16,.025f,1,.95f,2);
+            draw(curtain,transform(outer,outerScale),{.130f,.036f,.20f},
+                 felt,{7,8},.03f,16,.015f,1,.9f,2);
+            roomCurtainRail(inner,innerScale,0);
+            roomCurtainRail(outer,outerScale,0);
+            draw(cube,transform({side*3.90f,.98f,-6.065f},{1.60f,.055f,.055f}),bronze*.80f);
+            diamond({side*3.90f,.81f,-6.015f},.15f,bronze*.95f);
+
             roomColumn({side*5.55f,0,-6.95f},2.58f);
             roomColumn({side*5.75f,0,-11.35f},2.48f,.64f);
             roomColumn({side*6.15f,0,-16.5f},2.32f,.40f);
@@ -125,8 +121,9 @@
                  bronze*.24f,0,glm::vec2(1),.06f,24);
         }
 
-        roomLamp({-4.7f,1.25f,-5.75f},roomLampBrightness(time,animate));
+        const float lampBrightness=roomLampBrightness(time,animate);
         for (const float side : {-1.0f,1.0f}) {
+            roomLamp({side*4.7f,3.1f,-5.75f},lampBrightness);
             const float x=side*5.45f;
             draw(cylinder,transform({x,-.64f,-2.6f},{.27f,.14f,.27f}),bronze,0,glm::vec2(1),.26f,48);
             beam({x,-.61f,-2.6f},{x,1.03f,-2.6f},.048f,bronze);

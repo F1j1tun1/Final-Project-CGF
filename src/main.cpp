@@ -633,6 +633,73 @@ TableLayout tableLayout(ImVec2 display) {
     return {sidebar, contentX, display.x - contentX - 20, boardY, display.y - boardY - 110, actionY};
 }
 
+void drawGameplayShading(const Session& session, const presentation::Presentation& timeline) {
+    const auto phase=timeline.visible().phase;
+    if(session.menu || phase==bj::Phase::Shop || (phase==bj::Phase::RunLost && !timeline.busy())) return;
+    const auto display=ImGui::GetIO().DisplaySize;
+    const auto layout=tableLayout(display);
+    auto* draw=ImGui::GetBackgroundDrawList();
+    constexpr ImU32 shade=IM_COL32(0,0,0,48),clear=IM_COL32(0,0,0,0);
+    draw->AddRectFilledMultiColor({layout.contentX,0},{display.x,140},shade,shade,clear,clear);
+    draw->AddRectFilledMultiColor({layout.contentX,display.y-140},display,clear,clear,shade,shade);
+}
+
+bool compactRelicRow(const TableLayout& layout, ImVec2 display) {
+    return display.y<800 || layout.contentWidth/4<235;
+}
+
+const char* ownedRelicDescription(const bj::RelicInfo& item, bool rescueSpent) {
+    return item.id==bj::Relic::SecondChance && rescueSpent
+        ?"Rescue spent this round. Win the rescued hand: +1.0 multiplier.":item.description;
+}
+
+struct WrappedRelicText {
+    std::string text;
+    float longestWord=0;
+};
+
+WrappedRelicText wrapRelicWords(ImFont* font, float size, float width, const char* text) {
+    WrappedRelicText wrapped;
+    std::istringstream words(text);
+    std::string word,line;
+    while(words>>word) {
+        wrapped.longestWord=std::max(wrapped.longestWord,font->CalcTextSizeA(size,10000,0,word.c_str()).x);
+        const std::string candidate=line.empty()?word:line+" "+word;
+        if(!line.empty() && font->CalcTextSizeA(size,10000,0,candidate.c_str()).x>width) {
+            wrapped.text+=line+'\n';
+            line=word;
+        } else line=candidate;
+    }
+    wrapped.text+=line;
+    return wrapped;
+}
+
+void verifyRelicTextLayout(const Interface& ui, const TableLayout& layout, ImVec2 display) {
+    const bool compact=compactRelicRow(layout,display);
+    const float radius=compact?38.0f:44.0f;
+    const float textWidth=layout.contentWidth/4-radius*2-22;
+    const float nameSize=compact?18.0f:20.0f,bodySize=compact?14.0f:16.0f;
+    float maxBottom=0,longestWord=0;
+    const char* longest="";
+    for(const auto& item:bj::relicCatalog()) {
+        const float nameHeight=ui.button->CalcTextSizeA(nameSize,1000,textWidth,item.name).y;
+        if(nameHeight>nameSize*2+.5f) throw std::runtime_error(std::string("Relic name exceeds two lines: ")+item.name);
+        for(const bool spent:{false,true}) {
+            const auto description=wrapRelicWords(ui.small,bodySize,textWidth,ownedRelicDescription(item,spent));
+            if(description.longestWord>textWidth+.5f)
+                throw std::runtime_error(std::string("Relic description word exceeds column: ")+item.name);
+            longestWord=std::max(longestWord,description.longestWord);
+            const float descriptionHeight=ui.small->CalcTextSizeA(bodySize,10000,0,description.text.c_str()).y;
+            const float bottom=14+nameHeight+3+bodySize+5+descriptionHeight;
+            if(bottom>layout.boardY-6) throw std::runtime_error(std::string("Relic description exceeds row: ")+item.name);
+            if(bottom>maxBottom) {maxBottom=bottom;longest=item.name;}
+        }
+    }
+    std::cout<<"Relic layout "<<static_cast<int>(display.x)<<'x'<<static_cast<int>(display.y)
+        <<": max text bottom "<<maxBottom<<" / "<<layout.boardY<<" ("<<longest
+        <<"), longest word "<<longestWord<<" / "<<textWidth<<'\n';
+}
+
 float controlsLeft(const TableLayout& layout) {
     constexpr float width = 456;
     const float tableCenter = layout.contentX + layout.contentWidth * .5f;
@@ -667,14 +734,14 @@ void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation&
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0.0f);
     beginPanel("##relics", {layout.contentX, 0}, {layout.contentWidth, layout.boardY}, true,
         ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
-    const bool compact=ImGui::GetIO().DisplaySize.y<800;
-    const float radius=compact?48.0f:55.0f;
     const float width=layout.contentWidth/4;
-    const float centerY=compact?68.0f:75.0f;
+    const bool compact=compactRelicRow(layout,ImGui::GetIO().DisplaySize);
+    const float radius=compact?38.0f:44.0f;
+    const float centerY=compact?67.0f:73.0f;
     for (int slot = 0; slot < 4; ++slot) {
         const auto origin=ImGui::GetWindowPos();
         auto* draw=ImGui::GetWindowDrawList();
-        const float centerX=origin.x+slot*width+width*.5f;
+        const float centerX=origin.x+slot*width+radius+5;
         const bool filled = static_cast<std::size_t>(slot) < state.owned.size();
         if(!filled) {
             session.relicHover[slot]=approach(session.relicHover[slot],false);
@@ -689,7 +756,7 @@ void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation&
         }
         const auto& item=relicInfo(state.owned[static_cast<std::size_t>(slot)]);
         ImGui::PushID(slot);
-        ImGui::SetCursorPos({slot*width+width*.5f-radius-4,centerY-radius-4});
+        ImGui::SetCursorPos({slot*width+1,centerY-radius-4});
         ImGui::PushStyleColor(ImGuiCol_Header,{0,0,0,0});
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered,{0,0,0,0});
         ImGui::PushStyleColor(ImGuiCol_HeaderActive,{0,0,0,0});
@@ -703,6 +770,26 @@ void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation&
         const float lift=session.relicHover[slot]*4+(reacting?pulse*9:0);
         const ImVec2 center{centerX,origin.y+centerY-lift};
         drawChip(draw,center,radius,item,art,-.055f*session.relicHover[slot]+(reacting?pulse*.025f:0));
+        const float textX=origin.x+slot*width+radius*2+14;
+        const float textWidth=width-radius*2-22;
+        const float nameSize=compact?18.0f:20.0f,bodySize=compact?14.0f:16.0f;
+        const float nameY=origin.y+14;
+        const float nameHeight=ui.button->CalcTextSizeA(nameSize,1000,textWidth,item.name).y;
+        draw->AddText(ui.button,nameSize,{textX,nameY},ImGui::ColorConvertFloat4ToU32(cream),
+            item.name,nullptr,textWidth);
+        const float rarityY=nameY+nameHeight+3;
+        draw->AddText(ui.small,bodySize,{textX,rarityY},ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity)),
+            bj::rarityName(item.rarity));
+        const auto description=wrapRelicWords(ui.small,bodySize,textWidth,ownedRelicDescription(item,state.usedSecondChance));
+        draw->AddText(ui.small,bodySize,{textX,rarityY+bodySize+5},ImGui::ColorConvertFloat4ToU32(cream),
+            description.text.c_str());
+        if(hovered && (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) || ImGui::GetIO().NavVisible)) {
+            ImGui::BeginTooltip();
+            ImGui::PushFont(ui.small);
+            ImGui::Text("Buy: %d coins    Sell: %d coins",item.cost,item.cost/2);
+            ImGui::PopFont();
+            ImGui::EndTooltip();
+        }
         if(reacting) {
             const auto accent=rarityColor(item.rarity);
             draw->AddCircle(center,radius+3,ImGui::ColorConvertFloat4ToU32(
@@ -719,33 +806,17 @@ void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation&
             if(effect->coins) bonuses.push_back("+"+std::to_string(effect->coins)+(effect->coins==1?" COIN":" COINS"));
             float widest=1;
             for(const auto& bonus:bonuses) widest=std::max(widest,ui.button->CalcTextSizeA(20,1000,0,bonus.c_str()).x);
-            const float size=20*std::min(1.0f,std::max(40.0f,width-radius*2-18)/widest);
-            const float popupY=center.y-static_cast<float>(bonuses.size())*(size+2)*.5f;
+            const float size=std::min(compact?16.0f:18.0f,20*(radius*2+4)/widest);
+            const float popupY=origin.y+centerY+radius+8-pulse*3;
             const auto ink=ImGui::ColorConvertFloat4ToU32({accent.x,accent.y,accent.z,.45f+.55f*pulse});
             for(std::size_t line=0;line<bonuses.size();++line) {
                 const auto& bonus=bonuses[line];
                 const float extent=ui.button->CalcTextSizeA(size,1000,0,bonus.c_str()).x;
-                const float x=slot==3?center.x-radius-9-extent:center.x+radius+9;
+                const float x=center.x-extent*.5f;
                 draw->AddText(ui.button,size,{x,popupY+static_cast<float>(line)*(size+2)},ink,bonus.c_str());
             }
         }
         ImGui::PopID();
-    }
-    if(session.hoveredRelic>=0) {
-        const auto origin=ImGui::GetWindowPos();
-        const ImVec2 p{origin.x,origin.y+(compact?124.0f:138.0f)};
-        auto* draw=ImGui::GetWindowDrawList();
-        draw->AddRectFilled(p,{p.x+layout.contentWidth,p.y+38},IM_COL32(13,11,14,235),5);
-        const auto& item=relicInfo(session.inspectedRelic);
-        draw->AddText(ui.button,18,{p.x+12,p.y},ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity)),item.name);
-        const std::string tag=std::string(bj::rarityName(item.rarity))+"   /   "+std::to_string(item.cost)+" coins";
-        const auto extent=ui.small->CalcTextSizeA(16,1000,0,tag.c_str());
-        draw->AddText(ui.small,16,{p.x+layout.contentWidth-12-extent.x,p.y+1},ImGui::ColorConvertFloat4ToU32(muted),tag.c_str());
-        const char* description=item.id==bj::Relic::SecondChance&&state.usedSecondChance
-            ?"Rescue spent this round. Recharges next round.":item.description;
-        const float textWidth=ui.small->CalcTextSizeA(16,2000,0,description).x;
-        const float size=16*std::min(1.0f,(layout.contentWidth-24)/textWidth);
-        draw->AddText(ui.small,size,{p.x+12,p.y+20},ImGui::ColorConvertFloat4ToU32(cream),description);
     }
     ImGui::End();
     ImGui::PopStyleVar(2);
@@ -1522,6 +1593,7 @@ int main(int argc, char** argv) {
         int relicHoverResizeFrame = -1;
         double previousTime = glfwGetTime();
         std::set<std::string> captured;
+        std::set<std::pair<int,int>> checkedRelicLayouts;
         while (!glfwWindowShouldClose(window.handle)) {
             glfwPollEvents();
             if (options.smoke) {
@@ -1603,14 +1675,21 @@ int main(int argc, char** argv) {
                     if(frame==142) io.AddMouseButtonEvent(0,true);
                     if(frame==146) io.AddMouseButtonEvent(0,false);
                 }
-                if(frame>340&&!session.menu&&!game.state().owned.empty()&&game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost)
-                    io.AddMousePosEvent(table.contentX+table.contentWidth*.125f,io.DisplaySize.y<800?89.0f:96.0f);
+                if(frame>340&&!session.menu&&!game.state().owned.empty()&&game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost) {
+                    const bool compact=compactRelicRow(table,io.DisplaySize);
+                    io.AddMousePosEvent(table.contentX+(compact?43.0f:49.0f),compact?67.0f:73.0f);
+                }
                 if(frame>=160 && frame%20==0 && !session.menu && !timeline.busy() &&
                     game.state().phase!=bj::Phase::Shop && game.state().phase!=bj::Phase::RunLost)
                     io.AddKeyEvent(ImGuiKey_Space,true);
                 if(frame>=161 && frame%20==1) io.AddKeyEvent(ImGuiKey_Space,false);
             }
             ImGui::NewFrame();
+            if(!options.captures.empty()) {
+                const auto display=ImGui::GetIO().DisplaySize;
+                const auto size=std::make_pair(static_cast<int>(display.x),static_cast<int>(display.y));
+                if(checkedRelicLayouts.insert(size).second) verifyRelicTextLayout(interface,tableLayout(display),display);
+            }
             const bool overlay=session.menu || session.settings || session.rules || session.collection || session.deckSelection || session.transitioning();
             const bool wasBusy=timeline.busy();
             Commands commands{overlay || wasBusy,false,&game,&timeline};
@@ -1706,6 +1785,7 @@ int main(int argc, char** argv) {
             }
             const float sceneTime=options.hidden && options.frames>0 ? frame/60.0f : static_cast<float>(now);
             session.updateBustReaction(0,timeline.visible());
+            drawGameplayShading(session,timeline);
             renderer.render(makeScene(timeline,sceneTime,session.menu,session.bustReaction),settings,width,height);
             if (session.transitioning()) ImGui::GetForegroundDrawList()->AddRectFilled(
                 {0, 0}, ImGui::GetIO().DisplaySize, IM_COL32(0, 0, 0, static_cast<int>(255 * session.darkness())));
