@@ -66,9 +66,7 @@ HandValue evaluateHand(const std::vector<Card>& hand) {
 const char* rarityName(Rarity rarity) {
     switch (rarity) {
     case Rarity::Common: return "Common";
-    case Rarity::Uncommon: return "Uncommon";
     case Rarity::Rare: return "Rare";
-    case Rarity::Epic: return "Epic";
     case Rarity::Legendary: return "Legendary";
     }
     return "Unknown";
@@ -76,36 +74,45 @@ const char* rarityName(Rarity rarity) {
 
 int rarityWeight(Rarity rarity) {
     switch (rarity) {
-    case Rarity::Common: return 50;
-    case Rarity::Uncommon: return 28;
-    case Rarity::Rare: return 14;
-    case Rarity::Epic: return 6;
-    case Rarity::Legendary: return 2;
+    case Rarity::Common: return 55;
+    case Rarity::Rare: return 35;
+    case Rarity::Legendary: return 10;
     }
     return 0;
 }
 
 const std::vector<RelicInfo>& relicCatalog() {
     static const std::vector<RelicInfo> catalog = {
-        {Relic::Precision, "Precision", "Win with 21 for +1 coin and +5 points.", 6, Rarity::Rare},
-        {Relic::LongHand, "Long Hand", "Win with 4+ cards for +1 coin and +8 points.", 6, Rarity::Rare},
-        {Relic::SecondChance, "Second Chance", "Discard your first bust card. Once per round.", 10, Rarity::Legendary},
-        {Relic::Streak, "Streak", "+0.1x per earlier consecutive win (max 1.4x). Every third win earns +1 coin.", 8, Rarity::Epic},
-        {Relic::RoyalPurse, "Royal Purse", "Win with a natural blackjack for +1 coin.", 2, Rarity::Common},
-        {Relic::SoftTouch, "Soft Touch", "Win with a soft hand for +1 coin.", 2, Rarity::Common},
-        {Relic::NarrowEscape, "Narrow Escape", "Win when the dealer busts for +1 coin and +3 points.", 6, Rarity::Rare},
-        {Relic::RedRibbon, "Red Ribbon", "Win with two red opening cards for +1 coin.", 4, Rarity::Uncommon},
-        {Relic::BlackVelvet, "Black Velvet", "Win with two black opening cards for +1 coin.", 4, Rarity::Uncommon},
-        {Relic::EvenOdds, "Even Odds", "Win with an even hand total for +1 coin.", 4, Rarity::Uncommon},
-        {Relic::CourtFavor, "Court Favor", "Win with at least one J, Q or K for +3 points.", 2, Rarity::Common},
-        {Relic::HumbleCrown, "Humble Crown", "Win with 18 or less for +5 points.", 2, Rarity::Common},
-        {Relic::BlackjackBonus, "Blackjack Bonus", "Win with a natural blackjack for +5 points.", 4, Rarity::Uncommon}
+        {Relic::Precision, "Precision", "Win with 21: +0.5 multiplier and +1 coin.", 6, Rarity::Rare},
+        {Relic::LongHand, "Long Hand", "Win with 4+ cards: +0.6 multiplier and +1 coin.", 6, Rarity::Rare},
+        {Relic::SecondChance, "Second Chance", "Rescue one bust per round. Winning after that rescue adds +1.0 multiplier.", 10, Rarity::Legendary},
+        {Relic::Streak, "Streak", "+0.1 multiplier per earlier consecutive win (max +0.4). Every third win earns +1 coin.", 6, Rarity::Rare},
+        {Relic::RoyalPurse, "Royal Purse", "Win with a natural blackjack for +1 coin.", 3, Rarity::Common},
+        {Relic::SoftTouch, "Soft Touch", "Win with a soft hand for +1 coin.", 3, Rarity::Common},
+        {Relic::NarrowEscape, "Narrow Escape", "Win when the dealer busts: +0.4 multiplier and +1 coin.", 6, Rarity::Rare},
+        {Relic::RedRibbon, "Red Ribbon", "Win with two red opening cards for +1 coin.", 3, Rarity::Common},
+        {Relic::BlackVelvet, "Black Velvet", "Win with two black opening cards for +1 coin.", 3, Rarity::Common},
+        {Relic::EvenOdds, "Even Odds", "Win with an even hand total for +1 coin.", 3, Rarity::Common},
+        {Relic::CourtFavor, "Court Favor", "Win with at least one J, Q or K for +3 points.", 3, Rarity::Common},
+        {Relic::HumbleCrown, "Humble Crown", "Win with 18 or less for +5 points.", 3, Rarity::Common},
+        {Relic::BlackjackBonus, "Blackjack Bonus", "Win with a natural blackjack for +5 points.", 3, Rarity::Common},
+        {Relic::CopperBell, "Copper Bell", "Win with 3+ cards for +3 points.", 3, Rarity::Common},
+        {Relic::SeventeenCharm, "Seventeen Charm", "Win with exactly 17 for +1 coin.", 3, Rarity::Common},
+        {Relic::ScarletMask, "Scarlet Mask", "Win with an entirely red hand: +0.5 multiplier.", 6, Rarity::Rare},
+        {Relic::MidnightMask, "Midnight Mask", "Win with an entirely black hand: +0.5 multiplier.", 6, Rarity::Rare},
+        {Relic::RoyalCourt, "Royal Court", "Win with 2+ face cards: +0.75 multiplier.", 6, Rarity::Rare},
+        {Relic::SoftCrown, "Soft Crown", "Win with a soft 19, 20 or 21: +0.75 multiplier.", 6, Rarity::Rare},
+        {Relic::JesterCrown, "Jester Crown", "Win with a natural blackjack: +1.0 multiplier.", 10, Rarity::Legendary},
+        {Relic::FiveCardParade, "Five Card Parade", "Win with 5+ cards: +1.5 multiplier.", 10, Rarity::Legendary},
+        {Relic::FinalAct, "Final Act", "Win on the round's last available hand: +1.0 multiplier.", 10, Rarity::Legendary},
+        {Relic::Underdog, "Underdog", "Win with 16 or less when the dealer busts: +1.5 multiplier.", 10, Rarity::Legendary},
+        {Relic::Encore, "Encore", "Win after 3+ earlier consecutive wins: +1.0 multiplier.", 10, Rarity::Legendary}
     };
     return catalog;
 }
 
-Game::Game(std::uint32_t seed) {
-    restart(seed);
+Game::Game(std::uint32_t seed, StartDeck deck) {
+    restart(seed, deck);
 }
 
 const Snapshot& Game::state() const {
@@ -113,14 +120,40 @@ const Snapshot& Game::state() const {
 }
 
 void Game::restart(std::uint32_t seed) {
+    restart(seed, state_.startDeck);
+}
+
+void Game::restart(std::uint32_t seed, StartDeck deck) {
+    if (deck != StartDeck::Standard && deck != StartDeck::ExtraHand
+        && deck != StartDeck::SecondLife && deck != StartDeck::Rich) {
+        throw std::invalid_argument("Unknown starting deck");
+    }
     state_ = Snapshot{};
     state_.seed = seed;
-    state_.message = "Five hands to reach the round goal. Each win earns points and 3 coins.";
+    state_.startDeck = deck;
+    state_.maxHands = deck == StartDeck::ExtraHand ? kHandsPerRound + 1 : kHandsPerRound;
+    state_.handsLeft = state_.maxHands;
+    state_.coins = deck == StartDeck::Rich ? 10 : 0;
+    state_.revivesLeft = deck == StartDeck::SecondLife ? 1 : 0;
+    state_.message = "Reach the round goal in " + std::to_string(state_.maxHands) + " hands. A win earns points and 3 coins.";
     cardRandom_.seed(seed);
     shopRandom_.seed(seed ^ 0x9e3779b9u);
     deck_.clear();
     previousOffers_.clear();
     boughtThisShop_.clear();
+    rescuedThisHand_ = false;
+}
+
+bool Game::revive() {
+    if (state_.phase != Phase::RunLost || state_.revivesLeft <= 0) {
+        return false;
+    }
+    --state_.revivesLeft;
+    ++state_.revivalsUsed;
+    state_.streak = 0;
+    resetRoundAttempt();
+    state_.message = "Second life! Retry this round with fresh hands and no round points.";
+    return true;
 }
 
 bool Game::hasRelic(Relic relic) const {
@@ -162,6 +195,7 @@ bool Game::deal() {
     state_.player.clear();
     state_.dealer.clear();
     state_.score = ScoreBreakdown{};
+    rescuedThisHand_ = false;
     state_.outcome = Outcome::None;
     --state_.handsLeft;
     state_.phase = Phase::PlayerTurn;
@@ -186,6 +220,7 @@ bool Game::hit() {
         if (hasRelic(Relic::SecondChance) && !state_.usedSecondChance) {
             state_.player.pop_back();
             state_.usedSecondChance = true;
+            rescuedThisHand_ = true;
             state_.message = "Second Chance saved you! The bust card was discarded.";
         } else {
             finishRound();
@@ -228,53 +263,42 @@ void Game::finishRound() {
     state_.score = ScoreBreakdown{};
     if (state_.outcome == Outcome::Win) {
         state_.score.base = player.total;
-        if (hasRelic(Relic::BlackjackBonus) && player.blackjack) {
-            state_.score.bonus += 5;
-        }
         state_.score.coins = kWinCoins;
-        if (hasRelic(Relic::LongHand) && state_.player.size() >= 4) {
-            ++state_.score.coins;
-            state_.score.bonus += 8;
-        }
-        if (hasRelic(Relic::Streak) && (state_.streak + 1) % 3 == 0) {
-            ++state_.score.coins;
-        }
-        if (hasRelic(Relic::Precision) && player.total == 21) {
-            ++state_.score.coins;
-            state_.score.bonus += 5;
-        }
-        if (hasRelic(Relic::RoyalPurse) && player.blackjack) {
-            ++state_.score.coins;
-        }
-        if (hasRelic(Relic::SoftTouch) && player.soft) {
-            ++state_.score.coins;
-        }
-        if (hasRelic(Relic::NarrowEscape) && dealer.bust) {
-            ++state_.score.coins;
-            state_.score.bonus += 3;
-        }
+        const auto apply = [&](Relic relic, bool condition, int points, int coins, float multiplier) {
+            if (hasRelic(relic) && condition && (points != 0 || coins != 0 || multiplier != 0.0f)) {
+                state_.score.appliedEffects.push_back({relic, points, coins, multiplier});
+                state_.score.bonus += points;
+                state_.score.coins += coins;
+                state_.score.multiplier += multiplier;
+            }
+        };
         const bool firstRed = isRed(state_.player[0]);
         const bool secondRed = isRed(state_.player[1]);
-        if (hasRelic(Relic::RedRibbon) && firstRed && secondRed) {
-            ++state_.score.coins;
-        }
-        if (hasRelic(Relic::BlackVelvet) && !firstRed && !secondRed) {
-            ++state_.score.coins;
-        }
-        if (hasRelic(Relic::EvenOdds) && player.total % 2 == 0) {
-            ++state_.score.coins;
-        }
-        if (hasRelic(Relic::CourtFavor) && std::any_of(state_.player.begin(), state_.player.end(), [](const Card& card) {
-                return card.rank >= 11;
-            })) {
-            state_.score.bonus += 3;
-        }
-        if (hasRelic(Relic::HumbleCrown) && player.total <= 18) {
-            state_.score.bonus += 5;
-        }
-        if (hasRelic(Relic::Streak)) {
-            state_.score.multiplier += .1f * static_cast<float>(std::min(state_.streak, 4));
-        }
+        const int faces = static_cast<int>(std::count_if(state_.player.begin(), state_.player.end(), [](const Card& card) { return card.rank >= 11; }));
+        apply(Relic::Precision, player.total == 21, 0, 1, .5f);
+        apply(Relic::LongHand, state_.player.size() >= 4, 0, 1, .6f);
+        apply(Relic::SecondChance, rescuedThisHand_, 0, 0, 1.0f);
+        apply(Relic::Streak, true, 0, state_.streak % 3 == 2 ? 1 : 0, .1f * static_cast<float>(std::min(state_.streak, 4)));
+        apply(Relic::RoyalPurse, player.blackjack, 0, 1, 0);
+        apply(Relic::SoftTouch, player.soft, 0, 1, 0);
+        apply(Relic::NarrowEscape, dealer.bust, 0, 1, .4f);
+        apply(Relic::RedRibbon, firstRed && secondRed, 0, 1, 0);
+        apply(Relic::BlackVelvet, !firstRed && !secondRed, 0, 1, 0);
+        apply(Relic::EvenOdds, player.total % 2 == 0, 0, 1, 0);
+        apply(Relic::CourtFavor, faces > 0, 3, 0, 0);
+        apply(Relic::HumbleCrown, player.total <= 18, 5, 0, 0);
+        apply(Relic::BlackjackBonus, player.blackjack, 5, 0, 0);
+        apply(Relic::CopperBell, state_.player.size() >= 3, 3, 0, 0);
+        apply(Relic::SeventeenCharm, player.total == 17, 0, 1, 0);
+        apply(Relic::ScarletMask, std::all_of(state_.player.begin(), state_.player.end(), isRed), 0, 0, .5f);
+        apply(Relic::MidnightMask, std::none_of(state_.player.begin(), state_.player.end(), isRed), 0, 0, .5f);
+        apply(Relic::RoyalCourt, faces >= 2, 0, 0, .75f);
+        apply(Relic::SoftCrown, player.soft && player.total >= 19, 0, 0, .75f);
+        apply(Relic::JesterCrown, player.blackjack, 0, 0, 1.0f);
+        apply(Relic::FiveCardParade, state_.player.size() >= 5, 0, 0, 1.5f);
+        apply(Relic::FinalAct, state_.handsLeft == 0, 0, 0, 1.0f);
+        apply(Relic::Underdog, player.total <= 16 && dealer.bust, 0, 0, 1.5f);
+        apply(Relic::Encore, state_.streak >= 3, 0, 0, 1.0f);
         state_.score.total = static_cast<int>(std::lround(
             static_cast<float>(state_.score.base + state_.score.bonus) * state_.score.multiplier));
         state_.roundScore += state_.score.total;
@@ -306,7 +330,7 @@ bool Game::advance() {
         state_.message = "Out of hands before the goal. Start again and try another build.";
     } else {
         state_.phase = Phase::Ready;
-        state_.message = "Keep playing. Reach the round goal before your five hands run out.";
+        state_.message = "Keep playing. Reach the round goal before your hands run out.";
     }
     return true;
 }
@@ -343,13 +367,13 @@ bool Game::sell(Relic relic) {
 }
 
 void Game::openShop() {
-    constexpr std::array<Rarity, 5> rarities{
-        Rarity::Common, Rarity::Uncommon, Rarity::Rare, Rarity::Epic, Rarity::Legendary
+    constexpr std::array<Rarity, 3> rarities{
+        Rarity::Common, Rarity::Rare, Rarity::Legendary
     };
     state_.offers.clear();
     for (int slot = 0; slot < 2; ++slot) {
-        std::array<std::vector<Relic>, 5> eligible;
-        std::array<std::vector<Relic>, 5> fresh;
+        std::array<std::vector<Relic>, 3> eligible;
+        std::array<std::vector<Relic>, 3> fresh;
         for (const auto& item : relicCatalog()) {
             if (hasRelic(item.id) || std::find(state_.offers.begin(), state_.offers.end(), item.id) != state_.offers.end()) {
                 continue;
@@ -399,9 +423,15 @@ bool Game::leaveShop() {
     if (state_.round < std::numeric_limits<int>::max()) {
         ++state_.round;
     }
-    state_.handsLeft = kHandsPerRound;
-    state_.roundScore = 0;
     state_.goal = goalForRound(state_.round);
+    resetRoundAttempt();
+    state_.message = "New round. Reach the next score goal in " + std::to_string(state_.maxHands) + " hands.";
+    return true;
+}
+
+void Game::resetRoundAttempt() {
+    state_.handsLeft = state_.maxHands;
+    state_.roundScore = 0;
     state_.usedSecondChance = false;
     state_.player.clear();
     state_.dealer.clear();
@@ -409,9 +439,9 @@ bool Game::leaveShop() {
     state_.outcome = Outcome::None;
     state_.offers.clear();
     boughtThisShop_.clear();
+    deck_.clear();
+    rescuedThisHand_ = false;
     state_.phase = Phase::Ready;
-    state_.message = "New round. Five hands to reach the next score goal.";
-    return true;
 }
 
 } // namespace bj

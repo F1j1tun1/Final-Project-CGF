@@ -10,6 +10,8 @@ struct VisualCard {
     int rank = 1; // Ace = 1, Jack = 11, Queen = 12, King = 13.
     int suit = 0; // Clubs, diamonds, hearts, spades (same order as bj::Suit).
     bool faceDown = false;
+    float arrival = 1.0f; // 0 = leaving the dealer, 1 = settled in this hand.
+    float flip = 1.0f; // 0 = back, 1 = the side selected by faceDown.
 };
 
 // Normalized framebuffer rectangle, measured from the top-left like the UI.
@@ -27,12 +29,16 @@ struct Scene {
     float time = 0.0f;
     bool menu = false;
     Viewport tableViewport;
+    float dealerReach = 0.0f;
+    bool dealingToPlayer = true;
+    float celebration = 0.0f; // Presentation envelope: 1 at the win, decays to 0.
+    float legendary = 0.0f; // Presentation envelope for rare gold/violet sparks.
 };
 
 struct RenderSettings {
     float yaw = 0.0f;
-    float pitch = 53.0f;
-    float distance = 8.3f;
+    float pitch = 46.0f;
+    float distance = 10.1f;
     float lightIntensity = 1.2f;
     bool textures = true;
     bool lighting = true;
