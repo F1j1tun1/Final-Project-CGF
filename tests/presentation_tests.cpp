@@ -1,0 +1,308 @@
+#include "presentation/Presentation.hpp"
+
+#include <cmath>
+#include <iostream>
+#include <limits>
+#include <sstream>
+#include <string>
+
+namespace {
+int failures = 0;
+int checks = 0;
+
+void check(bool condition, const char* message) {
+    ++checks;
+    if (!condition) {
+        ++failures;
+        std::cerr << "FAIL: " << message << '\n';
+    }
+}
+
+std::vector<bj::Card> cards(std::initializer_list<int> ranks) {
+    std::vector<bj::Card> result;
+    for (const int rank : ranks) result.push_back({rank, bj::Suit::Hearts});
+    return result;
+}
+
+std::string fingerprint(const bj::Snapshot& snapshot) {
+    std::ostringstream out;
+    out << static_cast<int>(snapshot.phase) << ':' << static_cast<int>(snapshot.outcome)
+        << ':' << snapshot.round << ':' << snapshot.handsLeft << ':' << snapshot.roundScore
+        << ':' << snapshot.goal << ':' << static_cast<int>(snapshot.startDeck) << ':' << snapshot.maxHands
+        << ':' << snapshot.revivesLeft << ':' << snapshot.revivalsUsed << ':' << snapshot.wins << ':' << snapshot.totalScore
+        << ':' << snapshot.coins << ':' << snapshot.streak << ':' << snapshot.dealerStand
+        << ':' << snapshot.seed << ':' << snapshot.usedSecondChance << ':' << snapshot.message;
+    for (const auto& hand : {snapshot.player, snapshot.dealer}) {
+        out << '|';
+        for (const auto& card : hand) out << card.rank << ',' << static_cast<int>(card.suit) << ';';
+    }
+    for (const auto& relics : {snapshot.owned, snapshot.offers}) {
+        out << '|';
+        for (const auto relic : relics) out << static_cast<int>(relic) << ',';
+    }
+    out << '|' << snapshot.score.base << ':' << snapshot.score.bonus << ':'
+        << snapshot.score.multiplier << ':' << snapshot.score.total << ':' << snapshot.score.coins;
+    for (const auto& effect : snapshot.score.appliedEffects)
+        out << '|' << static_cast<int>(effect.relic) << ':' << effect.points << ':'
+            << effect.coins << ':' << effect.multiplierBonus;
+    return out.str();
+}
+
+void settle(presentation::Presentation& timeline, float speed = 0.0f) {
+    int frames = 0;
+    while (timeline.busy() && frames++ < 10000) timeline.update(0.01f, speed);
+    check(!timeline.busy(), "Every timeline eventually settles");
+}
+
+bj::Snapshot playing() {
+    bj::Snapshot snapshot;
+    snapshot.phase = bj::Phase::PlayerTurn;
+    snapshot.player = cards({10, 7});
+    snapshot.dealer = cards({10, 6});
+    snapshot.handsLeft = 4;
+    return snapshot;
+}
+
+bj::Snapshot winFrom(const bj::Snapshot& before) {
+    auto after = before;
+    after.phase = bj::Phase::RoundOver;
+    after.outcome = bj::Outcome::Win;
+    after.score.base = bj::evaluateHand(after.player).total;
+    after.score.total = after.score.base;
+    after.score.coins = 3;
+    after.coins += 3;
+    after.roundScore += after.score.total;
+    after.totalScore += after.score.total;
+    ++after.wins;
+    ++after.streak;
+    after.message = "Final reward";
+    return after;
+}
+
+void initialDeal() {
+    bj::Snapshot before;
+    const auto after = playing();
+    presentation::Presentation timeline;
+    timeline.reset(before);
+    check(!timeline.busy() && timeline.playerArrival() == 1.0f && timeline.dealerFlip() == 1.0f,
+          "Reset has settled rendering defaults");
+    timeline.begin(before, after, presentation::Action::Deal);
+    check(timeline.busy() && timeline.visible().player.size() == 1 && timeline.visible().dealer.empty(),
+          "Initial deal starts with only the first player card");
+    check(timeline.playerArrival() == 0.0f && timeline.dealingToPlayer(), "New player card starts at the deck");
+    timeline.update(0.275f);
+    check(std::abs(timeline.playerArrival() - 0.5f) < 0.001f && timeline.dealerReach() > 0.99f,
+          "Half-flight gives normalized arrival and a reaching pose");
+    timeline.update(0.275f);
+    check(timeline.visible().player.size() == 1 && timeline.visible().dealer.size() == 1
+          && timeline.dealerArrival() == 0.0f, "Dealer receives the second dealt card");
+    timeline.update(0.55f);
+    check(timeline.visible().player.size() == 2 && timeline.visible().dealer.size() == 1,
+          "Player receives the third dealt card");
+    timeline.update(0.55f);
+    check(timeline.visible().dealer.size() == 2 && !timeline.dealerRevealed(), "Hole card is dealt last and remains hidden");
+    timeline.update(0.55f);
+    check(!timeline.busy() && fingerprint(timeline.visible()) == fingerprint(after),
+          "Ordinary deal ends at the exact authoritative player-turn snapshot");
+    check(!timeline.dealerRevealed(), "Ordinary player turn keeps the hole card hidden");
+}
+
+void naturalRevealAndRewards() {
+    bj::Snapshot before;
+    auto after = playing();
+    after.player = cards({1, 13});
+    after.dealer = cards({10, 8});
+    after.owned = {bj::Relic::BlackjackBonus, bj::Relic::RoyalPurse};
+    after = winFrom(after);
+    after.score.appliedEffects = {{bj::Relic::BlackjackBonus, 5, 0, 0.0f},
+                                 {bj::Relic::RoyalPurse, 0, 1, 0.0f}};
+    after.score.bonus = 5;
+    after.score.total = 26;
+    after.score.coins = 4;
+    after.coins = 4;
+    after.roundScore = after.totalScore = 26;
+    presentation::Presentation timeline;
+    timeline.begin(before, after, presentation::Action::Deal);
+    timeline.update(2.2f);
+    check(timeline.dealerFlipping() && !timeline.dealerRevealed(), "A natural waits for all four cards before revealing");
+    check(timeline.visible().phase == bj::Phase::PlayerTurn && timeline.visible().outcome == bj::Outcome::None
+          && timeline.visible().score.total == 0 && timeline.visible().coins == 0
+          && timeline.visible().totalScore == 0, "A natural cannot leak its payout while the hole card flips");
+    timeline.update(0.2f);
+    check(std::abs(timeline.dealerFlip() - 0.5f) < 0.001f, "Hole-card flip exposes smooth progress");
+    timeline.update(0.2f);
+    check(timeline.dealerRevealed() && timeline.rewardStep() == 0 && timeline.rewardVisibleEffects() == 0,
+          "Settled cards start reward playback at the base");
+    check(fingerprint(timeline.visible()) == fingerprint(after), "Reward playback uses the authoritative final snapshot");
+    timeline.update(0.4f);
+    check(timeline.rewardStep() == 1 && timeline.rewardVisibleEffects() == 1, "First applied effect follows the base");
+    timeline.update(0.5f);
+    check(timeline.rewardStep() == 2 && timeline.rewardVisibleEffects() == 2, "Second effect is displayed separately");
+    timeline.update(0.5f);
+    check(timeline.rewardStep() == 3 && timeline.celebration() > 0.99f, "Total follows every applied effect");
+    timeline.update(0.6f);
+    check(!timeline.busy() && timeline.rewardStep() == 3 && timeline.rewardVisibleEffects() == 2,
+          "Final reward summary persists when input becomes available");
+    timeline.update(5.0f);
+    check(timeline.celebration() == 0.0f && timeline.legendPulse() == 0.0f,
+          "Celebration decays without changing the retained reward summary");
+}
+
+void dealerTurn() {
+    auto before = playing();
+    before.dealer = cards({2, 3});
+    auto after = before;
+    after.dealer = cards({2, 3, 6, 6});
+    after.phase = bj::Phase::RoundOver;
+    after.outcome = bj::Outcome::Push;
+    presentation::Presentation timeline;
+    timeline.begin(before, after, presentation::Action::Stand);
+    check(timeline.dealerFlipping() && timeline.visible().dealer.size() == 2, "Stand flips before dealing any extra card");
+    timeline.update(0.4f);
+    check(timeline.dealerRevealed() && timeline.visible().dealer.size() == 3
+          && timeline.dealerArrival() == 0.0f, "First dealer draw starts after the completed flip");
+    check(timeline.visible().outcome == bj::Outcome::None && timeline.visible().phase == bj::Phase::PlayerTurn,
+          "Dealer draws cannot reveal the final push early");
+    timeline.update(0.55f);
+    check(timeline.visible().dealer.size() == 4 && timeline.dealerArrival() == 0.0f,
+          "Dealer draws arrive one at a time");
+    timeline.update(0.55f);
+    check(!timeline.busy() && fingerprint(timeline.visible()) == fingerprint(after),
+          "A settled push has no invented reward animation");
+
+    before = playing();
+    before.player = cards({10, 9});
+    before.dealer = cards({10, 7});
+    after = winFrom(before);
+    timeline.begin(before, after, presentation::Action::Stand);
+    timeline.update(0.4f);
+    check(timeline.rewardStep() == 0 && timeline.visible().dealer.size() == 2,
+          "Standing against an already-settled dealer still flips and pays out without an extra draw");
+    settle(timeline);
+    check(fingerprint(timeline.visible()) == fingerprint(after), "No-extra-draw stand keeps the final snapshot exact");
+}
+
+void hitRescueAndSkip() {
+    auto before = playing();
+    auto after = before;
+    after.player.push_back({3, bj::Suit::Spades});
+    presentation::Presentation timeline;
+    timeline.begin(before, after, presentation::Action::Hit);
+    check(timeline.visible().player.size() == 3 && timeline.playerArrival() == 0.0f
+          && !timeline.dealerFlipping(), "Hit animates the new player card without revealing the dealer");
+    timeline.accelerate();
+    check(!timeline.busy() && fingerprint(timeline.visible()) == fingerprint(after), "Acceleration settles one-card hits immediately");
+
+    before.owned = {bj::Relic::SecondChance};
+    after = before;
+    after.usedSecondChance = true;
+    timeline.begin(before, after, presentation::Action::Hit);
+    check(timeline.busy() && timeline.legendPulse() == 1.0f && timeline.visible().player.size() == 2,
+          "A discarded bust card triggers a legendary pulse without inventing a retained card");
+    settle(timeline);
+    check(fingerprint(timeline.visible()) == fingerprint(after), "Rescue settles to the rules snapshot");
+
+    before = playing();
+    after = winFrom(before);
+    after.dealer.push_back({10, bj::Suit::Clubs});
+    timeline.begin(before, after, presentation::Action::Stand);
+    for (int presses = 0; timeline.busy() && presses < 20; ++presses) timeline.accelerate();
+    check(!timeline.busy() && fingerprint(timeline.visible()) == fingerprint(after)
+          && timeline.rewardStep() == 1, "Repeated acceleration traverses flip, draws and reward without losing the result");
+    timeline.accelerate();
+    check(fingerprint(timeline.visible()) == fingerprint(after), "Acceleration on an idle timeline is harmless");
+}
+
+void timingResetAndDeterminism() {
+    bj::Snapshot before;
+    const auto after = playing();
+    presentation::Presentation normal, fast;
+    normal.begin(before, after, presentation::Action::Deal);
+    fast.begin(before, after, presentation::Action::Deal);
+    normal.update(0.28f, 0.0f);
+    fast.update(0.28f, 1.0f);
+    check(normal.busy() && !fast.busy(), "Fast pacing settles the same deal sooner");
+    settle(normal);
+    check(fingerprint(normal.visible()) == fingerprint(fast.visible()), "Pacing cannot change the final game data");
+
+    normal.begin(before, after, presentation::Action::Deal);
+    const auto initial = fingerprint(normal.visible());
+    normal.update(-1.0f);
+    normal.update(std::numeric_limits<float>::quiet_NaN());
+    normal.update(std::numeric_limits<float>::infinity());
+    check(fingerprint(normal.visible()) == initial && normal.playerArrival() == 0.0f,
+          "Invalid frame times cannot advance or corrupt the timeline");
+    normal.reset(before);
+    normal.update(100.0f);
+    check(!normal.busy() && fingerprint(normal.visible()) == fingerprint(before), "Reset cancels all stale card and reward stages");
+
+    normal.begin(before, after, presentation::Action::Deal);
+    fast.begin(before, after, presentation::Action::Deal);
+    normal.update(100.0f);
+    settle(fast);
+    check(fingerprint(normal.visible()) == fingerprint(fast.visible()), "Large and small frame steps settle to the same snapshot");
+
+    bj::Game game(42);
+    const auto gameBefore = game.state();
+    game.deal();
+    const auto authoritative = fingerprint(game.state());
+    normal.begin(gameBefore, game.state(), presentation::Action::Deal);
+    settle(normal, 0.0f);
+    check(fingerprint(game.state()) == authoritative && fingerprint(normal.visible()) == authoritative,
+          "Presentation playback never mutates or recalculates the authoritative game");
+
+    auto purchased = before;
+    purchased.owned = {bj::Relic::SecondChance};
+    normal.begin(before, purchased, presentation::Action::Other);
+    check(!normal.busy() && normal.legendPulse() == 1.0f,
+          "A legendary purchase can pulse without starting a card animation");
+}
+
+void legendaryEffects() {
+    bj::Snapshot before;
+    before.owned = {bj::Relic::JesterCrown};
+    auto after = playing();
+    after.player = cards({1, 13});
+    after.owned = before.owned;
+    after = winFrom(after);
+    after.score.appliedEffects = {{bj::Relic::JesterCrown, 0, 0, 1.0f}};
+    after.score.multiplier = 2.0f;
+    after.score.total = after.roundScore = after.totalScore = 42;
+    presentation::Presentation timeline;
+    timeline.begin(before, after, presentation::Action::Deal);
+    for (int skips = 0; timeline.busy() && timeline.rewardStep() < 0 && skips < 20; ++skips)
+        timeline.accelerate();
+    check(timeline.rewardStep() == 0 && timeline.legendPulse() == 0.0f,
+          "An already-owned legendary waits for its actual reward effect before pulsing");
+    timeline.accelerate();
+    check(timeline.rewardStep() == 1 && timeline.legendPulse() == 1.0f,
+          "Jester Crown's authoritative applied effect triggers a legendary pulse");
+    settle(timeline);
+
+    before = bj::Snapshot{};
+    after = before;
+    after.owned = {bj::Relic::FiveCardParade};
+    timeline.begin(before, after, presentation::Action::Other);
+    check(!timeline.busy() && timeline.legendPulse() == 1.0f,
+          "A different catalogue legendary pulses on acquisition");
+
+    before = after;
+    before.score.appliedEffects = {{bj::Relic::JesterCrown, 0, 0, 1.0f}};
+    after = before;
+    after.owned.push_back(bj::Relic::RoyalPurse);
+    timeline.begin(before, after, presentation::Action::Other);
+    check(timeline.legendPulse() == 0.0f,
+          "A common purchase cannot replay an old legendary activation");
+}
+} // namespace
+
+int main() {
+    initialDeal();
+    naturalRevealAndRewards();
+    dealerTurn();
+    hitRescueAndSkip();
+    timingResetAndDeterminism();
+    legendaryEffects();
+    std::cout << checks << " checks, " << failures << " failures\n";
+    return failures == 0 ? 0 : 1;
+}

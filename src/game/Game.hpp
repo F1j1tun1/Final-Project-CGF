@@ -28,12 +28,16 @@ enum class Phase { Ready, PlayerTurn, RoundOver, Shop, RunLost };
 enum class Relic {
     Precision, LongHand, SecondChance, Streak, RoyalPurse, SoftTouch,
     NarrowEscape, RedRibbon, BlackVelvet, EvenOdds, CourtFavor, HumbleCrown,
-    BlackjackBonus
+    BlackjackBonus, CopperBell, SeventeenCharm, ScarletMask, MidnightMask,
+    RoyalCourt, SoftCrown, JesterCrown, FiveCardParade, FinalAct, Underdog, Encore
 };
 
-enum class Rarity { Common, Uncommon, Rare, Epic, Legendary };
+enum class Rarity { Common, Rare, Legendary };
 const char* rarityName(Rarity rarity);
 int rarityWeight(Rarity rarity);
+
+// Standard keeps the five-hand command-line/default game; the menu offers the other three.
+enum class StartDeck { Standard, ExtraHand, SecondLife, Rich };
 
 struct RelicInfo {
     Relic id;
@@ -45,12 +49,20 @@ struct RelicInfo {
 
 const std::vector<RelicInfo>& relicCatalog();
 
+struct AppliedEffect {
+    Relic relic;
+    int points = 0;
+    int coins = 0;
+    float multiplierBonus = 0.0f;
+};
+
 struct ScoreBreakdown {
     int base = 0;
     int bonus = 0;
     float multiplier = 1.0f;
     int total = 0;
     int coins = 0;
+    std::vector<AppliedEffect> appliedEffects;
 };
 
 struct Snapshot {
@@ -62,6 +74,10 @@ struct Snapshot {
     int handsLeft = 5;
     int roundScore = 0;
     int goal = 30;
+    StartDeck startDeck = StartDeck::Standard;
+    int maxHands = 5;
+    int revivesLeft = 0;
+    int revivalsUsed = 0;
     int wins = 0;
     int totalScore = 0;
     int coins = 0;
@@ -77,10 +93,12 @@ struct Snapshot {
 
 class Game {
 public:
-    explicit Game(std::uint32_t seed = 42);
+    explicit Game(std::uint32_t seed = 42, StartDeck deck = StartDeck::Standard);
 
     const Snapshot& state() const;
     void restart(std::uint32_t seed);
+    void restart(std::uint32_t seed, StartDeck deck);
+    bool revive();
     bool deal();
     bool hit();
     bool stand();
@@ -98,11 +116,13 @@ private:
     std::vector<Card> deck_;
     std::vector<Relic> previousOffers_;
     std::vector<Relic> boughtThisShop_;
+    bool rescuedThisHand_ = false;
 
     void shuffleDeck();
     Card draw();
     void finishRound();
     void openShop();
+    void resetRoundAttempt();
 };
 
 } // namespace bj
