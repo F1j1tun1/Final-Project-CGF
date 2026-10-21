@@ -84,6 +84,9 @@ struct Options {
     bool autoplay = false;
     bool smoke = false;
     bool noAnimation = false;
+    bool noAmbientMotion = false;
+    int width = 1440;
+    int height = 900;
     bj::StartDeck deck = bj::StartDeck::ExtraHand;
     std::filesystem::path screenshot;
     std::filesystem::path captures;
@@ -113,6 +116,19 @@ Options parseOptions(int argc, char** argv) {
         } else if (arg == "--frames") {
             options.frames = std::stoi(value());
             if (options.frames < 1) throw std::runtime_error("Frames must be positive.");
+        } else if (arg == "--size") {
+            const auto size = value();
+            const auto separator = size.find('x');
+            if (separator == std::string::npos) throw std::runtime_error("Size must be WIDTHxHEIGHT.");
+            const auto parseDimension = [](const std::string& text) {
+                if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos)
+                    throw std::runtime_error("Size must be WIDTHxHEIGHT.");
+                return std::stoi(text);
+            };
+            options.width = parseDimension(size.substr(0, separator));
+            options.height = parseDimension(size.substr(separator + 1));
+            if (options.width < 1100 || options.height < 720 || options.width > 7680 || options.height > 4320)
+                throw std::runtime_error("Size must be between 1100x720 and 7680x4320.");
         } else if (arg == "--screenshot") options.screenshot = value();
         else if (arg == "--capture-states") options.captures = value();
         else if (arg == "--assets") options.assets = value();
@@ -120,6 +136,7 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--demo") options.demo = true;
         else if (arg == "--autoplay") options.autoplay = true;
         else if (arg == "--no-animation") options.noAnimation = true;
+        else if (arg == "--no-ambient-motion") options.noAmbientMotion = true;
         else if (arg == "--smoke") {
             options.hidden = true;
             options.autoplay = true;
@@ -131,11 +148,13 @@ Options parseOptions(int argc, char** argv) {
                 "  --demo            Skip menu and deal the first hand\n"
                 "  --deck NAME       Select hands, life or coins deck\n"
                 "  --frames N        Exit after N rendered frames\n"
+                "  --size WxH        Initial window size (minimum 1100x720)\n"
                 "  --screenshot FILE Save the final frame as PNG\n"
                 "  --capture-states DIR Save menu, table, shop and end screens\n"
                 "  --assets DIR      Override assets directory\n"
                 "  --hidden          Create an invisible graphics window\n"
                 "  --no-animation    Skip the start fade\n"
+                "  --no-ambient-motion Disable decorative scene motion\n"
                 "  --autoplay        Exercise the game state machine\n"
                 "  --smoke           Hidden integration run, including menu and resize\n";
             std::exit(0);
@@ -148,7 +167,7 @@ Options parseOptions(int argc, char** argv) {
 
 struct Window {
     GLFWwindow* handle = nullptr;
-    explicit Window(bool hidden) {
+    explicit Window(bool hidden, int width, int height) {
         glfwSetErrorCallback([](int code, const char* description) {
             std::cerr << "GLFW " << code << ": " << description << '\n';
         });
@@ -161,7 +180,7 @@ struct Window {
 #endif
         glfwWindowHint(GLFW_SAMPLES, 4);
         glfwWindowHint(GLFW_VISIBLE, hidden ? GLFW_FALSE : GLFW_TRUE);
-        handle = glfwCreateWindow(1440, 900, "Jester Jack", nullptr, nullptr);
+        handle = glfwCreateWindow(width, height, "Jester Jack", nullptr, nullptr);
         if (!handle) {
             glfwTerminate();
             throw std::runtime_error("OpenGL 3.3 window creation failed. Check the GPU driver.");
@@ -1378,11 +1397,12 @@ int main(int argc, char** argv) {
         auto assets = options.assets;
         if (assets.empty()) assets = executableDirectory(argv[0]) / "assets";
         if (!std::filesystem::exists(assets) && options.assets.empty()) assets = "assets";
-        Window window(options.hidden);
+        Window window(options.hidden, options.width, options.height);
         Interface interface(window.handle, assets);
         gfx::Renderer renderer(assets);
         ArtAssets art(assets);
         gfx::RenderSettings settings;
+        settings.animate = !options.noAmbientMotion;
         const gfx::RenderSettings defaultView;
         bj::Game game(options.seed,options.demo ? options.deck : bj::StartDeck::Standard);
         Session session;
