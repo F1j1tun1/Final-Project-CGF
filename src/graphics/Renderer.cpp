@@ -456,6 +456,15 @@ glm::vec3 leadHatShape(float u, float t) {
     return leadHatCenter(t) + (across * std::cos(a) + around * std::sin(a) * .90f) * (fullness + fold);
 }
 
+glm::vec3 sedanBodyShape(float u, float t) {
+    const float a = u * 2 * pi;
+    const float profile = std::sin(t * pi);
+    const float vertical = std::copysign(std::pow(std::abs(std::cos(a)), .40f), std::cos(a));
+    const float lateral = std::copysign(std::pow(std::abs(std::sin(a)), .40f), std::sin(a));
+    return {-1.6f + t * 3.2f, .46f + .02f * profile + vertical * .18f * (.78f + .22f * profile),
+            lateral * .64f * (.86f + .14f * profile)};
+}
+
 glm::vec3 leadSleeveShape(glm::vec3 shoulder, glm::vec3 elbow, glm::vec3 wrist, float u, float t) {
     const float a = u * 2 * pi;
     const auto center = [=](float v) {
@@ -776,6 +785,11 @@ struct Renderer::Impl {
     Mesh leadNeck;
     Mesh leadLeg;
     Mesh leadBoot;
+    Mesh sedanBody;
+    Mesh sedanCabin;
+    Mesh sedanGlass;
+    Mesh headlightPatch;
+    Mesh casinoCanopy;
     Mesh leadSleeve;
     std::vector<float> leadSleeveVertices;
     Mesh sky;
@@ -790,7 +804,7 @@ struct Renderer::Impl {
     struct Locations {
         GLint model, view, projection, normal, color, uvScale, camera, light,
               intensity, shininess, specular, emission, fogColor, opacity, velvet, roomLight,
-              viewport, lampBrightness, material, useTexture, lighting;
+              lampBrightness, material, useTexture, lighting;
     } u{};
     GLint skyResolution = -1;
     bool texturesEnabled = true;
@@ -927,6 +941,48 @@ struct Renderer::Impl {
         });
         leadSleeve = surfaceMesh(firstSleeve);
         leadSleeveVertices = firstSleeve.vertices;
+        SurfaceData car = surfaceData(64, 48, sedanBodyShape);
+        for (const float end : {0.0f, 1.0f})
+            appendSurface(car, surfaceData(64, 8, [=](float u, float v) {
+                const glm::vec3 edge = sedanBodyShape(u, end);
+                return glm::vec3(edge.x, .46f + (edge.y - .46f) * v, edge.z * v);
+            }, end > .5f));
+        sedanBody = surfaceMesh(car);
+        SurfaceData cabin, glass;
+        for (const float side : {-1.0f, 1.0f}) {
+            const auto panel = [=](float u, float v) {
+                return glm::vec3(glm::mix(-.90f + .38f * v, .78f - .46f * v, u),
+                    .64f + .39f * v, side * (.60f - .12f * v));
+            };
+            appendSurface(cabin, surfaceData(24, 12, panel, side < 0));
+            for (int window = 0; window < 2; ++window)
+                appendSurface(glass, surfaceData(16, 12, [=](float u, float v) {
+                    const float across = static_cast<float>(window) * .47f + .055f + u * .415f;
+                    return panel(across, .12f + v * .81f) + glm::vec3(0, 0, side * .009f);
+                }, side < 0));
+        }
+        for (const float end : {-1.0f, 1.0f}) {
+            const auto panel = [=](float u, float v) {
+                return glm::vec3(end > 0 ? .78f - .46f * v : -.90f + .38f * v,
+                    .64f + .39f * v, (u * 2 - 1) * (.60f - .12f * v));
+            };
+            appendSurface(cabin, surfaceData(24, 12, panel, end > 0));
+            appendSurface(glass, surfaceData(24, 12, [=](float u, float v) {
+                return panel(.055f + u * .89f, .10f + v * .82f) + glm::vec3(end * .009f, 0, 0);
+            }, end > 0));
+        }
+        appendSurface(cabin, surfaceData(24, 20, [](float u, float v) {
+            const float x = u * 2 - 1, z = v * 2 - 1;
+            return glm::vec3(-.10f + x * .42f, 1.03f + .025f * (1 - x*x) * (1 - z*z), z * .48f);
+        }, true));
+        sedanCabin = surfaceMesh(cabin);
+        sedanGlass = surfaceMesh(glass);
+        headlightPatch = makeMesh({0,0,-.12f, 0,1,0, 0,0, 0,0,.12f, 0,1,0, 1,0,
+                                   1,0,1.2f, 0,1,0, 1,1, 1,0,-1.2f, 0,1,0, 0,1}, {0,1,2,0,2,3});
+        casinoCanopy = surfaceMesh(surfaceData(48, 16, [](float u, float v) {
+            const float x = u * 2 - 1;
+            return glm::vec3(x, .20f * std::sqrt(std::max(0.0f, 1 - x*x)), v);
+        }, true));
         sky = makeMesh({-1, -1, 0, 0, 0, 1, 0, 0,
                          3, -1, 0, 0, 0, 1, 2, 0,
                         -1,  3, 0, 0, 0, 1, 0, 2}, {0, 1, 2});
@@ -960,7 +1016,6 @@ struct Renderer::Impl {
         u.opacity = uniform("uOpacity");
         u.velvet = uniform("uVelvet");
         u.roomLight = uniform("uRoomLight");
-        u.viewport = uniform("uViewport");
         u.lampBrightness = uniform("uLampBrightness");
         u.material = uniform("uMaterial");
         u.useTexture = uniform("uUseTexture");
@@ -1030,13 +1085,80 @@ struct Renderer::Impl {
         glEnable(GL_DEPTH_TEST);
     }
 
+    void drawMenuSedan(const glm::mat4& street, float time, bool animate) {
+        if (!animate) return; // Parked beyond the visible stretch of road.
+        const float phase = std::fmod(std::max(time, 0.0f), 32.0f);
+        if (phase > 9.4f) return;
+        const float distance = -18.0f + phase / 9.4f * 36.0f;
+        const glm::mat4 car = street * glm::translate(glm::mat4(1), {distance, 0, 6.13f});
+        const glm::vec3 paint{.033f, .031f, .050f}, rubber{.009f, .010f, .012f};
+        const glm::vec3 chrome{.20f, .20f, .19f};
+        draw(sedanBody, car, paint, 0, glm::vec2(1), .48f, 96);
+        draw(sedanCabin, car, paint, 0, glm::vec2(1), .45f, 96);
+        draw(sedanGlass, car, {.042f, .056f, .073f}, 0, glm::vec2(1), .68f, 80);
+        for (const float side : {-1.0f, 1.0f}) {
+            for (const float x : {-1.04f, 1.03f}) {
+                glm::mat4 wheel = car * glm::translate(glm::mat4(1), {x, .292f, side * .645f});
+                wheel = glm::rotate(wheel, pi * .5f, glm::vec3(1, 0, 0));
+                draw(cylinder, glm::scale(wheel, {.27f, .16f, .27f}), rubber,
+                     0, glm::vec2(1), .03f, 16);
+                glm::mat4 hub = car * glm::translate(glm::mat4(1), {x,.292f,side*.733f});
+                hub = glm::rotate(hub,pi*.5f,glm::vec3(1,0,0));
+                draw(cylinder,glm::scale(hub,{.155f,.018f,.155f}),chrome,
+                     0, glm::vec2(1), .45f, 72);
+                for (int spoke = 0; spoke < 5; ++spoke) {
+                    const float angle = static_cast<float>(spoke) * 2 * pi / 5 - distance / .27f;
+                    glm::mat4 detail = car * glm::translate(glm::mat4(1), {x, .292f, side * .748f});
+                    detail = glm::rotate(detail, angle, glm::vec3(0,0,1));
+                    draw(cube, glm::scale(detail, {.24f,.025f,.012f}), {.075f,.078f,.085f},
+                         0,glm::vec2(1),.28f,48);
+                }
+            }
+            for (const float x : {-.47f, .32f})
+                draw(cube, car * transform({x,.615f,side*.650f},{.17f,.025f,.018f}), chrome,
+                     0,glm::vec2(1),.55f,96);
+            draw(cube, car * transform({-.04f,.46f,side*.647f},{.012f,.26f,.008f}), {.014f,.013f,.020f});
+            draw(sphere, car * transform({.64f,.748f,side*.695f},{.12f,.06f,.065f}),paint,
+                 0,glm::vec2(1),.45f,80);
+            draw(cube, car * transform({1.614f,.515f,side*.423f},{.025f,.115f,.265f}),
+                 {.90f,.845f,.69f},0,glm::vec2(1),.15f,24,1.45f);
+            draw(cube, car * transform({-1.614f,.495f,side*.43f},{.025f,.10f,.23f}),
+                 {.48f,.025f,.032f},0,glm::vec2(1),.10f,24,.55f);
+        }
+        draw(cube,car*transform({1.618f,.405f,0},{.025f,.13f,.62f}),{.016f,.018f,.022f});
+        draw(cube,car*transform({1.633f,.342f,0},{.024f,.027f,1.02f}),chrome,0,glm::vec2(1),.5f,80);
+        draw(cube,car*transform({-1.625f,.345f,0},{.022f,.023f,1.03f}),chrome,0,glm::vec2(1),.4f,80);
+        draw(cube,car*transform({-1.635f,.427f,0},{.010f,.075f,.26f}),{.44f,.43f,.36f});
+        // Soft overlapping pools sit on the road, rather than opaque cones.
+        GLboolean depthWrite = GL_TRUE;
+        GLint srcRgb=0,dstRgb=0,srcAlpha=0,dstAlpha=0,equationRgb=0,equationAlpha=0;
+        const GLboolean blend = glIsEnabled(GL_BLEND);
+        glGetBooleanv(GL_DEPTH_WRITEMASK,&depthWrite);
+        glGetIntegerv(GL_BLEND_SRC_RGB,&srcRgb); glGetIntegerv(GL_BLEND_DST_RGB,&dstRgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA,&srcAlpha); glGetIntegerv(GL_BLEND_DST_ALPHA,&dstAlpha);
+        glGetIntegerv(GL_BLEND_EQUATION_RGB,&equationRgb); glGetIntegerv(GL_BLEND_EQUATION_ALPHA,&equationAlpha);
+        glEnable(GL_BLEND); glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_SRC_ALPHA,GL_ONE); glDepthMask(GL_FALSE);
+        for (const float side : {-1.0f,1.0f})
+            for (int layer=0;layer<6;++layer) {
+                const float inset=static_cast<float>(layer)*.10f;
+                draw(headlightPatch,car*transform({1.62f,.029f+layer*.0002f,side*.423f},
+                     {5.5f-inset*2.3f,1,1.0f-inset*.65f}),{.60f,.55f,.38f},
+                     0,glm::vec2(1),0,8,1.1f,.020f);
+            }
+        glDepthMask(depthWrite);
+        glBlendFuncSeparate(static_cast<GLenum>(srcRgb),static_cast<GLenum>(dstRgb),
+                            static_cast<GLenum>(srcAlpha),static_cast<GLenum>(dstAlpha));
+        glBlendEquationSeparate(static_cast<GLenum>(equationRgb),static_cast<GLenum>(equationAlpha));
+        if (!blend) glDisable(GL_BLEND);
+    }
+
     void drawCasino(float time, bool animate) {
-        const glm::vec3 stone{.40f, .22f, .35f};
-        const glm::vec3 plum{.29f, .10f, .38f};
-        const glm::vec3 gold{.78f, .53f, .24f};
-        const glm::vec3 crimson{.55f, .13f, .23f};
-        const glm::vec3 trim{.62f, .46f, .35f};
-        const glm::vec3 window{.96f, .55f, .22f};
+        const glm::vec3 stone{.24f, .16f, .23f};
+        const glm::vec3 plum{.17f, .075f, .23f};
+        const glm::vec3 gold{.50f, .36f, .18f};
+        const glm::vec3 crimson{.32f, .075f, .13f};
+        const glm::vec3 trim{.35f, .28f, .26f};
+        const glm::vec3 window{.82f, .52f, .25f};
         constexpr float streetAngle = -.70f;
         glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -3.0f});
         building = glm::rotate(building, streetAngle, glm::vec3(0, 1, 0));
@@ -1048,23 +1170,23 @@ struct Renderer::Impl {
         };
 
         // A diagonal street and shallow forecourt connect the facade to the evening scene.
-        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.16f, .13f, .15f});
+        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.085f, .075f, .095f});
         // The road, curb and forecourt share a basis: their edges meet and stay parallel.
         constexpr float streetCenter = 5.55f;
         constexpr float streetWidth = 3.25f;
-        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.075f, .068f, .095f});
+        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.035f, .033f, .045f});
         for (const float side : {-1.0f, 1.0f})
             block({.6f, .037f, streetCenter + side * streetWidth * .5f},
-                  {60, .055f, .15f}, {.38f, .29f, .31f});
+                  {60, .055f, .15f}, {.19f, .16f, .18f});
         for (int i = -18; i < 19; ++i)
             block({static_cast<float>(i) * 1.65f, .016f, streetCenter},
-                  {.83f, .015f, .055f}, {.59f, .46f, .28f});
-        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.27f, .22f, .25f});
+                  {.83f, .015f, .055f}, {.32f, .26f, .17f});
+        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.18f, .155f, .18f});
         for (int i = -4; i <= 5; ++i)
             block({static_cast<float>(i) * .92f, .07f, 2.55f}, {.016f, .012f, 2.55f}, {.20f, .16f, .20f});
 
         // A modest two-storey casino, with a lower annex and flat cornices.
-        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.34f, .29f, .28f});
+        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.23f, .205f, .21f});
         block({0, 1.98f, 0}, {5.25f, 3.60f, 3.20f}, stone);
         block({0, .54f, 1.63f}, {5.30f, .65f, .10f}, plum);
         block({0, 2.05f, 1.66f}, {5.40f, .12f, .13f}, trim);
@@ -1075,8 +1197,8 @@ struct Renderer::Impl {
         for (const float x : {-2.48f, 2.48f})
             block({x, 1.96f, 1.69f}, {.17f, 3.43f, .19f}, trim);
 
-        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.30f, .25f, .27f});
-        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.34f, .19f, .32f});
+        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.21f, .18f, .20f});
+        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.23f, .14f, .22f});
         block({3.65f, 2.73f, -.22f}, {2.61f, .16f, 3.36f}, plum);
         block({3.65f, 2.84f, -.22f}, {2.66f, .055f, 3.42f}, gold);
         block({3.65f, .56f, 1.35f}, {2.40f, .59f, .10f}, plum);
@@ -1084,10 +1206,16 @@ struct Renderer::Impl {
 
         // Recessed windows are lit from within; no street or interior characters.
         const auto frontWindow = [&](float x, float y, float z, float width, float height) {
-            block({x, y, z}, {width + .12f, height + .12f, .10f}, trim);
-            block({x, y, z + .065f}, {width, height, .045f}, window, .55f);
-            block({x, y, z + .10f}, {.035f, height + .01f, .035f}, plum);
-            block({x, y, z + .10f}, {width + .01f, .035f, .035f}, plum);
+            block({x,y,z+.025f},{width+.18f,height+.18f,.12f},plum*.55f);
+            block({x,y,z+.092f},{width,height,.025f},window,.40f);
+            for (const float side : {-1.0f,1.0f}) {
+                block({x+side*(width*.5f+.055f),y,z+.16f},{.10f,height+.22f,.25f},trim);
+                block({x,y+side*(height*.5f+.055f),z+.16f},{width+.22f,.10f,.25f},trim);
+                block({x+side*(width*.5f-.05f),y,z+.12f},{.075f,height,.035f},crimson*.65f);
+            }
+            block({x,y-height*.5f-.10f,z+.21f},{width+.32f,.065f,.38f},gold*.70f);
+            block({x,y,z+.14f},{.026f,height+.01f,.025f},plum);
+            block({x,y,z+.14f},{width+.01f,.025f,.025f},plum);
         };
         for (const float x : {-1.63f, 1.63f}) {
             frontWindow(x, 1.23f, 1.67f, .63f, 1.02f);
@@ -1095,10 +1223,15 @@ struct Renderer::Impl {
         }
         for (const float x : {3.08f, 4.20f}) frontWindow(x, 1.25f, 1.36f, .56f, .95f);
         for (const float z : {-.94f, .38f}) {
-            block({4.845f, 1.25f, z}, {.10f, 1.07f, .69f}, trim);
-            block({4.91f, 1.25f, z}, {.045f, .95f, .57f}, window, .45f);
-            block({4.94f, 1.25f, z}, {.03f, .98f, .035f}, plum);
-            block({4.94f, 1.25f, z}, {.03f, .035f, .60f}, plum);
+            block({4.88f,1.25f,z},{.12f,1.12f,.74f},plum*.55f);
+            block({4.95f,1.25f,z},{.025f,.95f,.57f},window,.35f);
+            for(const float side : {-1.0f,1.0f}) {
+                block({5.02f,1.25f,z+side*.34f},{.25f,1.13f,.10f},trim);
+                block({5.02f,1.25f+side*.525f,z},{.25f,.10f,.78f},trim);
+            }
+            block({5.06f,.665f,z},{.36f,.065f,.88f},gold*.7f);
+            block({4.99f,1.25f,z},{.025f,.98f,.026f},plum);
+            block({4.99f,1.25f,z},{.025f,.026f,.60f},plum);
         }
 
         // A red double door and restrained three-bell emblem carry the jester theme.
@@ -1106,19 +1239,33 @@ struct Renderer::Impl {
         block({0, 1.10f, 1.79f}, {1.23f, 1.66f, .085f}, plum);
         for (const float side : {-1.0f, 1.0f}) {
             block({side * .30f, 1.08f, 1.85f}, {.55f, 1.56f, .075f}, crimson);
-            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.62f, .37f, .22f}, .20f);
+            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.45f, .29f, .17f}, .18f);
             draw(sphere, building * transform({side * .09f, .98f, 1.94f}, {.035f, .035f, .025f}), gold);
         }
         block({0, .22f, 2.02f}, {1.90f, .16f, .76f}, trim);
         block({0, .11f, 2.36f}, {2.17f, .12f, .68f}, {.40f, .33f, .31f});
-        block({0, 2.89f, 1.71f}, {1.63f, .81f, .12f}, gold);
-        block({0, 2.89f, 1.79f}, {1.48f, .66f, .05f}, plum);
-        diamond({0, 2.77f, 1.84f}, .28f, crimson, building);
-        for (int i = -1; i <= 1; ++i) {
-            const float x = static_cast<float>(i) * .37f;
-            beam({0, 2.80f, 1.87f}, {x, 3.09f, 1.87f}, .024f, gold, building);
-            draw(sphere, building * transform({x, 3.10f, 1.87f}, {.07f, .07f, .045f}), gold,
-                 0, glm::vec2(1), .2f, 32, .10f);
+        draw(casinoCanopy,building*transform({0,2.06f,1.82f},{1.04f,1,.95f}),plum,
+             0,glm::vec2(1),.16f,48);
+        draw(arch,building*transform({0,2.06f,2.77f},{1.04f,.20f,1}),gold,
+             0,glm::vec2(1),.45f,72);
+        for (const float side : {-1.0f,1.0f}) {
+            beam({side*.94f,.31f,2.68f},{side*.94f,2.07f,2.68f},.025f,gold,building);
+            diamond({side*2.48f,3.22f,1.81f},.15f,gold,building);
+        }
+        glm::mat4 plaque=building*glm::translate(glm::mat4(1),{0,2.98f,1.79f});
+        plaque=glm::rotate(plaque,pi*.5f,glm::vec3(1,0,0));
+        draw(cylinder,glm::scale(plaque,{.50f,.075f,.50f}),gold,0,glm::vec2(1),.48f,84);
+        glm::mat4 inset=building*glm::translate(glm::mat4(1),{0,2.98f,1.84f});
+        inset=glm::rotate(inset,pi*.5f,glm::vec3(1,0,0));
+        draw(cylinder,glm::scale(inset,{.435f,.025f,.435f}),plum,0,glm::vec2(1),.20f,48);
+        for (const float x : {-.16f,.13f}) {
+            const glm::vec3 origin(x,2.98f,1.865f);
+            const std::array<glm::vec2,6> points{{{-.10f,.19f},{.085f,.19f},{.055f,.19f},
+                                                {.055f,-.105f},{.015f,-.18f},{-.075f,-.18f}}};
+            beam(origin+glm::vec3(points[0],0),origin+glm::vec3(points[1],0),.012f,gold,building);
+            for (std::size_t i=2;i+1<points.size();++i)
+                beam(origin+glm::vec3(points[i],0),origin+glm::vec3(points[i+1],0),.012f,gold,building);
+            beam(origin+glm::vec3(-.075f,-.18f,0),origin+glm::vec3(-.11f,-.115f,0),.012f,gold,building);
         }
         for (const float x : {-3.10f, 5.28f}) {
             const float pulse = animate ? .025f * std::sin(time * 1.4f + x) : 0.0f;
@@ -1126,15 +1273,43 @@ struct Renderer::Impl {
             block({x, 2.05f, 2.1f}, {.25f, .39f, .25f}, window, .55f + pulse);
             block({x, 2.29f, 2.1f}, {.34f, .08f, .34f}, plum);
         }
+        drawMenuSedan(building,time,animate);
     }
 
 #include "RendererRoom.inl"
 
     void drawDealer(const Scene& scene, bool animate) {
-        const glm::vec3 black{.025f, .030f, .033f}, crimson{.38f, .020f, .033f};
-        const glm::vec3 gold{.62f, .42f, .16f}, ivory{.90f, .845f, .75f};
+        const glm::vec3 black{.027f, .018f, .047f}, violet{.18f, .055f, .31f}, burgundy{.30f, .022f, .067f};
+        const glm::vec3 gold{.55f, .39f, .17f}, ivory{.88f, .855f, .80f};
         const float breath = animate ? std::sin(scene.time * .65f) * .005f : 0;
         constexpr float z = -3.68f;
+        float activeReach = std::clamp(scene.dealerReach, 0.0f, 1.0f), gazeStrength = 0;
+        glm::vec3 gazeTarget(scene.dealingToPlayer ? .83f : -.83f, .15f, -2.3f);
+        for (int hand = 0; hand < 2; ++hand) {
+            const auto& cards = hand == 0 ? scene.player : scene.dealer;
+            const float count = static_cast<float>(cards.size());
+            const float spacing = cards.size() < 8 ? .88f : 5.65f / std::max(count - 1.0f, 1.0f);
+            for (std::size_t i = 0; i < cards.size(); ++i) {
+                const float arrival = std::clamp(cards[i].arrival, 0.0f, 1.0f);
+                if (arrival <= 0 || arrival >= 1) continue;
+                const float strength = std::sin(pi * arrival);
+                activeReach = std::max(activeReach, strength);
+                if (strength > gazeStrength) {
+                    const float slot = static_cast<float>(i) - (count - 1.0f) * .5f;
+                    gazeTarget = cardPosition(cards[i], {slot * spacing, .05f,
+                        (hand == 0 ? 1.12f : -1.12f) + std::abs(slot) * .014f}, hand != 0);
+                    gazeStrength = strength;
+                }
+            }
+        }
+        if (gazeStrength == 0) gazeStrength = activeReach;
+        const glm::vec3 toCard = gazeTarget - glm::vec3(0, 1.54f, z + .015f);
+        const float gazeYaw = animate ? std::clamp(std::atan2(toCard.x, toCard.z), -.14f, .14f) * gazeStrength : 0;
+        const float gazePitch = animate ? std::clamp(std::atan2(-toCard.y,
+            std::hypot(toCard.x, toCard.z)), 0.0f, .26f) * gazeStrength : 0;
+        const float bust = animate ? std::sin(pi * std::clamp(scene.bustReaction, 0.0f, 1.0f)) : 0;
+        const float winGesture = animate && activeReach < .001f
+            ? std::sin(pi * std::clamp(scene.celebration, 0.0f, 1.0f)) : 0;
         const glm::mat4 body = transform({0, -.32f + breath, z}, {.86f, 1.02f, .92f});
         // The waist is near the tabletop; the hips, knees and planted boots
         // continue all the way to the room floor behind its far edge.
@@ -1144,69 +1319,65 @@ struct Renderer::Impl {
             draw(leadBoot, transform({side * .18f, -.740f, z + .015f}, {1, 1, 1}, side * .035f),
                  {.020f, .018f, .020f}, 0, glm::vec2(1), .16f, 48);
         }
-        draw(leadCoat, body, crimson, felt, {4, 4}, .12f, 32, 0, 1, 1, 9);
+        draw(leadCoat, body, burgundy, felt, {4, 4}, .10f, 32, 0, 1, 1, 9);
         draw(leadJabot, body, {.78f, .735f, .64f}, 0, glm::vec2(1), .06f, 20, 0, 1, .35f, 7);
         draw(leadTrim, body, gold, 0, glm::vec2(1), .58f, 84);
         draw(sphere, body * transform({0, 1.37f, leadCoatFront(0, 1.37f) + .045f}, {.034f, .049f, .023f}),
-             {.27f, .015f, .032f}, 0, glm::vec2(1), .85f, 120);
+             {.20f, .018f, .056f}, 0, glm::vec2(1), .65f, 96);
         draw(ruff, body * transform({0, 1.43f, .015f}, {.65f, .35f, .65f}),
              {.40f, .27f, .13f}, 0, glm::vec2(1), .30f, 48);
         draw(leadLace, body * transform({0, 1.465f, .015f}, {.70f, .80f, .72f}),
              {.80f, .755f, .66f}, 0, glm::vec2(1), .07f, 24, 0, 1, .45f, 7);
         draw(leadNeck, transform({0, 1.18f + breath, z - .015f}, {1, 1, 1}),
              black, felt, {2, 2}, .06f, 28, 0, 1, .35f, 2);
-        const float tilt = animate ? std::sin(scene.time * .33f) * .012f : 0;
         glm::mat4 head = glm::translate(glm::mat4(1), {0, 1.54f + breath, z + .015f});
-        head = glm::rotate(head, tilt, glm::vec3(0, 0, 1));
-        head = glm::rotate(head, -.12f, glm::vec3(1, 0, 0));
+        head = glm::rotate(head, -.045f * bust, glm::vec3(0, 0, 1));
+        head = glm::rotate(head, gazeYaw * (1 - bust * .5f), glm::vec3(0, 1, 0));
+        head = glm::rotate(head, -.12f + gazePitch * (1 - bust * .5f) + .055f * bust, glm::vec3(1, 0, 0));
         draw(hood, head * transform({0, 0, -.10f}, {.45f, .62f, .52f}),
              black, felt, {4, 3}, .08f, 16, 0, 1, .8f, 2);
         draw(leadMask, head, ivory, 0, glm::vec2(1), .28f, 76, .02f, 1, 0, 8);
         draw(leadMaskTrim, head, gold, 0, glm::vec2(1), .62f, 96);
         draw(leadCap, head * glm::scale(glm::mat4(1), {.49f, .52f, .52f}),
-             black, felt, {3, 3}, .045f, 18, 0, 1, 1, 5);
-        draw(ring, head * transform({0, .19f, -.052f}, {.175f, .007f, .125f}), crimson,
+             violet * .55f, felt, {3, 3}, .045f, 18, 0, 1, 1, 5);
+        draw(ring, head * transform({0, .19f, -.052f}, {.175f, .007f, .125f}), burgundy,
              0, glm::vec2(1), .22f, 48, 0, 1, .4f, 6);
         for (const float side : {-1.0f, 1.0f}) {
             const float scale = side < 0 ? 1.02f : .94f;
-            const float sway = animate ? std::sin(scene.time * .47f + side) * .018f : 0;
             glm::mat4 h = head * glm::translate(glm::mat4(1), {side * .06f, .23f, -.078f});
-            h = glm::rotate(h, sway, glm::vec3(0, 0, 1));
             h = glm::scale(h, {side * scale * .47f, scale * .58f, scale * .50f});
-            draw(leadHat, h, side < 0 ? glm::vec3(.042f, .053f, .056f) : crimson,
+            draw(leadHat, h, side < 0 ? violet : burgundy,
                  felt, {3, 4}, .045f, 18, 0, 1, 1, 5);
             const glm::vec3 bell = glm::vec3(h * glm::vec4(leadHatCenter(1), 1));
             draw(sphere, transform(bell, {.024f, .029f, .024f}), gold, 0, glm::vec2(1), .7f, 110);
             draw(cube, transform(bell + glm::vec3(0, -.004f, .024f), {.033f, .004f, .004f}), {.025f, .018f, .025f});
         }
 
-        float activeReach = std::clamp(scene.dealerReach, 0.0f, 1.0f);
-        for (const auto* cards : {&scene.player, &scene.dealer})
-            for (const auto& card : *cards)
-                if (card.arrival < 1) activeReach = std::max(activeReach, std::sin(pi * std::clamp(card.arrival, 0.0f, 1.0f)));
         for (const float side : {-1.0f, 1.0f}) {
             const float reach = ((side > 0) == scene.dealingToPlayer) ? activeReach : 0;
+            const float greeting = side < 0 ? winGesture : 0;
             const glm::vec3 shoulder(side * .29f, 1.05f + breath, z + .015f);
             const glm::vec3 elbow = glm::mix(glm::vec3(side * .62f, .50f, -3.41f),
-                                            glm::vec3(side * .63f, .65f, -3.24f), reach);
+                                            glm::vec3(side * .63f, .65f, -3.24f), reach) + glm::vec3(0, greeting * .025f, 0);
             const glm::vec3 wrist = glm::mix(glm::vec3(side * .83f, .082f, -2.89f),
-                                            glm::vec3(side * .75f, .33f, -2.49f), reach);
+                                            glm::vec3(side * .75f, .33f, -2.49f), reach) + glm::vec3(0, greeting * .055f, greeting * .035f);
             updateLeadSleeve(leadSleeveVertices, shoulder, elbow, wrist);
             leadSleeve.update(leadSleeveVertices);
-            draw(leadSleeve, glm::mat4(1), crimson, felt, {4, 3}, .10f, 30, 0, 1, .8f, 10);
+            const auto cloth = side < 0 ? violet : burgundy;
+            draw(leadSleeve, glm::mat4(1), cloth, felt, {4, 3}, .08f, 30, 0, 1, .8f, 10);
             const glm::vec3 axis = glm::normalize(wrist - elbow);
             const glm::vec3 rotationAxis = glm::cross(glm::vec3(0, 1, 0), axis);
             glm::mat4 cuff = glm::translate(glm::mat4(1), wrist);
             if (glm::length(rotationAxis) > .0001f)
                 cuff = glm::rotate(cuff, std::acos(std::clamp(axis.y, -1.0f, 1.0f)), glm::normalize(rotationAxis));
-            draw(cylinder, glm::scale(cuff, {.082f, .080f, .082f}), crimson,
+            draw(cylinder, glm::scale(cuff, {.082f, .080f, .082f}), cloth,
                  0, glm::vec2(1), .12f, 32, 0, 1, .4f, 6);
             draw(leadLace, glm::scale(cuff, {.21f, .35f, .21f}), {.78f, .725f, .63f},
                  0, glm::vec2(1), .08f, 24, 0, 1, .5f, 7);
             glm::mat4 hand = glm::translate(glm::mat4(1), wrist + glm::vec3(0, 0, .015f));
             hand = glm::rotate(hand, side * .11f, glm::vec3(0, 1, 0));
-            hand = glm::rotate(hand, -reach * .17f, glm::vec3(1, 0, 0));
-            hand = glm::rotate(hand, side * reach * .10f, glm::vec3(0, 0, 1));
+            hand = glm::rotate(hand, -reach * .17f - greeting * .04f, glm::vec3(1, 0, 0));
+            hand = glm::rotate(hand, side * reach * .10f - greeting * .055f, glm::vec3(0, 0, 1));
             draw(glove, glm::scale(hand, {side * .72f, .72f, .72f}), {.66f, .605f, .51f},
                  felt, {5, 6}, .08f, 28, 0, 1, .28f);
         }
@@ -1379,7 +1550,8 @@ struct Renderer::Impl {
             renderHeight = bottom - top;
             renderLeft = left;
             renderBottom = height - bottom;
-            glViewport(renderLeft, renderBottom, renderWidth, renderHeight);
+            // The UI rectangle controls framing; the room itself extends
+            // across the framebuffer, including beneath transparent UI.
         }
 
         const float yaw = glm::radians(settings.yaw);
@@ -1394,8 +1566,19 @@ struct Renderer::Impl {
         const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
                                                                          : glm::vec3(0, .60f, -.50f),
                                          glm::vec3(0, 1, 0));
-        const glm::mat4 projection = glm::perspective(glm::radians(43.0f),
+        glm::mat4 projection = glm::perspective(glm::radians(43.0f),
             aspect, .1f, 60.0f);
+        if (!scene.menu) {
+            const float sx = static_cast<float>(renderWidth) / static_cast<float>(width);
+            const float sy = static_cast<float>(renderHeight) / static_cast<float>(height);
+            const float ox = static_cast<float>(2 * renderLeft + renderWidth) / static_cast<float>(width) - 1;
+            const float oy = static_cast<float>(2 * renderBottom + renderHeight) / static_cast<float>(height) - 1;
+            for (int column = 0; column < 4; ++column) {
+                projection[column][0] = sx * projection[column][0] + ox * projection[column][3];
+                projection[column][1] = sy * projection[column][1] + oy * projection[column][3];
+            }
+        }
+        glViewport(0, 0, width, height);
         glUseProgram(program.id);
         glActiveTexture(GL_TEXTURE0);
         glUniformMatrix4fv(u.view, 1, GL_FALSE, glm::value_ptr(view));
@@ -1403,14 +1586,12 @@ struct Renderer::Impl {
         glUniform3fv(u.camera, 1, glm::value_ptr(eye));
         const float lightMotion = settings.animate ? std::sin(scene.time * .17f) * .85f : 0;
         glUniform3f(u.light, scene.menu ? -5.0f : -2.2f + lightMotion, 7.0f, 4.0f);
-        if (scene.menu) glUniform3f(u.fogColor, .25f, .17f, .22f);
+        if (scene.menu) glUniform3f(u.fogColor, .10f, .07f, .13f);
         else glUniform3f(u.fogColor, 0, 0, 0);
-        glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f));
+        glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f) * (scene.menu ? .8f : 1.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         glUniform1f(u.roomLight, scene.menu ? 0.0f : 1.0f);
         glUniform1f(u.lampBrightness, roomLampBrightness(scene.time, settings.animate));
-        glUniform4f(u.viewport, static_cast<float>(renderLeft), static_cast<float>(renderBottom),
-                    static_cast<float>(renderWidth), static_cast<float>(renderHeight));
         texturesEnabled = settings.textures;
 
         if (scene.menu) {

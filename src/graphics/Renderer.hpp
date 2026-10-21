@@ -34,6 +34,7 @@ struct Scene {
     float celebration = 0.0f; // Presentation envelope: 1 at the win, decays to 0.
     float legendary = 0.0f; // Presentation envelope for rare gold/violet sparks.
     int deckDesign = 0; // Hands, Life, Coins.
+    float bustReaction = 0.0f; // Presentation envelope: 1 at a player bust, decays to 0.
 };
 
 struct RenderSettings {

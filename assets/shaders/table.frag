@@ -18,19 +18,12 @@ uniform float uOpacity;
 uniform float uVelvet;
 uniform float uRoomLight;
 uniform float uLampBrightness;
-uniform vec4 uViewport;
 uniform int uMaterial;
 uniform vec3 uFogColor;
 uniform bool uUseTexture;
 uniform bool uLighting;
 
 vec4 finishSurface(vec3 color) {
-    if (uRoomLight > 0.0) {
-        vec2 p = (gl_FragCoord.xy - uViewport.xy) / uViewport.zw;
-        float edge = smoothstep(0.0, 0.075, p.x) * (1.0 - smoothstep(0.925, 1.0, p.x))
-            * smoothstep(0.0, 0.09, p.y) * (1.0 - smoothstep(0.955, 1.0, p.y));
-        color *= edge;
-    }
     return vec4(color, uOpacity);
 }
 
@@ -99,7 +92,7 @@ void main() {
         vec3 panes = mix(uColor, vec3(0.78, 0.725, 0.62), stripe * 0.88);
         if (uMaterial == 10) {
             float blackSleeve = smoothstep(0.32, 0.37, vTexCoord.y);
-            surface = mix(panes, vec3(0.024, 0.027, 0.032), blackSleeve);
+            surface = mix(panes, vec3(0.027, 0.018, 0.047), blackSleeve);
             float braid = 1.0 - smoothstep(0.008, 0.020, abs(vTexCoord.y - 0.35));
             surface = mix(surface, vec3(0.52, 0.34, 0.12), braid * 0.90);
         } else surface = panes;
@@ -115,6 +108,8 @@ void main() {
         surface = mix(surface, vec3(0.55, 0.39, 0.19), edgeBraid * 0.45);
     } else if (uMaterial == 9) {
         float a = vTexCoord.x * 6.2831853;
+        surface = mix(uColor, vec3(0.18, 0.055, 0.31), smoothstep(-0.035, 0.035, cos(a)));
+        if (uUseTexture) surface *= texture(uTexture, vTexCoord * uUvScale).rgb;
         float height = clamp((vTexCoord.y - 0.45) / 0.43, 0.0, 1.0);
         float x = abs(cos(a));
         float lapelCenter = 0.09 + height * 0.55;
@@ -161,7 +156,7 @@ void main() {
             * (0.35 + candleDiffuse * 1.6) * uRoomLight;
     }
     {
-        vec3 lamp = vec3(-4.70, 1.25, -6.40);
+        vec3 lamp = vec3(-4.70, 1.25, -5.75);
         vec3 delta = lamp - vWorldPosition;
         float glow = 1.0 / (1.0 + dot(delta, delta) * 2.1);
         float lampDiffuse = max(dot(normal, normalize(delta)), 0.0);
