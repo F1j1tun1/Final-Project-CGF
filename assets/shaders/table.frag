@@ -17,6 +17,7 @@ uniform float uEmission;
 uniform float uOpacity;
 uniform float uVelvet;
 uniform float uRoomLight;
+uniform float uLampBrightness;
 uniform vec4 uViewport;
 uniform int uMaterial;
 uniform vec3 uFogColor;
@@ -28,7 +29,7 @@ vec4 finishSurface(vec3 color) {
         vec2 p = (gl_FragCoord.xy - uViewport.xy) / uViewport.zw;
         float edge = smoothstep(0.0, 0.075, p.x) * (1.0 - smoothstep(0.925, 1.0, p.x))
             * smoothstep(0.0, 0.09, p.y) * (1.0 - smoothstep(0.955, 1.0, p.y));
-        color = mix(vec3(0.026, 0.014, 0.050), color, edge);
+        color *= edge;
     }
     return vec4(color, uOpacity);
 }
@@ -37,6 +38,13 @@ void main() {
     vec3 surface = uColor;
     if (uUseTexture) {
         surface *= texture(uTexture, vTexCoord * uUvScale).rgb;
+    }
+    if (uRoomLight > 0.0 && uMaterial == 0 && uVelvet > 0.55) {
+        // Broad, low-contrast changes in the nap of the old table felt.
+        vec2 p = vWorldPosition.xz;
+        float wear = sin(p.x * 1.7 + sin(p.y * 0.8)) * sin(p.y * 2.1 - p.x * 0.4);
+        surface *= 0.94 + wear * 0.06;
+        surface = mix(surface, vec3(0.10, 0.115, 0.07), max(wear, 0.0) * 0.10);
     }
     if (uMaterial == 1 || uMaterial == 8) {
         vec2 p = vTexCoord * 2.0 - 1.0;
@@ -152,15 +160,13 @@ void main() {
         result += surface * vec3(1.0, 0.48, 0.16) * glow
             * (0.35 + candleDiffuse * 1.6) * uRoomLight;
     }
-    for (int i = 0; i < 4; ++i) {
-        vec3 lamp = i == 0 ? vec3(-5.00, 1.96, -5.25)
-            : i == 1 ? vec3(5.30, 1.96, -6.15)
-            : i == 2 ? vec3(-3.55, 1.96, -8.20) : vec3(3.70, 1.96, -9.05);
+    {
+        vec3 lamp = vec3(-4.70, 1.25, -6.40);
         vec3 delta = lamp - vWorldPosition;
         float glow = 1.0 / (1.0 + dot(delta, delta) * 2.1);
         float lampDiffuse = max(dot(normal, normalize(delta)), 0.0);
         result += surface * vec3(1.0, 0.64, 0.34) * glow
-            * (0.28 + lampDiffuse * 1.0) * uRoomLight * 0.70;
+            * (0.28 + lampDiffuse) * uRoomLight * uLampBrightness * 0.70;
     }
 
     // Subtle distance haze keeps the back edge of the table in the scene.

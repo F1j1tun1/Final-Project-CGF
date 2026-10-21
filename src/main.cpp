@@ -330,6 +330,8 @@ struct Session {
     float fade = -1.0f;
     bool switched = false;
     std::uint32_t nextSeed = 0;
+    float gameOverElapsed = 0.0f;
+    bool gameOverFocused = false;
 
     bool transitioning() const { return fade >= 0.0f; }
     void start(bj::Game& game) {
@@ -356,6 +358,13 @@ struct Session {
     }
     float darkness() const {
         return transitioning() ? std::clamp(1.0f - std::abs(2.0f * fade - 1.0f), 0.0f, 1.0f) : 0.0f;
+    }
+    void updateGameOver(float dt, bool showing) {
+        if (showing) gameOverElapsed = std::min(3.0f, gameOverElapsed + dt);
+        else {
+            gameOverElapsed = 0.0f;
+            gameOverFocused = false;
+        }
     }
 };
 
@@ -595,7 +604,7 @@ TableLayout tableLayout(ImVec2 display) {
     const float sidebar = std::clamp(display.x * .24f, 280.0f, 340.0f);
     const float contentX = sidebar + 24;
     const float actionY = display.y - 154;
-    const float boardY=display.y<800?236.0f:250.0f;
+    const float boardY=display.y<800?170.0f:182.0f;
     return {sidebar, contentX, display.x - contentX - 20, boardY, display.y - boardY - 110, actionY};
 }
 
@@ -622,72 +631,57 @@ void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
 
 void drawRelicStrip(const bj::Game& game, const TableLayout& layout, Session& session,
                     const Interface& ui, const ArtAssets& art) {
+    session.hoveredRelic=-1;
+    if(game.state().owned.empty()) return;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    beginPanel("##relics", {layout.contentX, 12}, {layout.contentWidth, layout.boardY-18}, true);
-    ImGui::PushFont(ui.small);
-    ImGui::TextColored(gold, "YOUR COLLECTION   %d / 4", static_cast<int>(game.state().owned.size()));
-    ImGui::PopFont();
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0.0f);
+    beginPanel("##relics", {layout.contentX, 8}, {layout.contentWidth, layout.boardY-8}, true,
+        ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
     const bool compact=ImGui::GetIO().DisplaySize.y<800;
     const float radius=compact?48.0f:55.0f;
     const float width=layout.contentWidth/4;
-    const float centerY=compact?77.0f:84.0f;
-    session.hoveredRelic=-1;
+    const float centerY=compact?54.0f:61.0f;
     for (int slot = 0; slot < 4; ++slot) {
-        ImGui::PushID(slot);
-        ImGui::SetCursorPos({slot*width+4,25});
         const bool filled = static_cast<std::size_t>(slot) < game.state().owned.size();
-        const auto* item = filled ? &relicInfo(game.state().owned[static_cast<std::size_t>(slot)]) : nullptr;
+        if(!filled) {
+            session.relicHover[slot]=approach(session.relicHover[slot],false);
+            continue;
+        }
+        const auto& item=relicInfo(game.state().owned[static_cast<std::size_t>(slot)]);
+        ImGui::PushID(slot);
+        ImGui::SetCursorPos({slot*width+width*.5f-radius-4,centerY-radius-4});
         ImGui::PushStyleColor(ImGuiCol_Header,{0,0,0,0});
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered,{0,0,0,0});
         ImGui::PushStyleColor(ImGuiCol_HeaderActive,{0,0,0,0});
-        ImGui::Selectable("##chip",false,0,{width-8,compact?127.0f:141.0f});
+        ImGui::Selectable("##chip",false,0,{radius*2+8,radius*2+8});
         ImGui::PopStyleColor(3);
-        const bool hovered=filled&&(ImGui::IsItemHovered()||ImGui::IsItemFocused());
+        const bool hovered=!session.settings&&!session.rules&&!session.transitioning()&&
+            (ImGui::IsItemHovered()||(ImGui::GetIO().NavVisible&&ImGui::IsItemFocused()));
         session.relicHover[slot]=approach(session.relicHover[slot],hovered);
-        if(hovered) {session.inspectedRelic=item->id;session.hoveredRelic=slot;}
+        if(hovered) {session.inspectedRelic=item.id;session.hoveredRelic=slot;}
         const auto origin=ImGui::GetWindowPos();
         const ImVec2 center{origin.x+slot*width+width*.5f,origin.y+centerY-session.relicHover[slot]*5};
-        auto* draw=ImGui::GetWindowDrawList();
-        if (item) {
-            drawChip(draw,center,radius,*item,art,-.055f*session.relicHover[slot]);
-            const float textWidth=ui.button->CalcTextSizeA(22,1000,0,item->name).x;
-            const float size=22*std::min(1.0f,(width-12)/textWidth);
-            const float actual=ui.button->CalcTextSizeA(size,1000,0,item->name).x;
-            draw->AddText(ui.button,size,{center.x-actual*.5f,origin.y+centerY+radius+6},
-                ImGui::ColorConvertFloat4ToU32(cream),item->name);
-        } else {
-            draw->AddCircle(center,radius-4,IM_COL32(173,147,113,58),56,1.5f);
-            draw->AddCircle(center,radius-10,IM_COL32(173,147,113,25),56,1);
-            const std::string number=std::to_string(slot+1);
-            const auto extent=ui.heading->CalcTextSizeA(36,1000,0,number.c_str());
-            draw->AddText(ui.heading,36,{center.x-extent.x*.5f,center.y-extent.y*.5f},IM_COL32(187,162,129,62),number.c_str());
-        }
+        drawChip(ImGui::GetWindowDrawList(),center,radius,item,art,-.055f*session.relicHover[slot]);
         ImGui::PopID();
     }
-    if(!game.state().owned.empty()&&!game.hasRelic(session.inspectedRelic)) session.inspectedRelic=game.state().owned.front();
-    const auto origin=ImGui::GetWindowPos();
-    const float plaqueY=compact?156.0f:170.0f;
-    const ImVec2 p{origin.x,origin.y+plaqueY};
-    auto* draw=ImGui::GetWindowDrawList();
-    draw->AddRectFilled(p,{p.x+layout.contentWidth,p.y+58},IM_COL32(24,20,25,235),8);
-    draw->AddRect(p,{p.x+layout.contentWidth,p.y+58},IM_COL32(153,123,81,85),8);
-    if(!game.state().owned.empty()) {
+    if(session.hoveredRelic>=0) {
+        const auto origin=ImGui::GetWindowPos();
+        const ImVec2 p{origin.x,origin.y+(compact?116.0f:130.0f)};
+        auto* draw=ImGui::GetWindowDrawList();
+        draw->AddRectFilled(p,{p.x+layout.contentWidth,p.y+38},IM_COL32(13,11,14,235),5);
         const auto& item=relicInfo(session.inspectedRelic);
-        draw->AddText(ui.button,22,{p.x+14,p.y+4},ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity)),item.name);
+        draw->AddText(ui.button,18,{p.x+12,p.y},ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity)),item.name);
         const std::string tag=std::string(bj::rarityName(item.rarity))+"   /   "+std::to_string(item.cost)+" coins";
-        const auto extent=ui.small->CalcTextSizeA(18,1000,0,tag.c_str());
-        draw->AddText(ui.small,18,{p.x+layout.contentWidth-14-extent.x,p.y+7},ImGui::ColorConvertFloat4ToU32(muted),tag.c_str());
+        const auto extent=ui.small->CalcTextSizeA(16,1000,0,tag.c_str());
+        draw->AddText(ui.small,16,{p.x+layout.contentWidth-12-extent.x,p.y+1},ImGui::ColorConvertFloat4ToU32(muted),tag.c_str());
         const char* description=item.id==bj::Relic::SecondChance&&game.state().usedSecondChance
             ?"Rescue spent this round. Recharges next round.":item.description;
-        const float textWidth=ui.small->CalcTextSizeA(18,2000,0,description).x;
-        const float size=18*std::min(1.0f,(layout.contentWidth-28)/textWidth);
-        draw->AddText(ui.small,size,{p.x+14,p.y+31},ImGui::ColorConvertFloat4ToU32(cream),description);
-    } else {
-        draw->AddText(ui.small,18,{p.x+16,p.y+18},ImGui::ColorConvertFloat4ToU32(muted),
-            "Your cabinet is empty. Clear a round to visit the relic shop.");
+        const float textWidth=ui.small->CalcTextSizeA(16,2000,0,description).x;
+        const float size=16*std::min(1.0f,(layout.contentWidth-24)/textWidth);
+        draw->AddText(ui.small,size,{p.x+12,p.y+20},ImGui::ColorConvertFloat4ToU32(cream),description);
     }
     ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 }
 
 void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& session, const Commands& commands,
@@ -911,46 +905,72 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui, const Art
 void drawGameOver(bj::Game& game, Commands& commands, Session& session, const Interface& ui, GLFWwindow* window) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
-    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, display, IM_COL32(85, 8, 17, 170));
-    beginPanel("##end", {display.x * .5f - 310, display.y * .5f - 265}, {620, 530}, true);
-    ImGui::PushFont(ui.number);
-    ImGui::SetWindowFontScale(1.55f);
-    const float titleWidth = ImGui::CalcTextSize("GAME OVER").x;
-    ImGui::SetCursorPosX((620 - titleWidth) * .5f);
-    ImGui::TextColored(cream, "GAME OVER");
-    ImGui::SetWindowFontScale(1);
-    ImGui::PopFont();
-    ImGui::SetCursorPos({45, 100});
-    ImGui::Text("Round %d ended at %d / %d points.", state.round, state.roundScore, state.goal);
-    ImGui::SetCursorPos({45, 133});
-    ImGui::TextColored(bj::evaluateHand(state.player).bust ? red : cream, "Your hand: %d%s   /   Dealer: %d",
-        bj::evaluateHand(state.player).total, bj::evaluateHand(state.player).bust ? " (BUST)" : "",
-        bj::evaluateHand(state.dealer).total);
-    ImGui::SetCursorPos({45, 170});
-    ImGui::TextColored(gold, "Run score: %d    Hand wins: %d", state.totalScore, state.wins);
-    ImGui::PushFont(ui.small);
-    ImGui::SetCursorPos({45, 202});
-    ImGui::TextColored(muted, "Seed %u", state.seed);
-    ImGui::PopFont();
-    ImGui::PushFont(ui.button);
-    ImGui::PushStyleColor(ImGuiCol_Button, {.23f, .24f, .26f, 1});
-    ImGui::BeginDisabled(session.settings || session.rules || session.transitioning());
-    ImGui::SetCursorPos({145, 244});
-    if (state.revivesLeft > 0) {
-        if (ImGui::Button("REVIVE / ONE LIFE", {330, 50})) commands.apply([&]() {return game.revive();});
-    } else if (ImGui::Button("RETRY [SPACE]", {330, 50})) session.start(game);
-    if(state.revivesLeft > 0) {
-        ImGui::SetCursorPos({145,306});
-        if(ImGui::Button("NEW RUN",{330,50})) session.start(game);
+    const bool compact=display.y<800;
+    const float fade=std::clamp(session.gameOverElapsed/.8f,0.0f,1.0f);
+    const float darkness=fade*fade*(3.0f-2.0f*fade);
+    const float appear=std::clamp((session.gameOverElapsed-.12f)/.68f,0.0f,1.0f);
+    const float alpha=appear*appear*(3.0f-2.0f*appear);
+    ImGui::GetBackgroundDrawList()->AddRectFilled({0,0},display,
+        IM_COL32(0,0,0,static_cast<int>(255*darkness)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{0,0});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0);
+    if(!session.gameOverFocused) {
+        ImGui::SetNextWindowFocus();
+        session.gameOverFocused=true;
     }
-    ImGui::SetCursorPos({145, state.revivesLeft > 0 ? 368.0f : 306.0f});
-    if (ImGui::Button("MAIN MENU", {330, 50})) session.menu = true;
-    ImGui::SetCursorPos({145, state.revivesLeft > 0 ? 430.0f : 368.0f});
-    if (ImGui::Button("QUIT GAME", {330, 50})) glfwSetWindowShouldClose(window, GLFW_TRUE);
-    ImGui::EndDisabled();
+    beginPanel("##end",{0,0},display,true,ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
+    auto* draw=ImGui::GetWindowDrawList();
+    const float center=display.x*.5f;
+    const auto white=IM_COL32(255,255,255,static_cast<int>(255*alpha));
+    const auto pale=IM_COL32(210,210,210,static_cast<int>(255*alpha));
+    const auto scarlet=IM_COL32(220,28,45,static_cast<int>(255*alpha));
+    const auto text=[&](ImFont* font,float size,float x,float y,ImU32 color,const std::string& value) {
+        const float width=font->CalcTextSizeA(size,10000,0,value.c_str()).x;
+        draw->AddText(font,size,{x-width*.5f,y},color,value.c_str());
+    };
+    const float titleY=compact?74.0f:100.0f;
+    const float titleSize=compact?148.0f:184.0f;
+    text(ui.title,titleSize,center,titleY,white,"GAME OVER");
+    draw->AddLine({center-34,titleY+titleSize+12},{center+34,titleY+titleSize+12},scarlet,2);
+    const float statsY=titleY+titleSize+(compact?38.0f:50.0f);
+    text(ui.small,18,center-160,statsY,pale,"ROUND REACHED");
+    text(ui.small,18,center+160,statsY,pale,"TOTAL RUN SCORE");
+    text(ui.number,compact?54.0f:64.0f,center-160,statsY+23,white,std::to_string(state.round));
+    text(ui.number,compact?54.0f:64.0f,center+160,statsY+23,white,std::to_string(state.totalScore));
+    if(state.revivesLeft>0)
+        text(ui.small,16,center,statsY+94,scarlet,"ENCORE: ONE LIFE REMAINS");
+    const float buttonWidth=340,buttonHeight=compact?54.0f:60.0f;
+    const float buttonY=statsY+126,step=compact?68.0f:76.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha,alpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,2);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,1);
+    ImGui::PushStyleColor(ImGuiCol_Text,{1,1,1,1});
+    ImGui::PushStyleColor(ImGuiCol_Border,{.68f,.68f,.68f,1});
+    ImGui::PushStyleColor(ImGuiCol_NavCursor,{1,1,1,1});
+    ImGui::PushStyleColor(ImGuiCol_Button,{0,0,0,0});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,{.54f,.025f,.055f,1});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,{.72f,.025f,.055f,1});
+    ImGui::PushFont(ui.button);
+    ImGui::BeginDisabled(commands.blocked || commands.used || session.settings || session.rules || session.transitioning());
+    ImGui::SetCursorPos({center-buttonWidth*.5f,buttonY});
+    ImGui::PushStyleColor(ImGuiCol_Button,{.59f,.025f,.055f,1});
+    const bool retry=ImGui::Button(state.revivesLeft>0?"REVIVE / SPACE":"RETRY / SPACE",{buttonWidth,buttonHeight});
     ImGui::PopStyleColor();
+    ImGui::SetItemDefaultFocus();
+    if(retry) {
+        if(state.revivesLeft>0) commands.apply([&]() {return game.revive();});
+        else session.start(game);
+    }
+    ImGui::SetCursorPos({center-buttonWidth*.5f,buttonY+step});
+    if(ImGui::Button("MAIN MENU",{buttonWidth,buttonHeight})) session.menu=true;
+    ImGui::SetCursorPos({center-buttonWidth*.5f,buttonY+step*2});
+    if(ImGui::Button("QUIT GAME",{buttonWidth,buttonHeight})) glfwSetWindowShouldClose(window,GLFW_TRUE);
+    ImGui::EndDisabled();
     ImGui::PopFont();
+    ImGui::PopStyleColor(6);
+    ImGui::PopStyleVar(3);
     ImGui::End();
+    ImGui::PopStyleVar(2);
 }
 
 void centeredText(ImDrawList* draw, ImFont* font, float size, float centerX, float y, ImU32 color,
@@ -1460,6 +1480,7 @@ int main(int argc, char** argv) {
             session.update(dt, game);
             if(!switched && session.switched) timeline.reset(game.state());
             if(!session.menu && !session.settings && !session.rules) timeline.update(dt,session.animationSpeed);
+            session.updateGameOver(dt,!session.menu && !timeline.busy() && timeline.visible().phase==bj::Phase::RunLost);
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             if(options.smoke) {
@@ -1547,8 +1568,10 @@ int main(int argc, char** argv) {
             if(options.autoplay && frame>180 && frame%10==0 && !session.settings && !session.rules && !session.collection && !session.deckSelection && !session.transitioning()) {
                 if(timeline.busy()) timeline.accelerate();
                 else if(game.state().phase==bj::Phase::RunLost) {
-                    if(game.state().revivesLeft) commands.apply([&](){return game.revive();});
-                    else session.start(game);
+                    if(session.gameOverElapsed>=1.1f) {
+                        if(game.state().revivesLeft) commands.apply([&](){return game.revive();});
+                        else session.start(game);
+                    }
                 } else if(session.menu && !options.smoke) session.start(game);
                 else autoplayStep(game,commands);
             }
@@ -1624,8 +1647,13 @@ int main(int argc, char** argv) {
                 const auto capture = [&](const std::string& tag) {
                     if (captured.insert(tag).second) saveScreenshot(options.captures / (tag + ".png"), width, height);
                 };
-                capture(name);
                 const std::string suffix=height<800?"-small":"-large";
+                if(name!="end" || session.gameOverElapsed>=.8f) capture(name);
+                if(name=="end") {
+                    if(session.gameOverElapsed>=.20f && session.gameOverElapsed<.40f) capture("end-fade-early"+suffix);
+                    if(session.gameOverElapsed>=.50f && session.gameOverElapsed<.70f) capture("end-fade-late"+suffix);
+                    if(session.gameOverElapsed>=.8f) capture("end"+suffix);
+                }
                 if(session.deckSelection) {
                     const char* names[]={"hands","life","coins"};
                     capture(std::string("deck-")+names[deckIndex(session.selectedDeck)]+suffix);

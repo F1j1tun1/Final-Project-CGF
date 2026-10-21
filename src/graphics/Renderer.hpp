@@ -38,7 +38,7 @@ struct Scene {
 
 struct RenderSettings {
     float yaw = 0.0f;
-    float pitch = 38.0f;
+    float pitch = 32.0f;
     float distance = 9.1f;
     float lightIntensity = 1.2f;
     bool textures = true;
