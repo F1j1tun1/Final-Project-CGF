@@ -21,6 +21,7 @@
 
 #include "game/Game.hpp"
 #include "graphics/Renderer.hpp"
+#include "graphics/ArtTexture.hpp"
 #include "presentation/CardSuit.hpp"
 #include "presentation/Presentation.hpp"
 #include <iomanip>
@@ -40,12 +41,12 @@
 #include <vector>
 
 namespace {
-constexpr ImVec4 gold{0.98f, 0.78f, 0.34f, 1.0f};
-constexpr ImVec4 muted{0.73f, 0.66f, 0.80f, 1.0f};
-constexpr ImVec4 cream{0.98f, 0.93f, 0.81f, 1.0f};
-constexpr ImVec4 green{0.54f, 0.88f, 0.72f, 1.0f};
-constexpr ImVec4 red{1.0f, 0.48f, 0.49f, 1.0f};
-constexpr ImVec4 blue{0.30f, 0.72f, 1.0f, 1.0f};
+constexpr ImVec4 gold{0.84f, 0.69f, 0.42f, 1.0f};
+constexpr ImVec4 muted{0.68f, 0.64f, 0.61f, 1.0f};
+constexpr ImVec4 cream{0.97f, 0.92f, 0.82f, 1.0f};
+constexpr ImVec4 green{0.48f, 0.79f, 0.61f, 1.0f};
+constexpr ImVec4 red{0.92f, 0.42f, 0.39f, 1.0f};
+constexpr ImVec4 blue{0.39f, 0.66f, 0.88f, 1.0f};
 constexpr ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoDecoration |
     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
 
@@ -83,6 +84,9 @@ struct Options {
     bool autoplay = false;
     bool smoke = false;
     bool noAnimation = false;
+    bool noAmbientMotion = false;
+    int width = 1440;
+    int height = 900;
     bj::StartDeck deck = bj::StartDeck::ExtraHand;
     std::filesystem::path screenshot;
     std::filesystem::path captures;
@@ -112,6 +116,19 @@ Options parseOptions(int argc, char** argv) {
         } else if (arg == "--frames") {
             options.frames = std::stoi(value());
             if (options.frames < 1) throw std::runtime_error("Frames must be positive.");
+        } else if (arg == "--size") {
+            const auto size = value();
+            const auto separator = size.find('x');
+            if (separator == std::string::npos) throw std::runtime_error("Size must be WIDTHxHEIGHT.");
+            const auto parseDimension = [](const std::string& text) {
+                if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos)
+                    throw std::runtime_error("Size must be WIDTHxHEIGHT.");
+                return std::stoi(text);
+            };
+            options.width = parseDimension(size.substr(0, separator));
+            options.height = parseDimension(size.substr(separator + 1));
+            if (options.width < 1100 || options.height < 720 || options.width > 7680 || options.height > 4320)
+                throw std::runtime_error("Size must be between 1100x720 and 7680x4320.");
         } else if (arg == "--screenshot") options.screenshot = value();
         else if (arg == "--capture-states") options.captures = value();
         else if (arg == "--assets") options.assets = value();
@@ -119,6 +136,7 @@ Options parseOptions(int argc, char** argv) {
         else if (arg == "--demo") options.demo = true;
         else if (arg == "--autoplay") options.autoplay = true;
         else if (arg == "--no-animation") options.noAnimation = true;
+        else if (arg == "--no-ambient-motion") options.noAmbientMotion = true;
         else if (arg == "--smoke") {
             options.hidden = true;
             options.autoplay = true;
@@ -130,11 +148,13 @@ Options parseOptions(int argc, char** argv) {
                 "  --demo            Skip menu and deal the first hand\n"
                 "  --deck NAME       Select hands, life or coins deck\n"
                 "  --frames N        Exit after N rendered frames\n"
+                "  --size WxH        Initial window size (minimum 1100x720)\n"
                 "  --screenshot FILE Save the final frame as PNG\n"
                 "  --capture-states DIR Save menu, table, shop and end screens\n"
                 "  --assets DIR      Override assets directory\n"
                 "  --hidden          Create an invisible graphics window\n"
                 "  --no-animation    Skip the start fade\n"
+                "  --no-ambient-motion Disable decorative scene motion\n"
                 "  --autoplay        Exercise the game state machine\n"
                 "  --smoke           Hidden integration run, including menu and resize\n";
             std::exit(0);
@@ -147,7 +167,7 @@ Options parseOptions(int argc, char** argv) {
 
 struct Window {
     GLFWwindow* handle = nullptr;
-    explicit Window(bool hidden) {
+    explicit Window(bool hidden, int width, int height) {
         glfwSetErrorCallback([](int code, const char* description) {
             std::cerr << "GLFW " << code << ": " << description << '\n';
         });
@@ -160,7 +180,7 @@ struct Window {
 #endif
         glfwWindowHint(GLFW_SAMPLES, 4);
         glfwWindowHint(GLFW_VISIBLE, hidden ? GLFW_FALSE : GLFW_TRUE);
-        handle = glfwCreateWindow(1440, 900, "Jester Jack", nullptr, nullptr);
+        handle = glfwCreateWindow(width, height, "Jester Jack", nullptr, nullptr);
         if (!handle) {
             glfwTerminate();
             throw std::runtime_error("OpenGL 3.3 window creation failed. Check the GPU driver.");
@@ -226,27 +246,38 @@ struct Interface {
         }
         ImGui::StyleColorsDark();
         auto& style = ImGui::GetStyle();
-        style.WindowRounding = 12.0f;
-        style.FrameRounding = 7.0f;
+        style.WindowRounding = 14.0f;
+        style.FrameRounding = 8.0f;
         style.WindowBorderSize = 1.0f;
         style.FrameBorderSize = 1.0f;
         style.FramePadding = ImVec2(16, 8);
         style.WindowPadding = ImVec2(20, 16);
         style.ItemSpacing = ImVec2(12, 9);
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.075f, 0.095f, 0.11f, 0.98f);
-        style.Colors[ImGuiCol_Border] = ImVec4(0.29f, 0.35f, 0.37f, 0.96f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.105f, 0.085f, 0.105f, 0.985f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.13f, 0.105f, 0.12f, 0.97f);
+        style.Colors[ImGuiCol_Border] = ImVec4(0.38f, 0.31f, 0.24f, 0.82f);
         style.Colors[ImGuiCol_Text] = cream;
         style.Colors[ImGuiCol_TextDisabled] = muted;
-        style.Colors[ImGuiCol_Button] = ImVec4(0.30f, 0.10f, 0.30f, 1.0f);
-        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.48f, 0.20f, 0.36f, 1.0f);
-        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.57f, 0.26f, 0.34f, 1.0f);
-        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.12f, 0.29f, 1.0f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.24f, 0.17f, 0.25f, 1.0f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.34f, 0.25f, 0.34f, 1.0f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.19f, 0.13f, 0.20f, 1.0f);
+        style.Colors[ImGuiCol_FrameBg] = ImVec4(0.19f, 0.15f, 0.18f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.28f, 0.22f, 0.25f, 1.0f);
+        style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.32f, 0.24f, 0.30f, 1.0f);
+        style.Colors[ImGuiCol_Header] = ImVec4(0.25f, 0.20f, 0.23f, 1.0f);
+        style.Colors[ImGuiCol_HeaderHovered] = ImVec4(0.31f, 0.25f, 0.28f, 1.0f);
+        style.Colors[ImGuiCol_HeaderActive] = ImVec4(0.36f, 0.29f, 0.32f, 1.0f);
+        style.Colors[ImGuiCol_Separator] = ImVec4(0.42f, 0.34f, 0.25f, 0.65f);
+        style.Colors[ImGuiCol_ScrollbarBg] = ImVec4(0.09f, 0.07f, 0.09f, 0.8f);
+        style.Colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.40f, 0.32f, 0.28f, 1.0f);
+        style.Colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.51f, 0.42f, 0.34f, 1.0f);
+        style.Colors[ImGuiCol_ScrollbarGrabActive] = gold;
         style.Colors[ImGuiCol_CheckMark] = gold;
         style.Colors[ImGuiCol_SliderGrab] = gold;
         style.Colors[ImGuiCol_SliderGrabActive] = cream;
         style.Colors[ImGuiCol_NavCursor] = gold;
-        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.17f, 0.08f, 0.23f, 1.0f);
-        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.28f, 0.10f, 0.29f, 1.0f);
+        style.Colors[ImGuiCol_TitleBg] = ImVec4(0.16f, 0.11f, 0.16f, 1.0f);
+        style.Colors[ImGuiCol_TitleBgActive] = ImVec4(0.25f, 0.17f, 0.24f, 1.0f);
         glfwBackend = ImGui_ImplGlfw_InitForOpenGL(window, true);
         if (glfwBackend) glBackend = ImGui_ImplOpenGL3_Init("#version 330 core");
         if (!glfwBackend || !glBackend) {
@@ -264,6 +295,19 @@ struct Interface {
     Interface& operator=(const Interface&) = delete;
 };
 
+struct ArtAssets {
+    gfx::ArtTexture relics;
+    gfx::ArtTexture hands;
+    gfx::ArtTexture life;
+    gfx::ArtTexture coins;
+    explicit ArtAssets(const std::filesystem::path& assets)
+        : relics(assets / "art/relics.tga"), hands(assets / "art/deck-hands.tga"),
+          life(assets / "art/deck-life.tga"), coins(assets / "art/deck-coins.tga") {}
+    const gfx::ArtTexture& deck(bj::StartDeck choice) const {
+        return choice == bj::StartDeck::SecondLife ? life : choice == bj::StartDeck::Rich ? coins : hands;
+    }
+};
+
 struct Session {
     bool menu = true;
     bool collection = false;
@@ -271,6 +315,12 @@ struct Session {
     int collectionFilter = 0;
     bj::Relic selectedRelic = bj::Relic::RoyalPurse;
     bj::StartDeck selectedDeck = bj::StartDeck::ExtraHand;
+    float deckMotion = 0;
+    int deckDirection = 1;
+    bj::Relic inspectedRelic = bj::Relic::RoyalPurse;
+    float relicHover[4]{};
+    float collectionHover[24]{};
+    int hoveredRelic = -1;
     float animationSpeed = 0.0f;
     bool settings = false;
     bool rules = false;
@@ -280,6 +330,12 @@ struct Session {
     float fade = -1.0f;
     bool switched = false;
     std::uint32_t nextSeed = 0;
+    float gameOverElapsed = 0.0f;
+    bool gameOverFocused = false;
+    int relicReactionStep = -1;
+    float relicReactionElapsed = 0.0f;
+    float bustReaction = 0.0f;
+    bool showingBust = false;
 
     bool transitioning() const { return fade >= 0.0f; }
     void start(bj::Game& game) {
@@ -306,6 +362,34 @@ struct Session {
     }
     float darkness() const {
         return transitioning() ? std::clamp(1.0f - std::abs(2.0f * fade - 1.0f), 0.0f, 1.0f) : 0.0f;
+    }
+    void updateGameOver(float dt, bool showing) {
+        if (showing) gameOverElapsed = std::min(3.0f, gameOverElapsed + dt);
+        else {
+            gameOverElapsed = 0.0f;
+            gameOverFocused = false;
+        }
+    }
+    void updateRelicReaction(float dt, const presentation::Presentation& timeline) {
+        const auto& state=timeline.visible();
+        const int step=timeline.rewardStep();
+        const bool active=timeline.busy() && step>0 &&
+            step<=static_cast<int>(state.score.appliedEffects.size());
+        if(!active) {
+            relicReactionStep=-1;
+            relicReactionElapsed=0;
+        } else if(relicReactionStep!=step) {
+            relicReactionStep=step;
+            relicReactionElapsed=0;
+        } else relicReactionElapsed+=dt;
+    }
+    void updateBustReaction(float dt, const bj::Snapshot& state) {
+        const bool bust=(state.phase==bj::Phase::RoundOver || state.phase==bj::Phase::RunLost) &&
+            state.outcome==bj::Outcome::Loss && bj::evaluateHand(state.player).bust;
+        if(bust && !showingBust) bustReaction=1.0f;
+        else if(!bust) bustReaction=0.0f;
+        else bustReaction=std::max(0.0f,bustReaction-dt/.8f);
+        showingBust=bust;
     }
 };
 
@@ -379,6 +463,26 @@ void heading(const char* text, const Interface& ui) {
     ImGui::Spacing();
 }
 
+bool theatreButton(const char* label, ImVec2 size, ImVec4 tone = {.25f,.18f,.26f,1}) {
+    const auto p = ImGui::GetCursorScreenPos();
+    auto* draw = ImGui::GetWindowDrawList();
+    if (size.x > 0 && size.y > 0)
+        draw->AddRectFilled({p.x+1,p.y+4},{p.x+size.x+1,p.y+size.y+4},IM_COL32(0,0,0,75),8);
+    ImGui::PushStyleColor(ImGuiCol_Button,tone);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,{std::min(1.0f,tone.x+.07f),std::min(1.0f,tone.y+.07f),std::min(1.0f,tone.z+.07f),1});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,{tone.x*.78f,tone.y*.78f,tone.z*.78f,1});
+    const bool pressed=ImGui::Button(label,size);
+    ImGui::PopStyleColor(3);
+    const auto end=ImGui::GetItemRectMax();
+    draw->AddLine({p.x+9,p.y+1},{end.x-9,p.y+1},IM_COL32(255,237,201,40));
+    return pressed;
+}
+
+float approach(float current, bool active) {
+    const float amount=std::clamp(ImGui::GetIO().DeltaTime*12.0f,0.0f,1.0f);
+    return current+((active?1.0f:0.0f)-current)*amount;
+}
+
 const bj::RelicInfo& relicInfo(bj::Relic id) {
     const auto& catalog = bj::relicCatalog();
     return *std::find_if(catalog.begin(), catalog.end(), [id](const auto& item) { return item.id == id; });
@@ -427,24 +531,19 @@ void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* wind
     beginPanel("##menu", layout.origin, {layout.width, 4 * layout.step}, true);
     ImGui::BeginDisabled(session.transitioning() || session.settings || session.collection || session.deckSelection);
     ImGui::PushFont(ui.menuButton);
-    const auto button = [&](const char* label, ImVec4 normal, ImVec4 hover, ImVec4 active) {
-        ImGui::PushStyleColor(ImGuiCol_Button, normal);
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hover);
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, active);
-        const bool pressed = ImGui::Button(label, {layout.width, layout.height});
-        ImGui::PopStyleColor(3);
-        return pressed;
+    const auto button = [&](const char* label, ImVec4 normal) {
+        return theatreButton(label,{layout.width,layout.height},normal);
     };
-    if (button("START", {.13f, .40f, .23f, 1}, {.19f, .53f, .31f, 1}, {.10f, .32f, .18f, 1}))
+    if (button("START", {.13f, .33f, .23f, 1}))
         session.deckSelection = true;
     ImGui::SetCursorPos({0, layout.step});
-    if (button("OPTIONS", {.29f, .31f, .34f, 1}, {.40f, .43f, .46f, 1}, {.22f, .24f, .27f, 1}))
+    if (button("OPTIONS", {.25f, .24f, .24f, 1}))
         session.settings = true;
     ImGui::SetCursorPos({0, 2 * layout.step});
-    if (button("COLLECTION", {.30f, .15f, .45f, 1}, {.44f, .23f, .60f, 1}, {.23f, .10f, .35f, 1}))
+    if (button("COLLECTION", {.28f, .17f, .35f, 1}))
         session.collection = true;
     ImGui::SetCursorPos({0, 3 * layout.step});
-    if (button("EXIT", {.56f, .16f, .20f, 1}, {.70f, .23f, .27f, 1}, {.44f, .11f, .14f, 1}))
+    if (button("EXIT", {.40f, .15f, .18f, 1}))
         glfwSetWindowShouldClose(window, GLFW_TRUE);
     ImGui::PopFont();
     ImGui::EndDisabled();
@@ -456,9 +555,9 @@ void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* wind
 
 ImVec4 rarityColor(bj::Rarity rarity) {
     switch (rarity) {
-        case bj::Rarity::Common: return {0.77f, 0.81f, 0.79f, 1};
-        case bj::Rarity::Rare: return {0.32f, 0.67f, 1.0f, 1};
-        case bj::Rarity::Legendary: return {1.0f, 0.70f, 0.25f, 1};
+        case bj::Rarity::Common: return {0.78f, 0.76f, 0.67f, 1};
+        case bj::Rarity::Rare: return {0.39f, 0.66f, 0.88f, 1};
+        case bj::Rarity::Legendary: return {0.98f, 0.73f, 0.32f, 1};
     }
     return cream;
 }
@@ -470,8 +569,11 @@ void rarityBadge(bj::Rarity rarity, const Interface& ui) {
     const ImVec2 text = ui.button->CalcTextSizeA(26, 1000, 0, label);
     ImGui::Dummy({text.x + 20, 32});
     auto* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(origin, {origin.x + text.x + 20, origin.y + 32}, color, 5);
-    draw->AddText(ui.button, 26, {origin.x + 10, origin.y + 3}, IM_COL32(17, 22, 28, 255), label);
+    const auto tint=rarityColor(rarity);
+    draw->AddRectFilled(origin, {origin.x + text.x + 20, origin.y + 32},
+        ImGui::ColorConvertFloat4ToU32({tint.x*.18f,tint.y*.18f,tint.z*.18f,1}), 5);
+    draw->AddRect(origin,{origin.x+text.x+20,origin.y+32},color,5,0,1);
+    draw->AddText(ui.button, 26, {origin.x + 10, origin.y + 3}, color, label);
 }
 
 void drawCoinIcon(ImDrawList* draw, ImVec2 center, float radius, const Interface& ui) {
@@ -483,52 +585,24 @@ void drawCoinIcon(ImDrawList* draw, ImVec2 center, float radius, const Interface
     draw->AddText(ui.button, 26, {center.x - mark.x * .5f, center.y - mark.y * .5f}, rim, "$");
 }
 
-const char* relicSummary(bj::Relic relic) {
-    switch(relic) {
-        case bj::Relic::Precision: return "21: +0.5 mult / +1 coin";
-        case bj::Relic::LongHand: return "4+ cards: +0.6 mult / +1 coin";
-        case bj::Relic::SecondChance: return "Bust rescue / Win: +1 mult";
-        case bj::Relic::Streak: return "Win streak: up to +0.4 mult";
-        case bj::Relic::RoyalPurse: return "Blackjack: +1 coin";
-        case bj::Relic::SoftTouch: return "Soft win: +1 coin";
-        case bj::Relic::NarrowEscape: return "House bust: +0.4 mult, +1 coin";
-        case bj::Relic::RedRibbon: return "Red opening pair: +1 coin";
-        case bj::Relic::BlackVelvet: return "Black opening pair: +1 coin";
-        case bj::Relic::EvenOdds: return "Even win: +1 coin";
-        case bj::Relic::CourtFavor: return "J / Q / K win: +3 points";
-        case bj::Relic::HumbleCrown: return "Win at 18 or less: +5 points";
-        case bj::Relic::BlackjackBonus: return "Blackjack: +5 points";
-        case bj::Relic::CopperBell: return "3+ cards: +3 points";
-        case bj::Relic::SeventeenCharm: return "Win at 17: +1 coin";
-        case bj::Relic::ScarletMask: return "All red: +0.5 mult";
-        case bj::Relic::MidnightMask: return "All black: +0.5 mult";
-        case bj::Relic::RoyalCourt: return "2+ face cards: +0.75 mult";
-        case bj::Relic::SoftCrown: return "Soft 19+: +0.75 mult";
-        case bj::Relic::JesterCrown: return "Blackjack: +1 mult";
-        case bj::Relic::FiveCardParade: return "5+ cards: +1.5 mult";
-        case bj::Relic::FinalAct: return "Last hand: +1 mult";
-        case bj::Relic::Underdog: return "Low win / house bust: +1.5 mult";
-        case bj::Relic::Encore: return "3+ earlier wins: +1 mult";
-    }
-    return "";
-}
-
-void drawChip(ImDrawList* draw, ImVec2 c, float r, bj::Rarity rarity, int symbol, const Interface& ui) {
-    const auto color = ImGui::ColorConvertFloat4ToU32(rarityColor(rarity));
-    draw->AddCircleFilled({c.x+2,c.y+3},r,IM_COL32(0,0,0,130),40);
-    draw->AddCircleFilled(c,r,color,40);
-    draw->AddCircleFilled(c,r*.76f,IM_COL32(28,24,42,255),40);
-    draw->AddCircle(c,r*.64f,color,40,1.5f);
-    for(int i=0;i<8;++i) {
-        const float a=i*6.2831853f/8;
-        draw->AddLine({c.x+std::cos(a)*r*.80f,c.y+std::sin(a)*r*.80f},
-            {c.x+std::cos(a)*r*.96f,c.y+std::sin(a)*r*.96f},IM_COL32(255,239,202,240),r*.13f);
-    }
-    const char* marks[] = {"J","A","K","Q","7","*"};
-    const auto text=marks[symbol%6];
-    const float size=r*1.05f;
-    const auto extent=ui.button->CalcTextSizeA(size,1000,0,text);
-    draw->AddText(ui.button,size,{c.x-extent.x*.5f,c.y-extent.y*.5f},color,text);
+void drawChip(ImDrawList* draw, ImVec2 c, float r, const bj::RelicInfo& item,
+              const ArtAssets& art, float tilt=0.0f) {
+    const auto accent=ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity));
+    draw->AddCircleFilled({c.x+2,c.y+6},r,IM_COL32(0,0,0,125),64);
+    draw->AddCircleFilled(c,r,IM_COL32(45,34,35,255),64);
+    draw->AddCircle(c,r-1,accent,64,1.5f);
+    const float cs=std::cos(tilt),sn=std::sin(tilt);
+    const auto corner=[&](float x,float y) {return ImVec2{c.x+x*cs-y*sn,c.y+x*sn+y*cs};};
+    const int id=static_cast<int>(item.id),col=id%6,row=id/6;
+    // The illustrations are packed slightly tighter vertically than the nominal grid.
+    constexpr int rowTop[]={8,252,500,748};
+    const ImVec2 a{(col*256+4.5f)/art.relics.width(),(rowTop[row]+.5f)/art.relics.height()};
+    const ImVec2 b{(col*256+251.5f)/art.relics.width(),(rowTop[row]+247.5f)/art.relics.height()};
+    const auto texture=static_cast<ImTextureID>(art.relics.id());
+    const float image=r*.96f;
+    draw->AddImageQuad(texture,corner(-image,-image),corner(image,-image),corner(image,image),corner(-image,image),
+        a,{b.x,a.y},b,{a.x,b.y});
+    draw->AddCircle(c,r*.88f,IM_COL32(255,237,203,30),64,1);
 }
 
 void drawHandIcon(ImDrawList* draw, ImVec2 c, float r) {
@@ -551,11 +625,91 @@ struct TableLayout {
     float actionY;
 };
 
+struct RelicRowStyle {
+    float radius;
+    float nameSize;
+    float bodySize;
+    float raritySize;
+    float height;
+};
+
+RelicRowStyle relicRowStyle(float contentWidth) {
+    const float column=contentWidth/4;
+    if(column<235) return {38,22,18,16,208};
+    if(column<320) return {44,26,20,18,208};
+    return {44,28,22,18,192};
+}
+
 TableLayout tableLayout(ImVec2 display) {
     const float sidebar = std::clamp(display.x * .24f, 280.0f, 340.0f);
     const float contentX = sidebar + 24;
     const float actionY = display.y - 154;
-    return {sidebar, contentX, display.x - contentX - 20, 176, display.y - 176 - 110, actionY};
+    const float contentWidth=display.x-contentX-20;
+    const float boardY=relicRowStyle(contentWidth).height;
+    return {sidebar, contentX, contentWidth, boardY, display.y - boardY - 110, actionY};
+}
+
+void drawGameplayShading(const Session& session, const presentation::Presentation& timeline) {
+    const auto phase=timeline.visible().phase;
+    if(session.menu || phase==bj::Phase::Shop || (phase==bj::Phase::RunLost && !timeline.busy())) return;
+    const auto display=ImGui::GetIO().DisplaySize;
+    const auto layout=tableLayout(display);
+    auto* draw=ImGui::GetBackgroundDrawList();
+    constexpr ImU32 shade=IM_COL32(0,0,0,48),clear=IM_COL32(0,0,0,0);
+    draw->AddRectFilledMultiColor({layout.contentX,0},{display.x,140},shade,shade,clear,clear);
+    draw->AddRectFilledMultiColor({layout.contentX,display.y-140},display,clear,clear,shade,shade);
+}
+
+const char* ownedRelicDescription(const bj::RelicInfo& item, bool rescueSpent) {
+    return item.id==bj::Relic::SecondChance && rescueSpent
+        ?"Rescue spent this round. Win the rescued hand: +1.0 multiplier.":item.description;
+}
+
+struct WrappedRelicText {
+    std::string text;
+    float longestWord=0;
+};
+
+WrappedRelicText wrapRelicWords(ImFont* font, float size, float width, const char* text) {
+    WrappedRelicText wrapped;
+    std::istringstream words(text);
+    std::string word,line;
+    while(words>>word) {
+        wrapped.longestWord=std::max(wrapped.longestWord,font->CalcTextSizeA(size,10000,0,word.c_str()).x);
+        const std::string candidate=line.empty()?word:line+" "+word;
+        if(!line.empty() && font->CalcTextSizeA(size,10000,0,candidate.c_str()).x>width) {
+            wrapped.text+=line+'\n';
+            line=word;
+        } else line=candidate;
+    }
+    wrapped.text+=line;
+    return wrapped;
+}
+
+void verifyRelicTextLayout(const Interface& ui, const TableLayout& layout, ImVec2 display) {
+    const auto style=relicRowStyle(layout.contentWidth);
+    const float textWidth=layout.contentWidth/4-style.radius*2-22;
+    const float nameSize=style.nameSize,bodySize=style.bodySize;
+    auto* bodyFont=ImGui::GetIO().FontDefault;
+    float maxBottom=0,longestWord=0;
+    const char* longest="";
+    for(const auto& item:bj::relicCatalog()) {
+        const float nameHeight=ui.button->CalcTextSizeA(nameSize,1000,textWidth,item.name).y;
+        if(nameHeight>nameSize*2+.5f) throw std::runtime_error(std::string("Relic name exceeds two lines: ")+item.name);
+        for(const bool spent:{false,true}) {
+            const auto description=wrapRelicWords(bodyFont,bodySize,textWidth,ownedRelicDescription(item,spent));
+            if(description.longestWord>textWidth+.5f)
+                throw std::runtime_error(std::string("Relic description word exceeds column: ")+item.name);
+            longestWord=std::max(longestWord,description.longestWord);
+            const float descriptionHeight=bodyFont->CalcTextSizeA(bodySize,10000,0,description.text.c_str()).y;
+            const float bottom=14+nameHeight+4+style.raritySize+8+descriptionHeight;
+            if(bottom>layout.boardY-6) throw std::runtime_error(std::string("Relic description exceeds row: ")+item.name);
+            if(bottom>maxBottom) {maxBottom=bottom;longest=item.name;}
+        }
+    }
+    std::cout<<"Relic layout "<<static_cast<int>(display.x)<<'x'<<static_cast<int>(display.y)
+        <<": max text bottom "<<maxBottom<<" / "<<layout.boardY<<" ("<<longest
+        <<"), longest word "<<longestWord<<" / "<<textWidth<<'\n';
 }
 
 float controlsLeft(const TableLayout& layout) {
@@ -579,57 +733,106 @@ void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
     ImGui::EndTooltip();
 }
 
-void drawRelicStrip(const bj::Game& game, const TableLayout& layout, const Interface& ui) {
+void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation& timeline,
+                    const TableLayout& layout, Session& session, const Interface& ui, const ArtAssets& art) {
+    session.hoveredRelic=-1;
+    session.updateRelicReaction(0,timeline);
+    const auto* effect=session.relicReactionStep>0
+        ?&state.score.appliedEffects[static_cast<std::size_t>(session.relicReactionStep-1)]:nullptr;
+    const float duration=.5f+(.07f-.5f)*std::clamp(session.animationSpeed,0.0f,1.0f);
+    const float progress=std::clamp(session.relicReactionElapsed/duration,0.0f,1.0f);
+    const float pulse=effect?std::max(0.0f,std::sin(progress*3.14159265f)):0.0f;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
-    beginPanel("##relics", {layout.contentX, 16}, {layout.contentWidth, 154}, true);
-    ImGui::TextColored(cream, "RELICS  %d / 4", static_cast<int>(game.state().owned.size()));
-    ImGui::SameLine();
-    ImGui::PushFont(ui.small);
-    ImGui::TextColored(muted, "Hover for effects");
-    ImGui::PopFont();
-    const float width = (layout.contentWidth - 36) / 4;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0.0f);
+    beginPanel("##relics", {layout.contentX, 0}, {layout.contentWidth, layout.boardY}, true,
+        ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
+    const float width=layout.contentWidth/4;
+    const auto style=relicRowStyle(layout.contentWidth);
+    const float radius=style.radius;
+    const float centerY=radius+30;
     for (int slot = 0; slot < 4; ++slot) {
-        ImGui::PushID(slot);
-        ImGui::SetCursorPos({static_cast<float>(slot) * (width + 12), 34});
-        const bool filled = static_cast<std::size_t>(slot) < game.state().owned.size();
-        const auto* item = filled ? &relicInfo(game.state().owned[static_cast<std::size_t>(slot)]) : nullptr;
-        const ImVec4 accent = filled ? rarityColor(item->rarity) : ImVec4(.27f, .31f, .34f, 1);
-        ImGui::PushStyleColor(ImGuiCol_Border, accent);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, filled
-            ? ImVec4(.07f + accent.x * .16f, .08f + accent.y * .16f, .10f + accent.z * .16f, .99f)
-            : ImVec4(.105f, .12f, .15f, .97f));
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, filled ? 2.0f : 1.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {12, 10});
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {4, 3});
-        ImGui::BeginChild("slot", {width, 120}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
-        if (item) {
-            const ImVec2 namePosition = ImGui::GetCursorScreenPos();
-            const float available = ImGui::GetContentRegionAvail().x - 35;
-            const float nameWidth = ui.button->CalcTextSizeA(26, 1000, 0, item->name).x;
-            const float nameSize = 26 * std::min(1.0f, available / nameWidth);
-            drawChip(ImGui::GetWindowDrawList(), {namePosition.x+available+19,namePosition.y+15}, 17, item->rarity, static_cast<int>(item->id), ui);
-            ImGui::Dummy({available, 26});
-            ImGui::GetWindowDrawList()->AddText(ui.button, nameSize, namePosition,
-                ImGui::ColorConvertFloat4ToU32(cream), item->name);
-            rarityBadge(item->rarity, ui);
-            ImGui::PushFont(ui.small);
-            ImGui::TextWrapped("%s", item->id == bj::Relic::SecondChance && game.state().usedSecondChance
-                ? "Rescue used this round" : relicSummary(item->id));
-            ImGui::PopFont();
-        } else {
-            ImGui::SetCursorPosY(49);
-            ImGui::PushFont(ui.small);
-            ImGui::TextColored(muted, "Empty relic slot");
-            ImGui::PopFont();
+        const auto origin=ImGui::GetWindowPos();
+        auto* draw=ImGui::GetWindowDrawList();
+        const float centerX=origin.x+slot*width+radius+5;
+        const bool filled = static_cast<std::size_t>(slot) < state.owned.size();
+        if(!filled) {
+            session.relicHover[slot]=approach(session.relicHover[slot],false);
+            const ImVec2 center{centerX,origin.y+centerY};
+            draw->AddCircle(center,radius-3,IM_COL32(190,178,154,75),64,1.25f);
+            draw->AddCircle(center,radius-9,IM_COL32(190,178,154,26),64,1);
+            const std::string number=std::to_string(slot+1);
+            const auto extent=ui.heading->CalcTextSizeA(30,1000,0,number.c_str());
+            draw->AddText(ui.heading,30,{center.x-extent.x*.5f,center.y-extent.y*.5f},
+                IM_COL32(190,178,154,70),number.c_str());
+            continue;
         }
-        ImGui::EndChild();
-        ImGui::PopStyleVar(3);
-        ImGui::PopStyleColor(2);
-        if (item && ImGui::IsItemHovered()) relicTooltip(*item, ui);
+        const auto& item=relicInfo(state.owned[static_cast<std::size_t>(slot)]);
+        ImGui::PushID(slot);
+        ImGui::SetCursorPos({slot*width+1,centerY-radius-4});
+        ImGui::PushStyleColor(ImGuiCol_Header,{0,0,0,0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered,{0,0,0,0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive,{0,0,0,0});
+        ImGui::Selectable("##chip",false,0,{radius*2+8,radius*2+8});
+        ImGui::PopStyleColor(3);
+        const bool hovered=!session.settings&&!session.rules&&!session.transitioning()&&
+            (ImGui::IsItemHovered()||(ImGui::GetIO().NavVisible&&ImGui::IsItemFocused()));
+        session.relicHover[slot]=approach(session.relicHover[slot],hovered);
+        if(hovered) {session.inspectedRelic=item.id;session.hoveredRelic=slot;}
+        const bool reacting=effect && effect->relic==item.id;
+        const float lift=session.relicHover[slot]*4+(reacting?pulse*9:0);
+        const ImVec2 center{centerX,origin.y+centerY-lift};
+        drawChip(draw,center,radius,item,art,-.055f*session.relicHover[slot]+(reacting?pulse*.025f:0));
+        const float textX=origin.x+slot*width+radius*2+14;
+        const float textWidth=width-radius*2-22;
+        const float nameSize=style.nameSize,bodySize=style.bodySize;
+        const float nameY=origin.y+14;
+        const float nameHeight=ui.button->CalcTextSizeA(nameSize,1000,textWidth,item.name).y;
+        draw->AddText(ui.button,nameSize,{textX,nameY},ImGui::ColorConvertFloat4ToU32(cream),
+            item.name,nullptr,textWidth);
+        const float rarityY=nameY+nameHeight+4;
+        draw->AddText(ui.small,style.raritySize,{textX,rarityY},ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity)),
+            bj::rarityName(item.rarity));
+        auto* bodyFont=ImGui::GetIO().FontDefault;
+        const auto description=wrapRelicWords(bodyFont,bodySize,textWidth,ownedRelicDescription(item,state.usedSecondChance));
+        draw->AddText(bodyFont,bodySize,{textX,rarityY+style.raritySize+8},ImGui::ColorConvertFloat4ToU32(cream),
+            description.text.c_str());
+        if(hovered && (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal) || ImGui::GetIO().NavVisible)) {
+            ImGui::BeginTooltip();
+            ImGui::PushFont(ui.small);
+            ImGui::Text("Buy: %d coins    Sell: %d coins",item.cost,item.cost/2);
+            ImGui::PopFont();
+            ImGui::EndTooltip();
+        }
+        if(reacting) {
+            const auto accent=rarityColor(item.rarity);
+            draw->AddCircle(center,radius+3,ImGui::ColorConvertFloat4ToU32(
+                {accent.x,accent.y,accent.z,.80f*pulse}),64,1+2*pulse);
+            draw->AddCircle(center,radius+6,ImGui::ColorConvertFloat4ToU32(
+                {accent.x,accent.y,accent.z,.20f*pulse}),64,1);
+            std::vector<std::string> bonuses;
+            if(effect->points) bonuses.push_back("+"+std::to_string(effect->points)+" POINTS");
+            if(effect->multiplierBonus>0) {
+                std::ostringstream value;
+                value<<'+'<<std::setprecision(2)<<effect->multiplierBonus<<" MULT";
+                bonuses.push_back(value.str());
+            }
+            if(effect->coins) bonuses.push_back("+"+std::to_string(effect->coins)+(effect->coins==1?" COIN":" COINS"));
+            float widest=1;
+            for(const auto& bonus:bonuses) widest=std::max(widest,ui.button->CalcTextSizeA(20,1000,0,bonus.c_str()).x);
+            const float size=std::min(20.0f,20*(radius*2+4)/widest);
+            const float popupY=origin.y+centerY+radius+8-pulse*3;
+            const auto ink=ImGui::ColorConvertFloat4ToU32({accent.x,accent.y,accent.z,.45f+.55f*pulse});
+            for(std::size_t line=0;line<bonuses.size();++line) {
+                const auto& bonus=bonuses[line];
+                const float extent=ui.button->CalcTextSizeA(size,1000,0,bonus.c_str()).x;
+                const float x=center.x-extent*.5f;
+                draw->AddText(ui.button,size,{x,popupY+static_cast<float>(line)*(size+2)},ink,bonus.c_str());
+            }
+        }
         ImGui::PopID();
     }
     ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 }
 
 void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& session, const Commands& commands,
@@ -656,7 +859,7 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     ImGui::EndChild();
     ImGui::PopStyleColor();
 
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {.075f, .16f, .22f, 1});
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {.17f, .12f, .22f, 1});
     ImGui::BeginChild("score", {-1, 122}, ImGuiChildFlags_Borders);
     ImGui::PushFont(ui.small);
     ImGui::TextColored(cream, "ROUND SCORE");
@@ -674,7 +877,7 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     for (int column = 0; column < 2; ++column) {
         if (column) ImGui::SameLine();
         ImGui::PushID(column);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, column ? ImVec4(.22f, .17f, .08f, 1) : ImVec4(.08f, .17f, .21f, 1));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, column ? ImVec4(.20f, .15f, .09f, 1) : ImVec4(.16f, .12f, .20f, 1));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14, 8});
         ImGui::BeginChild("counter", {half, 92}, ImGuiChildFlags_Borders);
         ImGui::PushFont(ui.small);
@@ -727,16 +930,16 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     ImGui::PopStyleVar(2);
 }
 
-void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
+void drawShop(bj::Game& game, Commands& commands, const Interface& ui, const ArtAssets& art) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
     ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, display, IM_COL32(8, 9, 18, 190));
-    const float width = std::min(900.0f, display.x - 64);
-    const float height = std::min(760.0f, display.y - 48);
+    const float width = std::min(1100.0f, display.x - 64);
+    const float height = std::min(790.0f, display.y - 48);
     beginPanel("##shop", {(display.x - width) * .5f, (display.y - height) * .5f}, {width, height});
     const ImVec2 header = ImGui::GetCursorScreenPos();
     ImGui::PushFont(ui.heading);
-    ImGui::TextColored(gold, "RELIC SHOP");
+    ImGui::TextColored(cream, "The Curiosity Cabinet");
     ImGui::PopFont();
     const std::string coins = std::to_string(state.coins);
     const float numberWidth = ui.number->CalcTextSizeA(46, 1000, 0, coins.c_str()).x;
@@ -749,30 +952,41 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
         ImGui::ColorConvertFloat4ToU32(gold), "COINS");
     ImGui::SetCursorScreenPos({header.x, header.y + 56});
     ImGui::Separator();
-    ImGui::Text("%d of 4 relic slots used", static_cast<int>(state.owned.size()));
     ImGui::PushFont(ui.small);
-    ImGui::TextColored(muted, "Round cleared. Choose an upgrade or save your coins.");
+    ImGui::TextColored(muted, "Round cleared. Two curiosities, one visit.   /   %d of 4 slots occupied",static_cast<int>(state.owned.size()));
     ImGui::PopFont();
     const float offerY = ImGui::GetCursorPosY() + 4;
     const float cardWidth = (width - 54) * .5f;
-    const float offerHeight = height < 700 ? 216.0f : 240.0f;
+    const float offerHeight = height < 700 ? 238.0f : 268.0f;
     for (std::size_t i = 0; i < state.offers.size(); ++i) {
         const auto& item = relicInfo(state.offers[i]);
         const auto accent = rarityColor(item.rarity);
         ImGui::PushID(static_cast<int>(item.id));
         ImGui::SetCursorPos({20 + static_cast<float>(i) * (cardWidth + 14), offerY});
-        ImGui::PushStyleColor(ImGuiCol_Border, accent);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, {.105f, .12f, .15f, 1});
-        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 2);
+        ImGui::PushStyleColor(ImGuiCol_Border, {accent.x*.57f,accent.y*.57f,accent.z*.57f,1});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, {.13f, .105f, .12f, 1});
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{14,12});
         ImGui::BeginChild("offer", {cardWidth, offerHeight}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
+        const auto origin=ImGui::GetWindowPos();
+        const float radius=height<700?65.0f:76.0f;
+        drawChip(ImGui::GetWindowDrawList(),{origin.x+radius+18,origin.y+radius+22},radius,item,art);
+        const float textX=radius*2+36;
+        ImGui::SetCursorPos({textX,18});
         ImGui::PushFont(ui.button);
+        ImGui::PushTextWrapPos(cardWidth-14);
         ImGui::TextColored(cream, "%s", item.name);
+        ImGui::PopTextWrapPos();
         ImGui::PopFont();
+        ImGui::SetCursorPosX(textX);
         rarityBadge(item.rarity, ui);
+        ImGui::SetCursorPosX(textX);
         ImGui::PushFont(ui.small);
+        ImGui::PushTextWrapPos(cardWidth-14);
         ImGui::TextWrapped("%s", item.description);
+        ImGui::PopTextWrapPos();
         ImGui::PopFont();
-        ImGui::SetCursorPosY(offerHeight - 60);
+        ImGui::SetCursorPos({14,offerHeight - 60});
         const bool owned = game.hasRelic(item.id);
         const bool purchased = game.boughtThisShop(item.id);
         const bool full = game.state().owned.size() >= 4;
@@ -782,43 +996,58 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
             "BUY / " + std::to_string(item.cost) + " COINS";
         ImGui::PushFont(ui.button);
         ImGui::BeginDisabled(commands.blocked || commands.used || owned || purchased || full || !affordable);
-        if (ImGui::Button(label.c_str(), {-1, 44})) commands.apply([&]() { return game.buy(item.id); });
+        if (theatreButton(label.c_str(), {-1, 44},{.23f,.18f,.26f,1})) commands.apply([&]() { return game.buy(item.id); });
         ImGui::EndDisabled();
         ImGui::PopFont();
         ImGui::EndChild();
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(2);
         ImGui::PopStyleColor(2);
         ImGui::PopID();
     }
     ImGui::SetCursorPos({20, offerY + offerHeight + 13});
     ImGui::Separator();
-    ImGui::TextUnformatted("YOUR RELICS");
     ImGui::PushFont(ui.small);
-    ImGui::TextColored(muted, "Sell for half the purchase price. A sale frees one slot.");
+    ImGui::TextColored(gold, "YOUR RELICS   /   Sell for half the price, rounded down");
     ImGui::PopFont();
-    const float inventoryY = ImGui::GetCursorPosY();
-    if (state.owned.empty()) ImGui::TextDisabled("No relics equipped yet.");
-    for (std::size_t i = 0; i < state.owned.size(); ++i) {
-        const auto& item = relicInfo(state.owned[i]);
-        ImGui::PushID(100 + static_cast<int>(item.id));
-        ImGui::SetCursorPos({20, inventoryY + static_cast<float>(i) * 38});
-        ImGui::TextColored(rarityColor(item.rarity), "%s", item.name);
-        if (ImGui::IsItemHovered()) relicTooltip(item, ui);
-        ImGui::SameLine(300);
-        rarityBadge(item.rarity, ui);
-        ImGui::SameLine(width - 190);
+    const float inventoryY=ImGui::GetCursorPosY()+4;
+    const float inventoryWidth=(width-76)/4;
+    for(std::size_t i=0;i<4;++i) {
+        ImGui::PushID(100+static_cast<int>(i));
+        const ImVec2 start{20+i*(inventoryWidth+12),inventoryY};
+        ImGui::SetCursorPos(start);
+        const auto origin=ImGui::GetCursorScreenPos();
+        const bool filled=i<state.owned.size();
+        auto* canvas=ImGui::GetWindowDrawList();
+        canvas->AddRectFilled(origin,{origin.x+inventoryWidth,origin.y+144},IM_COL32(34,27,32,255),8);
+        canvas->AddRect(origin,{origin.x+inventoryWidth,origin.y+144},IM_COL32(142,117,85,65),8);
+        if(!filled) {
+            canvas->AddCircle({origin.x+inventoryWidth*.5f,origin.y+54},30,IM_COL32(169,144,106,50),40,1);
+            const char* empty="EMPTY";
+            const float extent=ui.small->CalcTextSizeA(18,1000,0,empty).x;
+            canvas->AddText(ui.small,18,{origin.x+(inventoryWidth-extent)*.5f,origin.y+98},ImGui::ColorConvertFloat4ToU32(muted),empty);
+            ImGui::PopID();
+            continue;
+        }
+        const auto& item=relicInfo(state.owned[i]);
+        drawChip(canvas,{origin.x+46,origin.y+48},33,item,art);
+        const float nameWidth=ui.button->CalcTextSizeA(22,1000,0,item.name).x;
+        const float size=22*std::min(1.0f,(inventoryWidth-12)/nameWidth);
+        canvas->AddText(ui.button,size,{origin.x+8,origin.y+85},ImGui::ColorConvertFloat4ToU32(cream),item.name);
+        canvas->AddText(ui.small,18,{origin.x+88,origin.y+31},ImGui::ColorConvertFloat4ToU32(rarityColor(item.rarity)),bj::rarityName(item.rarity));
+        ImGui::SetCursorPos({start.x+8,start.y+111});
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {12, 3});
         ImGui::BeginDisabled(commands.blocked || commands.used);
         const std::string label = "SELL / " + std::to_string(item.cost / 2);
-        if (ImGui::Button(label.c_str(), {150, 31})) commands.apply([&]() { return game.sell(item.id); });
+        if (theatreButton(label.c_str(), {inventoryWidth-16, 27},{.29f,.18f,.17f,1})) commands.apply([&]() { return game.sell(item.id); });
         ImGui::EndDisabled();
         ImGui::PopStyleVar();
+        if(ImGui::IsItemHovered()) relicTooltip(item,ui);
         ImGui::PopID();
     }
     ImGui::SetCursorPos({20, height - 64});
     ImGui::PushFont(ui.button);
     ImGui::BeginDisabled(commands.blocked || commands.used);
-    if (ImGui::Button("NEXT ROUND [SPACE]", {330, 46})) commands.apply([&]() { return game.leaveShop(); });
+    if (theatreButton("NEXT ROUND  /  SPACE", {350, 46},{.16f,.29f,.22f,1})) commands.apply([&]() { return game.leaveShop(); });
     ImGui::EndDisabled();
     ImGui::PopFont();
     ImGui::End();
@@ -827,46 +1056,77 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui) {
 void drawGameOver(bj::Game& game, Commands& commands, Session& session, const Interface& ui, GLFWwindow* window) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
-    ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, display, IM_COL32(85, 8, 17, 170));
-    beginPanel("##end", {display.x * .5f - 310, display.y * .5f - 265}, {620, 530}, true);
-    ImGui::PushFont(ui.number);
-    ImGui::SetWindowFontScale(1.55f);
-    const float titleWidth = ImGui::CalcTextSize("GAME OVER").x;
-    ImGui::SetCursorPosX((620 - titleWidth) * .5f);
-    ImGui::TextColored(cream, "GAME OVER");
-    ImGui::SetWindowFontScale(1);
-    ImGui::PopFont();
-    ImGui::SetCursorPos({45, 100});
-    ImGui::Text("Round %d ended at %d / %d points.", state.round, state.roundScore, state.goal);
-    ImGui::SetCursorPos({45, 133});
-    ImGui::TextColored(bj::evaluateHand(state.player).bust ? red : cream, "Your hand: %d%s   /   Dealer: %d",
-        bj::evaluateHand(state.player).total, bj::evaluateHand(state.player).bust ? " (BUST)" : "",
-        bj::evaluateHand(state.dealer).total);
-    ImGui::SetCursorPos({45, 170});
-    ImGui::TextColored(gold, "Run score: %d    Hand wins: %d", state.totalScore, state.wins);
-    ImGui::PushFont(ui.small);
-    ImGui::SetCursorPos({45, 202});
-    ImGui::TextColored(muted, "Seed %u", state.seed);
-    ImGui::PopFont();
-    ImGui::PushFont(ui.button);
-    ImGui::PushStyleColor(ImGuiCol_Button, {.23f, .24f, .26f, 1});
-    ImGui::BeginDisabled(session.settings || session.rules || session.transitioning());
-    ImGui::SetCursorPos({145, 244});
-    if (state.revivesLeft > 0) {
-        if (ImGui::Button("REVIVE / ONE LIFE", {330, 50})) commands.apply([&]() {return game.revive();});
-    } else if (ImGui::Button("RETRY [SPACE]", {330, 50})) session.start(game);
-    if(state.revivesLeft > 0) {
-        ImGui::SetCursorPos({145,306});
-        if(ImGui::Button("NEW RUN",{330,50})) session.start(game);
+    const bool compact=display.y<800;
+    const float fade=std::clamp(session.gameOverElapsed/.8f,0.0f,1.0f);
+    const float darkness=fade*fade*(3.0f-2.0f*fade);
+    const float appear=std::clamp((session.gameOverElapsed-.12f)/.68f,0.0f,1.0f);
+    const float alpha=appear*appear*(3.0f-2.0f*appear);
+    ImGui::GetBackgroundDrawList()->AddRectFilled({0,0},display,
+        IM_COL32(0,0,0,static_cast<int>(255*darkness)));
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{0,0});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0);
+    if(!session.gameOverFocused) {
+        ImGui::SetNextWindowFocus();
+        session.gameOverFocused=true;
     }
-    ImGui::SetCursorPos({145, state.revivesLeft > 0 ? 368.0f : 306.0f});
-    if (ImGui::Button("MAIN MENU", {330, 50})) session.menu = true;
-    ImGui::SetCursorPos({145, state.revivesLeft > 0 ? 430.0f : 368.0f});
-    if (ImGui::Button("QUIT GAME", {330, 50})) glfwSetWindowShouldClose(window, GLFW_TRUE);
+    beginPanel("##end",{0,0},display,true,ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
+    auto* draw=ImGui::GetWindowDrawList();
+    const float center=display.x*.5f;
+    const auto white=IM_COL32(255,255,255,static_cast<int>(255*alpha));
+    const auto pale=IM_COL32(210,210,210,static_cast<int>(255*alpha));
+    const auto scarlet=IM_COL32(220,28,45,static_cast<int>(255*alpha));
+    const auto text=[&](ImFont* font,float size,float x,float y,ImU32 color,const std::string& value) {
+        const float width=font->CalcTextSizeA(size,10000,0,value.c_str()).x;
+        draw->AddText(font,size,{x-width*.5f,y},color,value.c_str());
+    };
+    const float titleY=compact?74.0f:100.0f;
+    const float titleSize=compact?148.0f:184.0f;
+    text(ui.title,titleSize,center,titleY,white,"GAME OVER");
+    draw->AddLine({center-34,titleY+titleSize+12},{center+34,titleY+titleSize+12},scarlet,2);
+    const float statsY=titleY+titleSize+(compact?38.0f:50.0f);
+    text(ui.small,18,center-160,statsY,pale,"ROUND REACHED");
+    text(ui.small,18,center+160,statsY,pale,"TOTAL RUN SCORE");
+    text(ui.number,compact?54.0f:64.0f,center-160,statsY+23,white,std::to_string(state.round));
+    text(ui.number,compact?54.0f:64.0f,center+160,statsY+23,white,std::to_string(state.totalScore));
+    if(state.revivesLeft>0)
+        text(ui.small,16,center,statsY+94,pale,"ENCORE: ONE LIFE REMAINS");
+    const float buttonWidth=340,buttonHeight=compact?54.0f:60.0f;
+    const float buttonY=statsY+126,step=compact?68.0f:76.0f;
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha,alpha);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,2);
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize,1);
+    ImGui::PushStyleColor(ImGuiCol_Text,{1,1,1,1});
+    ImGui::PushStyleColor(ImGuiCol_Border,{1,1,1,1});
+    ImGui::PushStyleColor(ImGuiCol_NavCursor,{1,1,1,1});
+    ImGui::PushStyleColor(ImGuiCol_Button,{0,0,0,0});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered,{.54f,.025f,.055f,1});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive,{.72f,.025f,.055f,1});
+    ImGui::PushFont(ui.button);
+    ImGui::BeginDisabled(commands.blocked || commands.used || session.settings || session.rules || session.transitioning());
+    const auto button=[&](const char* label,float y) {
+        ImGui::SetCursorPos({center-buttonWidth*.5f,y});
+        const auto p=ImGui::GetCursorScreenPos();
+        const bool mouse=ImGui::IsMouseHoveringRect(p,{p.x+buttonWidth,p.y+buttonHeight});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,mouse?ImVec4(.54f,.025f,.055f,1):ImVec4(0,0,0,0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive,mouse?ImVec4(.72f,.025f,.055f,1):ImVec4(0,0,0,0));
+        const bool clicked=ImGui::Button(label,{buttonWidth,buttonHeight});
+        ImGui::PopStyleColor(2);
+        return clicked;
+    };
+    const bool retry=button(state.revivesLeft>0?"REVIVE / SPACE":"RETRY / SPACE",buttonY);
+    ImGui::SetItemDefaultFocus();
+    if(retry) {
+        if(state.revivesLeft>0) commands.apply([&]() {return game.revive();});
+        else session.start(game);
+    }
+    if(button("MAIN MENU",buttonY+step)) session.menu=true;
+    if(button("QUIT GAME",buttonY+step*2)) glfwSetWindowShouldClose(window,GLFW_TRUE);
     ImGui::EndDisabled();
-    ImGui::PopStyleColor();
     ImGui::PopFont();
+    ImGui::PopStyleColor(6);
+    ImGui::PopStyleVar(3);
     ImGui::End();
+    ImGui::PopStyleVar(2);
 }
 
 void centeredText(ImDrawList* draw, ImFont* font, float size, float centerX, float y, ImU32 color,
@@ -913,7 +1173,7 @@ bj::Snapshot settledState(const presentation::Presentation& timeline) {
 }
 
 void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedback& feedback,
-               const Interface& ui, GLFWwindow* window, const presentation::Presentation& timeline) {
+               const Interface& ui, const ArtAssets& art, GLFWwindow* window, const presentation::Presentation& timeline) {
     const auto state = settledState(timeline);
     const auto display = ImGui::GetIO().DisplaySize;
     const auto layout = tableLayout(display);
@@ -922,29 +1182,25 @@ void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedbac
         return;
     }
     if (state.phase == bj::Phase::Shop) {
-        drawShop(game, commands, ui);
+        drawShop(game, commands, ui, art);
         return;
     }
     drawSidebar(state, layout, session, commands, ui, display.y);
-    drawRelicStrip(game, layout, ui);
+    drawRelicStrip(state, timeline, layout, session, ui, art);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
     beginPanel("##actions", {controlsLeft(layout), layout.actionY + 42}, {460, 104}, true);
     ImGui::PushFont(ui.menuButton);
     ImGui::BeginDisabled(commands.blocked || commands.used);
     if (state.phase == bj::Phase::PlayerTurn) {
-        ImGui::PushStyleColor(ImGuiCol_Button, {.08f, .35f, .30f, 1});
-        if (ImGui::Button("HIT", {190, 78})) commands.apply([&]() { return game.hit(); });
-        ImGui::PopStyleColor();
+        if (theatreButton("HIT", {190, 78},{.11f,.31f,.24f,1})) commands.apply([&]() { return game.hit(); });
         ImGui::SameLine(206);
-        ImGui::PushStyleColor(ImGuiCol_Button, {.43f, .22f, .10f, 1});
-        if (ImGui::Button("STAND", {250, 78})) commands.apply([&]() { return game.stand(); });
-        ImGui::PopStyleColor();
+        if (theatreButton("STAND", {250, 78},{.33f,.22f,.13f,1})) commands.apply([&]() { return game.stand(); });
     } else if (state.phase == bj::Phase::Ready) {
         ImGui::SetCursorPosX(68);
-        if (ImGui::Button("DEAL HAND", {320, 78})) commands.apply([&]() { return game.deal(); });
+        if (theatreButton("DEAL HAND", {320, 78},{.26f,.18f,.31f,1})) commands.apply([&]() { return game.deal(); });
     } else if (state.phase == bj::Phase::RoundOver) {
         ImGui::SetCursorPosX(68);
-        if (ImGui::Button(state.roundScore >= state.goal ? "SHOP" : "CONTINUE", {320, 78}))
+        if (theatreButton(state.roundScore >= state.goal ? "SHOP" : "CONTINUE", {320, 78},{.26f,.18f,.31f,1}))
             commands.apply([&]() { return game.advance(); });
     }
     ImGui::EndDisabled();
@@ -1050,6 +1306,13 @@ void drawRules(Session& session, const Interface& ui) {
     }
     ImGui::End();
 }
+void resetCamera(gfx::RenderSettings& settings) {
+    const gfx::RenderSettings defaults;
+    settings.yaw=defaults.yaw;
+    settings.pitch=defaults.pitch;
+    settings.distance=defaults.distance;
+}
+
 void drawSettings(Session& session, gfx::RenderSettings& settings, const Interface& ui) {
     if (!session.settings) return;
     const auto display = ImGui::GetIO().DisplaySize;
@@ -1070,20 +1333,21 @@ void drawSettings(Session& session, gfx::RenderSettings& settings, const Interfa
         ImGui::TextColored(muted,"Natural                         Fast");
         ImGui::TextWrapped("Click or press Space to speed up a deal or reward.");
         ImGui::Spacing();
-        ImGui::TextWrapped("Camera: drag the free table with the left mouse button. Scroll to zoom. Double-click to reset.");
-        if (ImGui::Button("RESET VIEW")) settings = gfx::RenderSettings{};
+        ImGui::TextWrapped("Camera: right-drag the free table. Scroll to zoom. Double right-click to reset.");
+        if (ImGui::Button("RESET VIEW")) resetCamera(settings);
         ImGui::SameLine();
         if (ImGui::Button("DONE")) session.settings = false;
     }
     ImGui::End();
 }
 
-gfx::Scene makeScene(const presentation::Presentation& timeline, float time, bool menu) {
+gfx::Scene makeScene(const presentation::Presentation& timeline, float time, bool menu, float bustReaction) {
     const auto& state=timeline.visible();
     gfx::Scene scene;
     scene.menu = menu;
     scene.time = time;
     scene.coins = state.coins;
+    scene.deckDesign=state.startDeck==bj::StartDeck::SecondLife?1:state.startDeck==bj::StartDeck::Rich?2:0;
     const auto display = ImGui::GetIO().DisplaySize;
     const auto layout = tableLayout(display);
     scene.tableViewport = {layout.contentX / display.x, layout.boardY / display.y,
@@ -1102,110 +1366,180 @@ gfx::Scene makeScene(const presentation::Presentation& timeline, float time, boo
     scene.dealingToPlayer=timeline.dealingToPlayer();
     scene.celebration=timeline.celebration();
     scene.legendary=timeline.legendPulse();
+    scene.bustReaction=bustReaction;
     return scene;
 }
 
-void drawCollection(Session& session, const Interface& ui) {
+void drawCollection(Session& session, const Interface& ui, const ArtAssets& art) {
     if(!session.collection) return;
     const auto display=ImGui::GetIO().DisplaySize;
     ImGui::GetBackgroundDrawList()->AddRectFilled({0,0},display,IM_COL32(12,7,24,200));
-    const ImVec2 size{std::min(1180.0f,display.x-48),display.y-48};
+    const ImVec2 size{std::min(1240.0f,display.x-48),display.y-48};
     beginPanel("##collection",{(display.x-size.x)*.5f,24},size);
-    heading("THE RELIC COLLECTION",ui);
+    ImGui::BeginDisabled(session.settings||session.rules||session.transitioning());
+    heading("The Relic Collection",ui);
+    ImGui::SetCursorPos({20,78});
     const char* filters[]={"ALL  /  24","COMMON  /  10","RARE  /  8","LEGENDARY  /  6"};
     for(int i=0;i<4;++i) {
         if(i) ImGui::SameLine();
         ImGui::PushID(i);
-        ImGui::PushStyleColor(ImGuiCol_Button,session.collectionFilter==i?ImVec4(.40f,.25f,.12f,1):ImVec4(.20f,.15f,.27f,1));
-        if(ImGui::Button(filters[i],{160,36})) session.collectionFilter=i;
-        ImGui::PopStyleColor(); ImGui::PopID();
+        if(theatreButton(filters[i],{160,36},session.collectionFilter==i?ImVec4(.33f,.25f,.18f,1):ImVec4(.20f,.15f,.21f,1)))
+            session.collectionFilter=i;
+        ImGui::PopID();
     }
-    ImGui::BeginChild("gallery",{size.x-340,size.y-180},false);
-    const float w=(ImGui::GetContentRegionAvail().x-24)/3;
+    ImGui::SetCursorPos({20,128});
+    const float detailWidth=display.x<1200?292.0f:320.0f;
+    const float childHeight=size.y-208;
+    ImGui::BeginChild("gallery",{size.x-detailWidth-52,childHeight},false);
+    const float w=(ImGui::GetContentRegionAvail().x-36)/4;
+    const float radius=std::min(57.0f,w*.34f);
+    const float cellHeight=radius*2+70;
     int shown=0;
     for(const auto& item:bj::relicCatalog()) {
         if(session.collectionFilter && static_cast<int>(item.rarity)!=session.collectionFilter-1) continue;
-        if(shown%3) ImGui::SameLine();
+        if(shown%4) ImGui::SameLine();
         ImGui::PushID(static_cast<int>(item.id));
         const auto pos=ImGui::GetCursorScreenPos();
         const bool selected=session.selectedRelic==item.id;
         const auto accent=rarityColor(item.rarity);
-        ImGui::PushStyleColor(ImGuiCol_Header,selected?ImVec4(.27f,.19f,.33f,1):ImVec4(.12f,.12f,.18f,1));
-        if(ImGui::Selectable("##relic",selected,0,{w,134})) session.selectedRelic=item.id;
-        ImGui::PopStyleColor();
+        ImGui::PushStyleColor(ImGuiCol_Header,{0,0,0,0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered,{0,0,0,0});
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive,{0,0,0,0});
+        if(ImGui::Selectable("##relic",selected,0,{w,cellHeight})) session.selectedRelic=item.id;
+        ImGui::PopStyleColor(3);
+        const bool hovered=ImGui::IsItemHovered()||ImGui::IsItemFocused();
+        auto& lift=session.collectionHover[static_cast<int>(item.id)];
+        lift=approach(lift,hovered);
         auto* draw=ImGui::GetWindowDrawList();
-        draw->AddRect(pos,{pos.x+w,pos.y+134},ImGui::ColorConvertFloat4ToU32(accent),8,0,selected?3.0f:1.0f);
-        drawChip(draw,{pos.x+w*.5f,pos.y+40},28,item.rarity,static_cast<int>(item.id),ui);
+        draw->AddRectFilled(pos,{pos.x+w,pos.y+cellHeight},selected?IM_COL32(52,39,44,255):IM_COL32(31,25,31,170),8);
+        draw->AddRect(pos,{pos.x+w,pos.y+cellHeight},selected?ImGui::ColorConvertFloat4ToU32(accent):IM_COL32(130,109,83,65),8,0,selected?1.5f:1.0f);
+        drawChip(draw,{pos.x+w*.5f,pos.y+radius+12-lift*4},radius,item,art,-.05f*lift);
         const float available=w-14;
-        const float nameWidth=ui.button->CalcTextSizeA(24,1000,0,item.name).x;
-        const float fontSize=24*std::min(1.0f,available/nameWidth);
-        centeredText(draw,ui.button,fontSize,pos.x+w*.5f,pos.y+78,ImGui::ColorConvertFloat4ToU32(cream),item.name);
-        centeredText(draw,ui.small,18,pos.x+w*.5f,pos.y+108,ImGui::ColorConvertFloat4ToU32(accent),bj::rarityName(item.rarity));
+        const float nameWidth=ui.button->CalcTextSizeA(22,1000,0,item.name).x;
+        const float fontSize=22*std::min(1.0f,available/nameWidth);
+        centeredText(draw,ui.button,fontSize,pos.x+w*.5f,pos.y+radius*2+21,ImGui::ColorConvertFloat4ToU32(cream),item.name);
+        centeredText(draw,ui.small,18,pos.x+w*.5f,pos.y+radius*2+46,ImGui::ColorConvertFloat4ToU32(accent),bj::rarityName(item.rarity));
         ImGui::PopID(); ++shown;
     }
     ImGui::EndChild();
     ImGui::SameLine();
-    ImGui::BeginChild("detail",{280,size.y-180},true);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{18,16});
+    ImGui::BeginChild("detail",{detailWidth,childHeight},ImGuiChildFlags_Borders);
     const auto& item=relicInfo(session.selectedRelic);
     const auto pos=ImGui::GetCursorScreenPos();
-    drawChip(ImGui::GetWindowDrawList(),{pos.x+115,pos.y+74},62,item.rarity,static_cast<int>(item.id),ui);
-    ImGui::Dummy({230,155});
+    const float detailRadius=display.y<800?70.0f:86.0f;
+    drawChip(ImGui::GetWindowDrawList(),{pos.x+(detailWidth-36)*.5f,pos.y+detailRadius+6},detailRadius,item,art);
+    ImGui::Dummy({detailWidth-36,detailRadius*2+20});
     ImGui::PushFont(ui.heading); ImGui::TextWrapped("%s",item.name); ImGui::PopFont();
     rarityBadge(item.rarity,ui);
-    ImGui::Spacing(); ImGui::TextWrapped("%s",item.description);
-    ImGui::Spacing(); ImGui::TextColored(gold,"%d COINS",item.cost);
-    ImGui::PushFont(ui.small);
-    ImGui::TextWrapped("Multipliers add together. Point bonuses are added before the multiplier. All 24 relics are available from the beginning.");
-    ImGui::PopFont();
+    ImGui::Spacing(); ImGui::PushFont(ui.small); ImGui::TextWrapped("%s",item.description); ImGui::PopFont();
+    ImGui::Spacing(); ImGui::TextColored(gold,"BUY %d   /   SELL %d",item.cost,item.cost/2);
     ImGui::EndChild();
-    if(ImGui::Button("BACK",{180,44})) session.collection=false;
+    ImGui::PopStyleVar();
+    ImGui::SetCursorPosY(size.y-64);
+    if(theatreButton("BACK",{180,44})) session.collection=false;
+    ImGui::SameLine();
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted,"24 curiosities. Every one available from the first round.");
+    ImGui::PopFont();
+    ImGui::EndDisabled();
     ImGui::End();
 }
 
-float deckPanelHeight(ImVec2 display) {return std::min(620.0f,display.y-56);}
+float deckPanelHeight(ImVec2 display) {return std::min(680.0f,display.y-56);}
 
-void drawDeckSelection(bj::Game& game, Session& session, const Interface& ui) {
+int deckIndex(bj::StartDeck deck) {
+    return deck==bj::StartDeck::SecondLife?1:deck==bj::StartDeck::Rich?2:0;
+}
+
+bj::StartDeck deckAt(int index) {
+    const bj::StartDeck decks[]={bj::StartDeck::ExtraHand,bj::StartDeck::SecondLife,bj::StartDeck::Rich};
+    return decks[(index+3)%3];
+}
+
+void browseDeck(Session& session,int direction) {
+    session.selectedDeck=deckAt(deckIndex(session.selectedDeck)+direction);
+    session.deckDirection=direction;
+    session.deckMotion=1;
+}
+
+struct DeckLayout {
+    ImVec2 origin;
+    float width;
+    float height;
+    ImVec2 card;
+    ImVec2 cardSize;
+    ImVec2 previous;
+    ImVec2 next;
+};
+
+DeckLayout deckLayout(ImVec2 display) {
+    const float width=std::min(1000.0f,display.x-56),height=deckPanelHeight(display);
+    const bool compact=display.y<800;
+    const ImVec2 size{compact?216.0f:244.0f,compact?324.0f:366.0f};
+    const ImVec2 card{124,136};
+    return {{(display.x-width)*.5f,(display.y-height)*.5f},width,height,card,size,
+        {38,card.y+size.y*.5f-28},{card.x+size.x+28,card.y+size.y*.5f-28}};
+}
+
+void drawDeckSelection(bj::Game& game, Session& session, const Interface& ui, const ArtAssets& art) {
     if(!session.deckSelection) return;
     const auto display=ImGui::GetIO().DisplaySize;
     ImGui::GetBackgroundDrawList()->AddRectFilled({0,0},display,IM_COL32(12,7,24,205));
-    const float width=std::min(1000.0f,display.x-56),height=deckPanelHeight(display);
-    beginPanel("##decks",{(display.x-width)*.5f,(display.y-height)*.5f},{width,height});
-    heading("CHOOSE YOUR DECK",ui);
-    ImGui::TextColored(muted,"One gift from the house. Make it count.");
-    const bj::StartDeck decks[]={bj::StartDeck::ExtraHand,bj::StartDeck::SecondLife,bj::StartDeck::Rich};
+    const auto layout=deckLayout(display);
+    const float width=layout.width,height=layout.height;
+    beginPanel("##decks",layout.origin,{width,height});
+    ImGui::BeginDisabled(session.settings||session.rules||session.transitioning());
+    heading("Choose Your Deck",ui);
+    ImGui::PushFont(ui.small);
+    ImGui::TextColored(muted,"A gift from the house. A different way to tempt fate.");
+    ImGui::PopFont();
     const char* names[]={"LAST LAUGH","ENCORE","GOLDEN FOOL"};
-    const char* descriptions[]={"One extra hand in every round.\n6 hands instead of 5.","One revival for the entire run.\nReplay a failed round and keep your relics and coins.","Start the run with 10 extra coins.\nFive hands in every round."};
+    const char* tags[]={"ONE MORE CHANCE TO PLAY","THE SHOW GOES ON","A LITTLE HOUSE MONEY"};
+    const char* descriptions[]={"An extra hand in every round.\nSix hands instead of five.","One revival for the whole run.\nReplay a failed round, keeping your relics and coins.","Begin with 10 extra coins.\nFive hands in every round."};
     const ImVec4 colors[]={blue,red,gold};
-    const float w=(width-68)/3,y=120,h=height-220;
-    for(int i=0;i<3;++i) {
-        ImGui::PushID(i); ImGui::SetCursorPos({20+i*(w+14),y});
-        const auto pos=ImGui::GetCursorScreenPos();
-        const auto ink=ImGui::ColorConvertFloat4ToU32(colors[i]);
-        const bool selected=session.selectedDeck==decks[i];
-        ImGui::PushStyleColor(ImGuiCol_Header,selected?ImVec4(.27f,.20f,.30f,1):ImVec4(.10f,.12f,.17f,1));
-        if(ImGui::Selectable("##deck",selected,0,{w,h})) session.selectedDeck=decks[i];
-        ImGui::PopStyleColor();
-        auto* draw=ImGui::GetWindowDrawList();
-        draw->AddRect(pos,{pos.x+w,pos.y+h},ink,10,0,selected?3.0f:1.0f);
-        const ImVec2 c{pos.x+w*.5f,pos.y+88};
-        for(int card=0;card<3;++card) {
-            const ImVec2 a{c.x-40+card*10,c.y-50+card*4};
-            draw->AddRectFilled(a,{a.x+66,a.y+92},IM_COL32(37,24,52,255),7);
-            draw->AddRect(a,{a.x+66,a.y+92},ink,7,0,2);
-        }
-        if(i==0) drawHandIcon(draw,{c.x+8,c.y+7},22);
-        else if(i==2) drawCoinIcon(draw,{c.x+8,c.y+7},24,ui);
-        else centeredText(draw,ui.number,46,c.x+8,c.y-15,ink,"+1");
-        centeredText(draw,ui.button,26,pos.x+w*.5f,pos.y+158,ink,names[i]);
-        draw->AddText(ui.small,18,{pos.x+18,pos.y+205},ImGui::ColorConvertFloat4ToU32(cream),descriptions[i],nullptr,w-36);
-        ImGui::PopID();
+    ImGui::SetCursorPos(layout.previous);
+    if(theatreButton("<",{56,56})) browseDeck(session,-1);
+    ImGui::SetCursorPos(layout.next);
+    if(theatreButton(">",{56,56})) browseDeck(session,1);
+    if(!session.settings && !session.rules && !ImGui::GetIO().WantTextInput) {
+        if(ImGui::IsKeyPressed(ImGuiKey_LeftArrow,false)) browseDeck(session,-1);
+        if(ImGui::IsKeyPressed(ImGuiKey_RightArrow,false)) browseDeck(session,1);
     }
-    ImGui::SetCursorPos({20,height-66});
-    if(ImGui::Button("BACK",{180,46})) session.deckSelection=false;
-    ImGui::SameLine();
+    const int index=deckIndex(session.selectedDeck);
+    auto* draw=ImGui::GetWindowDrawList();
+    const float motion=session.deckMotion*session.deckMotion;
+    const ImVec2 p{layout.origin.x+layout.card.x+session.deckDirection*motion*16,layout.origin.y+layout.card.y-motion*3};
+    const float angle=session.deckDirection*motion*.022f;
+    const ImVec2 center{p.x+layout.cardSize.x*.5f,p.y+layout.cardSize.y*.5f};
+    const auto corner=[&](float x,float y) {
+        return ImVec2{center.x+x*std::cos(angle)-y*std::sin(angle),center.y+x*std::sin(angle)+y*std::cos(angle)};
+    };
+    const float hw=layout.cardSize.x*.5f,hh=layout.cardSize.y*.5f;
+    const ImVec2 corners[]={corner(-hw,-hh),corner(hw,-hh),corner(hw,hh),corner(-hw,hh)};
+    ImVec2 shadow[4];
+    for(int i=0;i<4;++i) shadow[i]={corners[i].x+6,corners[i].y+9};
+    draw->AddConvexPolyFilled(shadow,4,IM_COL32(0,0,0,110));
+    draw->AddImageQuad(static_cast<ImTextureID>(art.deck(session.selectedDeck).id()),corners[0],corners[1],corners[2],corners[3]);
+    draw->AddPolyline(corners,4,ImGui::ColorConvertFloat4ToU32(gold),ImDrawFlags_Closed,1.5f);
+    const std::string count=std::to_string(index+1)+"   /   3";
+    centeredText(draw,ui.small,18,p.x+layout.cardSize.x*.5f,p.y+layout.cardSize.y+22,ImGui::ColorConvertFloat4ToU32(muted),count);
+    const float textX=476;
+    draw->AddText(ui.small,18,{layout.origin.x+textX,layout.origin.y+151},ImGui::ColorConvertFloat4ToU32(colors[index]),tags[index]);
+    draw->AddText(ui.heading,50,{layout.origin.x+textX,layout.origin.y+193},ImGui::ColorConvertFloat4ToU32(cream),names[index]);
+    draw->AddLine({layout.origin.x+textX,layout.origin.y+259},{layout.origin.x+width-52,layout.origin.y+259},IM_COL32(177,143,93,115));
+    draw->AddText(ImGui::GetFont(),22,{layout.origin.x+textX,layout.origin.y+286},ImGui::ColorConvertFloat4ToU32(cream),descriptions[index],nullptr,width-textX-52);
+    draw->AddText(ui.small,18,{layout.origin.x+textX,layout.origin.y+403},ImGui::ColorConvertFloat4ToU32(muted),
+        "Your chosen back stays with you\nfor the entire run.");
+    ImGui::SetCursorPos({36,height-90});
+    if(theatreButton("BACK",{160,54})) session.deckSelection=false;
+    ImGui::SetCursorPos({textX,height-90});
     ImGui::PushFont(ui.button);
-    if(ImGui::Button("TAKE A SEAT",{width-232,46})) session.start(game);
-    ImGui::PopFont(); ImGui::End();
+    if(theatreButton("TAKE A SEAT",{width-textX-36,54},{.14f,.32f,.23f,1})) session.start(game);
+    ImGui::PopFont();
+    ImGui::EndDisabled();
+    if(!session.settings&&!session.rules) session.deckMotion=std::max(0.0f,session.deckMotion-ImGui::GetIO().DeltaTime/.2f);
+    ImGui::End();
 }
 
 void autoplayStep(bj::Game& game, Commands& commands) {
@@ -1240,10 +1574,13 @@ int main(int argc, char** argv) {
         auto assets = options.assets;
         if (assets.empty()) assets = executableDirectory(argv[0]) / "assets";
         if (!std::filesystem::exists(assets) && options.assets.empty()) assets = "assets";
-        Window window(options.hidden);
+        Window window(options.hidden, options.width, options.height);
         Interface interface(window.handle, assets);
         gfx::Renderer renderer(assets);
+        ArtAssets art(assets);
         gfx::RenderSettings settings;
+        settings.animate = !options.noAmbientMotion;
+        const gfx::RenderSettings defaultView;
         bj::Game game(options.seed,options.demo ? options.deck : bj::StartDeck::Standard);
         Session session;
         HandFeedback feedback;
@@ -1252,6 +1589,8 @@ int main(int argc, char** argv) {
         bool cameraDragging = false;
         bool smokeDealt=false, smokeStood=false, smokeCollection=false, smokeDeck=false, smokeRevived=false;
         int maxOwned=0,maxRound=1;
+        int smokeDeckMasks[2]{};
+        bool smokeSelectedCollection[2]{};
         session.selectedDeck=options.deck;
         session.fixedSeed = options.fixedSeed || options.smoke;
         session.transitions = !options.noAnimation;
@@ -1264,19 +1603,26 @@ int main(int argc, char** argv) {
         }
         int frame = 0;
         int fullShopResizeFrame = -1;
+        int relicHoverResizeFrame = -1;
         double previousTime = glfwGetTime();
         std::set<std::string> captured;
+        std::set<std::pair<int,int>> checkedRelicLayouts;
         while (!glfwWindowShouldClose(window.handle)) {
             glfwPollEvents();
             if (options.smoke) {
-                if (frame == 0 || frame == 100) glfwSetWindowSize(window.handle, 1100, 720);
-                if (frame == 8 || frame == 160) glfwSetWindowSize(window.handle, 1440, 900);
+                if (frame == 0 || frame == 34) glfwSetWindowSize(window.handle, 1100, 720);
+                if (frame == 8 || frame == 300) glfwSetWindowSize(window.handle, 1440, 900);
                 if (fullShopResizeFrame < 0 && game.state().phase == bj::Phase::Shop && game.state().owned.size() == 4)
                     fullShopResizeFrame = frame;
                 if (frame == fullShopResizeFrame && fullShopResizeFrame >= 0)
                     glfwSetWindowSize(window.handle, 1100, 720);
                 if (fullShopResizeFrame >= 0 && frame == fullShopResizeFrame + 20)
                     glfwSetWindowSize(window.handle, 1440, 900);
+                if(relicHoverResizeFrame<0&&!session.menu&&!timeline.busy()&&!game.state().owned.empty()&&
+                    game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost)
+                    relicHoverResizeFrame=frame;
+                if(frame==relicHoverResizeFrame&&relicHoverResizeFrame>=0) glfwSetWindowSize(window.handle,1100,720);
+                if(relicHoverResizeFrame>=0&&frame==relicHoverResizeFrame+45) glfwSetWindowSize(window.handle,1440,900);
             }
             const double now = glfwGetTime();
             const float dt = options.hidden && options.frames > 0 ? 1.0f / 60.0f :
@@ -1292,53 +1638,79 @@ int main(int argc, char** argv) {
             session.update(dt, game);
             if(!switched && session.switched) timeline.reset(game.state());
             if(!session.menu && !session.settings && !session.rules) timeline.update(dt,session.animationSpeed);
+            session.updateGameOver(dt,!session.menu && !timeline.busy() && timeline.visible().phase==bj::Phase::RunLost);
+            session.updateRelicReaction(!session.menu&&!session.settings&&!session.rules?dt:0,timeline);
+            session.updateBustReaction(dt,timeline.visible());
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             if(options.smoke) {
                 auto& io=ImGui::GetIO();
-                if(frame==1 || frame==6) io.AddKeyEvent(ImGuiKey_F1,true);
-                if(frame==2 || frame==7) io.AddKeyEvent(ImGuiKey_F1,false);
                 const auto menu=menuLayout(io.DisplaySize);
-                if(frame==10 || frame==11) {
-                    io.AddMousePosEvent(menu.origin.x+menu.width*.5f,menu.origin.y+2*menu.step+menu.height*.5f);
-                    io.AddMouseButtonEvent(0,frame==10);
+                const auto click=[&](int down,ImVec2 point,int button=0) {
+                    if(frame==down||frame==down+1) {
+                        io.AddMousePosEvent(point.x,point.y);
+                        io.AddMouseButtonEvent(button,frame==down);
+                    }
+                };
+                if(!options.demo) {
+                    if(frame==1||frame==6||frame==20) io.AddKeyEvent(ImGuiKey_F1,true);
+                    if(frame==2||frame==7||frame==21) io.AddKeyEvent(ImGuiKey_F1,false);
+                    click(10,{menu.origin.x+menu.width*.5f,menu.origin.y+2*menu.step+menu.height*.5f});
+                    click(50,{menu.origin.x+menu.width*.5f,menu.origin.y+2*menu.step+menu.height*.5f});
+                    const float collectionX=(io.DisplaySize.x-std::min(1240.0f,io.DisplaySize.x-48))*.5f;
+                    click(12,{collectionX+20+3*172+80,120});
+                    click(14,{collectionX+100,220});
+                    click(52,{collectionX+20+3*172+80,120});
+                    click(54,{collectionX+100,220});
+                    if(frame==16||frame==24||frame==48||frame==56) io.AddKeyEvent(ImGuiKey_Escape,true);
+                    if(frame==17||frame==25||frame==49||frame==57) io.AddKeyEvent(ImGuiKey_Escape,false);
+                    click(18,{menu.origin.x+menu.width*.5f,menu.origin.y+menu.height*.5f});
+                    click(58,{menu.origin.x+menu.width*.5f,menu.origin.y+menu.height*.5f});
+                    const auto deck=deckLayout(io.DisplaySize);
+                    const ImVec2 next{deck.origin.x+deck.next.x+28,deck.origin.y+deck.next.y+28};
+                    // An outside-panel arrow click must stay blocked while settings are open.
+                    click(22,{deck.origin.x+deck.previous.x+28,deck.origin.y+deck.previous.y+28});
+                    for(const int step:{26,30,32,36,40,44}) click(step,next);
+                    click(62,{deck.origin.x+476+(deck.width-512)*.5f,deck.origin.y+deck.height-63});
                 }
-                if(frame==14) io.AddKeyEvent(ImGuiKey_Escape,true);
-                if(frame==15) io.AddKeyEvent(ImGuiKey_Escape,false);
-                if(frame==12 || frame==13) {
-                    io.AddMousePosEvent(io.DisplaySize.x*.5f-86,120);
-                    io.AddMouseButtonEvent(0,frame==12);
-                }
-                if(frame==18 || frame==19) {
-                    io.AddMousePosEvent(menu.origin.x+menu.width*.5f,menu.origin.y+menu.height*.5f);
-                    io.AddMouseButtonEvent(0,frame==18);
-                }
-                if(frame==22 || frame==23) {
-                    const float panelHeight=deckPanelHeight(io.DisplaySize);
-                    io.AddMousePosEvent(io.DisplaySize.x*.5f+100,(io.DisplaySize.y+panelHeight)*.5f-43);
-                    io.AddMouseButtonEvent(0,frame==22);
-                }
-                if(frame==80 || frame==82 || frame==84 || frame==86) {
+                if(frame==124 || frame==126 || frame==128 || frame==130) {
                     const auto table=tableLayout(io.DisplaySize);
-                    io.AddMousePosEvent(table.contentX+table.contentWidth*.65f+(frame>=82?40:0),table.boardY+160);
-                    if(frame==80) io.AddMouseButtonEvent(0,true);
-                    if(frame==84) io.AddMouseButtonEvent(0,false);
-                    if(frame==86) io.AddMouseWheelEvent(0,1);
+                    io.AddMousePosEvent(table.contentX+table.contentWidth*.65f+(frame>=126?40:0),table.boardY+120);
+                    if(frame==124) io.AddMouseButtonEvent(1,true);
+                    if(frame==128) io.AddMouseButtonEvent(1,false);
+                    if(frame==130) io.AddMouseWheelEvent(0,1);
                 }
-                if(frame>=90 && frame%20==0 && !session.menu && !timeline.busy() &&
+                const auto table=tableLayout(io.DisplaySize);
+                const ImVec2 freePoint{table.contentX+table.contentWidth*.65f+40,table.boardY+120};
+                click(134,freePoint,1);click(138,freePoint,1);
+                if(frame==142||frame==144||frame==146) {
+                    io.AddMousePosEvent(freePoint.x+(frame>=144?40:0),freePoint.y);
+                    if(frame==142) io.AddMouseButtonEvent(0,true);
+                    if(frame==146) io.AddMouseButtonEvent(0,false);
+                }
+                if(frame>340&&!session.menu&&!game.state().owned.empty()&&game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost) {
+                    const auto relicStyle=relicRowStyle(table.contentWidth);
+                    io.AddMousePosEvent(table.contentX+relicStyle.radius+5,relicStyle.radius+30);
+                }
+                if(frame>=160 && frame%20==0 && !session.menu && !timeline.busy() &&
                     game.state().phase!=bj::Phase::Shop && game.state().phase!=bj::Phase::RunLost)
                     io.AddKeyEvent(ImGuiKey_Space,true);
-                if(frame>=91 && frame%20==1) io.AddKeyEvent(ImGuiKey_Space,false);
+                if(frame>=161 && frame%20==1) io.AddKeyEvent(ImGuiKey_Space,false);
             }
             ImGui::NewFrame();
+            if(!options.captures.empty()) {
+                const auto display=ImGui::GetIO().DisplaySize;
+                const auto size=std::make_pair(static_cast<int>(display.x),static_cast<int>(display.y));
+                if(checkedRelicLayouts.insert(size).second) verifyRelicTextLayout(interface,tableLayout(display),display);
+            }
             const bool overlay=session.menu || session.settings || session.rules || session.collection || session.deckSelection || session.transitioning();
             const bool wasBusy=timeline.busy();
             Commands commands{overlay || wasBusy,false,&game,&timeline};
             if(ImGui::IsKeyPressed(ImGuiKey_Escape,false)) {
-                if(session.collection) session.collection=false;
-                else if(session.deckSelection) session.deckSelection=false;
-                else if(session.rules) session.rules=false;
+                if(session.rules) session.rules=false;
                 else if(session.settings) session.settings=false;
+                else if(session.collection) session.collection=false;
+                else if(session.deckSelection) session.deckSelection=false;
                 else if(!session.transitioning()) session.menu=true;
             }
             if(ImGui::IsKeyPressed(ImGuiKey_F1,false) && !session.transitioning()) {
@@ -1363,8 +1735,10 @@ int main(int argc, char** argv) {
             if(options.autoplay && frame>180 && frame%10==0 && !session.settings && !session.rules && !session.collection && !session.deckSelection && !session.transitioning()) {
                 if(timeline.busy()) timeline.accelerate();
                 else if(game.state().phase==bj::Phase::RunLost) {
-                    if(game.state().revivesLeft) commands.apply([&](){return game.revive();});
-                    else session.start(game);
+                    if(session.gameOverElapsed>=1.1f) {
+                        if(game.state().revivesLeft) commands.apply([&](){return game.revive();});
+                        else session.start(game);
+                    }
                 } else if(session.menu && !options.smoke) session.start(game);
                 else autoplayStep(game,commands);
             }
@@ -1372,9 +1746,9 @@ int main(int argc, char** argv) {
             // Space is handled above; prevent focused buttons from receiving it again.
             ImGui::BeginDisabled(gameSpace);
             if(session.menu) drawMenu(game,session,interface,window.handle);
-            else drawTable(game,commands,session,feedback,interface,window.handle,timeline);
-            drawDeckSelection(game,session,interface);
-            drawCollection(session,interface);
+            else drawTable(game,commands,session,feedback,interface,art,window.handle,timeline);
+            drawDeckSelection(game,session,interface,art);
+            drawCollection(session,interface,art);
             drawSettings(session,settings,interface);
             drawRules(session,interface);
             ImGui::EndDisabled();
@@ -1384,10 +1758,10 @@ int main(int argc, char** argv) {
                 timeline.visible().phase!=bj::Phase::Shop && timeline.visible().phase!=bj::Phase::RunLost &&
                 io.MousePos.x>layout.contentX && io.MousePos.y>layout.boardY && io.MousePos.y<layout.actionY &&
                 !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow);
-            if(!ImGui::IsMouseDown(0) || !freeTable) cameraDragging=false;
-            if(freeTable && ImGui::IsMouseDoubleClicked(0)) {settings.yaw=0;settings.pitch=46;settings.distance=10.1f;cameraDragging=false;}
-            else if(freeTable && ImGui::IsMouseClicked(0)) cameraDragging=true;
-            if(cameraDragging && freeTable && ImGui::IsMouseDragging(0,3)) {
+            if(!ImGui::IsMouseDown(1) || !freeTable) cameraDragging=false;
+            if(freeTable && ImGui::IsMouseDoubleClicked(1)) {resetCamera(settings);cameraDragging=false;}
+            else if(freeTable && ImGui::IsMouseClicked(1)) cameraDragging=true;
+            if(cameraDragging && freeTable && ImGui::IsMouseDragging(1,3)) {
                 settings.yaw=std::clamp(settings.yaw-io.MouseDelta.x*.20f,-35.0f,35.0f);
                 settings.pitch=std::clamp(settings.pitch+io.MouseDelta.y*.16f,32.0f,68.0f);
             }
@@ -1395,17 +1769,37 @@ int main(int argc, char** argv) {
             if(options.smoke) {
                 smokeCollection=smokeCollection||session.collection;
                 smokeDeck=smokeDeck||session.deckSelection;
+                const int sizeIndex=io.DisplaySize.y<800?0:1;
+                if(session.deckSelection) smokeDeckMasks[sizeIndex]|=1<<deckIndex(session.selectedDeck);
+                if(session.collection&&session.collectionFilter==3&&session.selectedRelic==bj::Relic::SecondChance)
+                    smokeSelectedCollection[sizeIndex]=true;
                 smokeDealt=smokeDealt||game.state().handsLeft<game.state().maxHands;
                 smokeStood=smokeStood||game.state().outcome!=bj::Outcome::None;
                 smokeRevived=smokeRevived||game.state().revivalsUsed>0;
                 maxOwned=std::max(maxOwned,static_cast<int>(game.state().owned.size()));
                 maxRound=std::max(maxRound,game.state().round);
-                if((frame==2 && !session.settings)||(frame==8 && session.settings)) throw std::runtime_error("Settings input failed");
-                if(frame==85 && std::abs(settings.yaw)<1) throw std::runtime_error("Table drag did not rotate camera");
-                if(frame==87 && settings.distance>=10.1f) throw std::runtime_error("Mouse wheel did not zoom camera");
+                if(!options.demo&&((frame==2&&!session.settings)||(frame==8&&session.settings))) throw std::runtime_error("Settings input failed");
+                if(!options.demo&&frame==24&&(session.selectedDeck!=options.deck||session.transitioning()))
+                    throw std::runtime_error("Deck controls accepted input behind settings");
+                if(!options.demo&&frame==24&&(!session.deckSelection||session.settings))
+                    throw std::runtime_error("Escape closed the deck carousel instead of settings");
+                if(frame==129&&std::abs(settings.yaw-defaultView.yaw)<1) throw std::runtime_error("Right drag did not rotate camera");
+                if(frame==131&&settings.distance>=defaultView.distance) throw std::runtime_error("Mouse wheel did not zoom camera");
+                if(frame==140&&(std::abs(settings.yaw-defaultView.yaw)>.01f||std::abs(settings.pitch-defaultView.pitch)>.01f||
+                    std::abs(settings.distance-defaultView.distance)>.01f))
+                    throw std::runtime_error("Double right-click did not reset camera");
+                if(frame==148&&(std::abs(settings.yaw-defaultView.yaw)>.01f||std::abs(settings.pitch-defaultView.pitch)>.01f))
+                    throw std::runtime_error("Left drag changed camera");
+            }
+            if(options.smoke) {
+                if(frame==150) {settings.yaw=-35;settings.pitch=32;settings.distance=8;}
+                if(frame==154) {settings.yaw=35;settings.pitch=68;settings.distance=14;}
+                if(frame==158) resetCamera(settings);
             }
             const float sceneTime=options.hidden && options.frames>0 ? frame/60.0f : static_cast<float>(now);
-            renderer.render(makeScene(timeline,sceneTime,session.menu),settings,width,height);
+            session.updateBustReaction(0,timeline.visible());
+            drawGameplayShading(session,timeline);
+            renderer.render(makeScene(timeline,sceneTime,session.menu,session.bustReaction),settings,width,height);
             if (session.transitioning()) ImGui::GetForegroundDrawList()->AddRectFilled(
                 {0, 0}, ImGui::GetIO().DisplaySize, IM_COL32(0, 0, 0, static_cast<int>(255 * session.darkness())));
             ImGui::Render();
@@ -1422,13 +1816,37 @@ int main(int argc, char** argv) {
                 const auto capture = [&](const std::string& tag) {
                     if (captured.insert(tag).second) saveScreenshot(options.captures / (tag + ".png"), width, height);
                 };
-                capture(name);
+                const std::string suffix=height<800?"-small":"-large";
+                if(name!="end" || session.gameOverElapsed>=.8f) capture(name);
+                if(name=="end") {
+                    if(session.gameOverElapsed>=.20f && session.gameOverElapsed<.40f) capture("end-fade-early"+suffix);
+                    if(session.gameOverElapsed>=.50f && session.gameOverElapsed<.70f) capture("end-fade-late"+suffix);
+                    if(session.gameOverElapsed>=.8f) capture("end"+suffix);
+                }
+                if(session.deckSelection) {
+                    const char* names[]={"hands","life","coins"};
+                    capture(std::string("deck-")+names[deckIndex(session.selectedDeck)]+suffix);
+                    if(session.deckMotion>.8f) capture("carousel-motion"+suffix);
+                }
+                if(session.collection&&session.collectionFilter==3&&session.selectedRelic==bj::Relic::SecondChance)
+                    capture("collection-selected"+suffix);
+                if(!session.menu&&!session.settings&&!session.rules&&session.hoveredRelic>=0&&
+                    session.relicHover[session.hoveredRelic]>.7f&&game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost)
+                    capture("relic-hover"+suffix);
+                if(name=="shop-full"||name=="table"||name=="collection"||name=="menu") capture(name+suffix);
                 if(session.collection && session.collectionFilter) capture("collection-filter");
                 const auto& visible=timeline.visible();
                 const auto hand = bj::evaluateHand(visible.player);
                 if(timeline.rewardStep()>0 && !visible.score.appliedEffects.empty())
                     capture("applied-relics-"+std::to_string(timeline.rewardStep()));
-                if(visible.owned.size()==4 && visible.phase!=bj::Phase::Shop) capture("relics-full");
+                const float effectDuration=.5f+(.07f-.5f)*std::clamp(session.animationSpeed,0.0f,1.0f);
+                if(!session.menu && !session.settings && !session.rules && timeline.busy() &&
+                    session.relicReactionStep>0 && session.relicReactionElapsed>=effectDuration*.25f)
+                    capture("relic-reaction-"+std::to_string(session.relicReactionStep)+suffix);
+                if(visible.owned.size()==4 && visible.phase!=bj::Phase::Shop) {
+                    capture("relics-full");
+                    capture("relics-full"+suffix);
+                }
                 if (feedback.remaining > 0 && !session.menu && !session.settings && !session.rules &&
                     game.state().phase != bj::Phase::RunLost) {
                     capture("card-gain");
@@ -1441,10 +1859,12 @@ int main(int argc, char** argv) {
                     if (game.hasRelic(bj::Relic::BlackjackBonus)) capture("blackjack-bonus");
                 }
             }
-            if (options.smoke && !options.captures.empty() && (frame == 25 || frame == 38 || frame == 51))
+            if (options.smoke && !options.captures.empty() && (frame == 65 || frame == 78 || frame == 91))
                 saveScreenshot(options.captures / ("fade-" + std::to_string(frame) + ".png"), width, height);
-            if(options.smoke && !options.captures.empty() && frame==150)
+            if(options.smoke && !options.captures.empty() && frame==275)
                 saveScreenshot(options.captures/"table-small.png",width,height);
+            if(options.smoke && !options.captures.empty() && (frame==152||frame==156))
+                saveScreenshot(options.captures/(frame==152?"camera-low-close.png":"camera-high-far.png"),width,height);
             ++frame;
             const bool finished = options.frames > 0 && frame >= options.frames;
             if (finished && !options.screenshot.empty()) saveScreenshot(options.screenshot, width, height);
@@ -1452,6 +1872,9 @@ int main(int argc, char** argv) {
             if (finished) {
                 if(options.smoke && !options.demo && frame>=400 && (!smokeCollection || !smokeDeck || !smokeDealt || !smokeStood))
                     throw std::runtime_error("Smoke traversal incomplete");
+                if(options.smoke&&!options.demo&&frame>=400&&
+                    (smokeDeckMasks[0]!=7||smokeDeckMasks[1]!=7||!smokeSelectedCollection[0]||!smokeSelectedCollection[1]))
+                    throw std::runtime_error("Art screen traversal incomplete");
                 if(options.smoke && !options.demo && options.deck==bj::StartDeck::SecondLife && frame>=2000 && !smokeRevived)
                     throw std::runtime_error("Revival traversal incomplete");
                 break;
@@ -1460,7 +1883,9 @@ int main(int argc, char** argv) {
         std::cout << "Rendered frames: " << frame << '\n';
         if(options.smoke) std::cout << "Smoke: collection="<<smokeCollection<<" decks="<<smokeDeck
             <<" dealt="<<smokeDealt<<" resolved="<<smokeStood<<" revived="<<smokeRevived
-            <<" max relics="<<maxOwned<<" max round="<<maxRound<<'\n';
+            <<" max relics="<<maxOwned<<" max round="<<maxRound
+            <<" deck masks="<<smokeDeckMasks[0]<<'/'<<smokeDeckMasks[1]
+            <<" selected collection="<<smokeSelectedCollection[0]<<'/'<<smokeSelectedCollection[1]<<'\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Jester Jack: " << error.what() << '\n';

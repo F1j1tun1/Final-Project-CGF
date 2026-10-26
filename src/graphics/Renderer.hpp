@@ -33,12 +33,14 @@ struct Scene {
     bool dealingToPlayer = true;
     float celebration = 0.0f; // Presentation envelope: 1 at the win, decays to 0.
     float legendary = 0.0f; // Presentation envelope for rare gold/violet sparks.
+    int deckDesign = 0; // Hands, Life, Coins.
+    float bustReaction = 0.0f; // Presentation envelope: 1 at a player bust, decays to 0.
 };
 
 struct RenderSettings {
     float yaw = 0.0f;
-    float pitch = 46.0f;
-    float distance = 10.1f;
+    float pitch = 32.0f;
+    float distance = 9.1f;
     float lightIntensity = 1.2f;
     bool textures = true;
     bool lighting = true;

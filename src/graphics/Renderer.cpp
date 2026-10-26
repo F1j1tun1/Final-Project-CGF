@@ -1,4 +1,5 @@
 #include "Renderer.hpp"
+#include "ArtTexture.hpp"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -10,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -114,6 +116,10 @@ struct Mesh {
     void draw() const {
         glBindVertexArray(vao);
         glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, nullptr);
+    }
+    void update(const std::vector<float>& vertices) const {
+        glBindBuffer(GL_ARRAY_BUFFER, vbo);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, static_cast<GLsizeiptr>(vertices.size() * sizeof(float)), vertices.data());
     }
 };
 
@@ -240,36 +246,20 @@ Mesh makeSphere(int slices, int rings, float start = 0.0f, float span = 2.0f * p
     return makeMesh(vertices, indices);
 }
 
-Mesh makeCone(int segments) {
-    std::vector<float> vertices;
-    std::vector<std::uint32_t> indices;
-    for (int i = 0; i <= segments; ++i) {
-        const float u = static_cast<float>(i) / static_cast<float>(segments);
-        const float a = u * 2.0f * pi;
-        const glm::vec3 n = glm::normalize(glm::vec3(std::cos(a), 1, std::sin(a)));
-        vertices.insert(vertices.end(), {std::cos(a), -.5f, std::sin(a), n.x, n.y, n.z, u, 0,
-                                         0, .5f, 0, n.x, n.y, n.z, u, 1});
-        if (i < segments) {
-            const auto k = static_cast<std::uint32_t>(i * 2);
-            indices.insert(indices.end(), {k, k + 1, k + 2});
-        }
-    }
-    return makeMesh(vertices, indices);
-}
-
 Mesh makeHorn() {
     std::vector<float> vertices;
     std::vector<std::uint32_t> indices;
     constexpr int rings = 18, sides = 20;
     for (int ring = 0; ring <= rings; ++ring) {
         const float t = static_cast<float>(ring) / rings;
-        const glm::vec3 center(.68f * t, .65f * std::sin(t * pi * .72f), 0);
-        const glm::vec3 tangent = glm::normalize(glm::vec3(.68f, .65f * pi * .72f * std::cos(t * pi * .72f), 0));
+        const glm::vec3 center(.92f * t, .72f * std::sin(t * pi * .88f), .065f * std::sin(t * pi));
+        const glm::vec3 tangent = glm::normalize(glm::vec3(.92f, .72f * pi * .88f * std::cos(t * pi * .88f), .065f * pi * std::cos(t * pi)));
         const glm::vec3 across(-tangent.y, tangent.x, 0);
-        const float radius = .19f * std::pow(1.0f - t, .75f) + .008f;
         for (int side = 0; side <= sides; ++side) {
             const float u = static_cast<float>(side) / sides;
             const float angle = u * 2 * pi;
+            const float radius = .17f * std::pow(1.0f - t, .80f) + .008f
+                + .008f * std::sin(angle * 9 + t * 15) * (1 - t);
             const glm::vec3 normal = across * std::cos(angle) + glm::vec3(0, 0, std::sin(angle));
             const glm::vec3 p = center + normal * radius;
             vertices.insert(vertices.end(), {p.x, p.y, p.z, normal.x, normal.y, normal.z, u, t});
@@ -300,6 +290,224 @@ Mesh makeRing(int segments, bool arch) {
         }
     }
     return makeMesh(vertices, indices);
+}
+
+struct SurfaceData {
+    std::vector<float> vertices;
+    std::vector<std::uint32_t> indices;
+};
+
+template <typename Shape>
+SurfaceData surfaceData(int columns, int rows, Shape shape, bool reverse = false) {
+    SurfaceData data;
+    data.vertices.reserve(static_cast<std::size_t>((columns + 1) * (rows + 1) * 8));
+    for (int row = 0; row <= rows; ++row) {
+        const float v = static_cast<float>(row) / static_cast<float>(rows);
+        for (int column = 0; column <= columns; ++column) {
+            const float u = static_cast<float>(column) / static_cast<float>(columns);
+            const glm::vec3 p = shape(u, v);
+            const glm::vec3 du = shape(u + .0005f, v) - shape(u - .0005f, v);
+            const glm::vec3 dv = shape(u, v + .0005f) - shape(u, v - .0005f);
+            glm::vec3 normal = glm::cross(du, dv);
+            normal = glm::length(normal) > .000000000001f ? glm::normalize(normal) : glm::vec3(0, 0, 1);
+            if (reverse) normal = -normal;
+            data.vertices.insert(data.vertices.end(), {p.x, p.y, p.z, normal.x, normal.y, normal.z, u, v});
+            if (row < rows && column < columns) {
+                const auto i = static_cast<std::uint32_t>(row * (columns + 1) + column);
+                const auto next = i + static_cast<std::uint32_t>(columns + 1);
+                data.indices.insert(data.indices.end(), {i, i + 1, next, i + 1, next + 1, next});
+            }
+        }
+    }
+    return data;
+}
+
+Mesh surfaceMesh(const SurfaceData& data) { return makeMesh(data.vertices, data.indices); }
+
+void appendSurface(SurfaceData& destination, SurfaceData addition) {
+    const auto offset = static_cast<std::uint32_t>(destination.vertices.size() / 8);
+    destination.vertices.insert(destination.vertices.end(), addition.vertices.begin(), addition.vertices.end());
+    for (const auto index : addition.indices) destination.indices.push_back(offset + index);
+}
+
+template <typename Path>
+SurfaceData cordSurface(int segments, Path path, float radius) {
+    return surfaceData(8, segments, [=](float u, float t) {
+        const glm::vec3 center = path(t);
+        const glm::vec3 tangent = glm::normalize(path(t + .0005f) - path(t - .0005f));
+        glm::vec3 across = glm::cross(tangent, glm::vec3(0, 0, 1));
+        if (glm::length(across) < .001f) across = glm::cross(tangent, glm::vec3(0, 1, 0));
+        across = glm::normalize(across);
+        const glm::vec3 around = glm::cross(tangent, across);
+        return center + (across * std::cos(u * 2 * pi) + around * std::sin(u * 2 * pi)) * radius;
+    });
+}
+
+glm::vec3 porcelainShape(float s, float t) {
+    const float u = std::clamp(s * 2 - 1, -1.01f, 1.01f), v = t * 2 - 1;
+    // An oval jaw and a short, gently sculpted bridge keep the mask porcelain,
+    // rather than turning its lower half into a pointed theatrical skull.
+    const float oval = std::sqrt(std::max(0.0f, 1 - v * v));
+    const float width = oval * (.86f + .14f * glm::smoothstep(-.85f, -.05f, v));
+    const float dome = std::sqrt(std::max(.001f, 1 - u * u));
+    const float nose = .077f * std::exp(-u * u * 70) * std::exp(-(v + .025f) * (v + .025f) * 24);
+    const float cheek = .030f * std::exp(-std::pow(std::abs(u) - .50f, 2.0f) * 22)
+        * std::exp(-std::pow(v + .20f, 2.0f) * 26);
+    const float brow = .018f * std::exp(-std::pow(std::abs(u) - .39f, 2.0f) * 32)
+        * std::exp(-std::pow(v - .37f, 2.0f) * 70);
+    return {u * .415f * width, v * .46f,
+            .19f * dome * std::sqrt(std::max(.01f, 1 - v * v * .45f)) + nose + cheek + brow};
+}
+
+glm::vec3 leadPorcelainShape(float s, float t) {
+    const float u = std::clamp(s * 2 - 1, -1.01f, 1.01f), v = t * 2 - 1;
+    const float outline = std::sqrt(std::max(0.0f, 1 - v * v));
+    const float jaw = .87f + .13f * glm::smoothstep(-.8f, -.05f, v);
+    // A thin, elongated shell: no modeled nose or rounded toy cranium.
+    const float curve = std::sqrt(std::max(.001f, 1 - u * u));
+    return {u * .192f * outline * jaw, v * .280f,
+            .103f * curve * std::sqrt(std::max(.01f, 1 - v * v * .25f))};
+}
+
+glm::vec3 jacketShape(float s, float t) {
+    const float a = s * 2 * pi;
+    const float chest = std::exp(-std::pow((t - .76f) / .23f, 2.0f));
+    const float neck = glm::smoothstep(.82f, 1.0f, t);
+    const float radius = (.45f + .35f * chest) * (1 - neck * .75f);
+    const float folds = (.009f + .025f * (1 - t)) * std::sin(a * 13 + t * 7)
+        + .007f * std::sin(a * 23 - t * 16);
+    return {std::cos(a) * (radius + folds), -.14f + t * 1.65f,
+            std::sin(a) * (.29f + chest * .07f + folds) - .05f * std::sin(t * pi)};
+}
+
+SurfaceData sleeveSurface(glm::vec3 shoulder, glm::vec3 elbow, glm::vec3 wrist) {
+    return surfaceData(32, 40, [=](float u, float t) {
+        const float a = u * 2 * pi;
+        const glm::vec3 p = (1 - t) * (1 - t) * shoulder + 2 * (1 - t) * t * elbow + t * t * wrist;
+        const glm::vec3 tangent = glm::normalize((elbow - shoulder) * (1 - t) + (wrist - elbow) * t);
+        const glm::vec3 across = glm::normalize(glm::cross(tangent, glm::vec3(0, 0, 1)));
+        const glm::vec3 around = glm::cross(tangent, across);
+        const float folds = .014f * std::sin(t * 34 + std::sin(a * 3) * .6f)
+            * (.35f + .65f * std::sin(t * pi));
+        const float radius = glm::mix(.225f, .083f, t) + .025f * std::sin(t * pi) + folds;
+        return p + (across * std::cos(a) + around * std::sin(a)) * radius;
+    });
+}
+
+SurfaceData gloveSurface() {
+    SurfaceData data = surfaceData(32, 24, [](float u, float t) {
+        const float a = u * 2 * pi;
+        const float close = 1.0f - .90f * glm::smoothstep(.78f, 1.0f, t);
+        const float width = (.065f + .068f * std::sin(t * pi * .85f)) * close;
+        return glm::vec3(std::cos(a) * width, std::sin(a) * (.045f + .015f * std::sin(t * pi)) * close, t * .28f);
+    });
+    for (int finger = 0; finger < 5; ++finger) {
+        appendSurface(data, surfaceData(16, 18, [=](float u, float t) {
+            const float a = u * 2 * pi;
+            const bool thumb = finger == 4;
+            const float x = thumb ? -.14f - t * .06f : (static_cast<float>(finger) - 1.5f) * .062f;
+            const float length = thumb ? .17f : .24f - std::abs(static_cast<float>(finger) - 1) * .026f;
+            const float radius = .028f * std::sqrt(std::max(.001f, 1 - t * t));
+            return glm::vec3(x + std::cos(a) * radius, -.013f - t * t * .055f + std::sin(a) * radius * .75f,
+                             (thumb ? .10f : .235f) + t * length);
+        }));
+    }
+    return data;
+}
+
+float leadCoatRadius(float t) {
+    const float shoulder = .10f * std::exp(-std::pow((t - .83f) / .12f, 2.0f));
+    return (.255f + .18f * glm::smoothstep(.15f, .65f, t) + shoulder)
+        * (1 - glm::smoothstep(.84f, 1.0f, t) * .78f);
+}
+
+float leadCoatFront(float x, float y) {
+    const float t = (y + .14f) / 1.65f;
+    const float chest = std::exp(-std::pow((t - .73f) / .23f, 2.0f));
+    const float fraction = x / std::max(leadCoatRadius(t), .01f);
+    return std::sqrt(std::max(.025f, 1 - fraction * fraction)) * (.23f + .085f * chest)
+        - .025f * std::sin(t * pi);
+}
+
+glm::vec3 leadCoatShape(float u, float t) {
+    const float a = u * 2 * pi;
+    const float chest = std::exp(-std::pow((t - .73f) / .23f, 2.0f));
+    const float fold = .011f * std::sin(a * 12 + t * 6) * (1 - t)
+        + .005f * std::sin(a * 21 - t * 8);
+    return {std::cos(a) * (leadCoatRadius(t) + fold), -.14f + t * 1.65f,
+            std::sin(a) * (.23f + .085f * chest + fold) - .025f * std::sin(t * pi)};
+}
+
+glm::vec3 leadHatCenter(float t) {
+    const float q = 1 - t;
+    return 3 * q * q * t * glm::vec3(.42f, .95f, -.025f)
+        + 3 * q * t * t * glm::vec3(1.12f, .90f, -.035f)
+        + t * t * t * glm::vec3(1.02f, -.68f, .04f);
+}
+
+glm::vec3 leadHatShape(float u, float t) {
+    const float a = u * 2 * pi;
+    const glm::vec3 tangent = glm::normalize(leadHatCenter(t + .0005f) - leadHatCenter(t - .0005f));
+    const glm::vec3 across = glm::normalize(glm::vec3(-tangent.y, tangent.x, 0));
+    const glm::vec3 around = glm::cross(tangent, across);
+    const float fullness = .285f * std::pow(std::max(0.0f, 1 - t), .72f) + .017f + .025f * std::sin(t * pi);
+    const float fold = (.009f * std::sin(a * 4 + t * 4) + .003f * std::sin(a * 7 - t * 3))
+        * std::sin(pi * t);
+    return leadHatCenter(t) + (across * std::cos(a) + around * std::sin(a) * .90f) * (fullness + fold);
+}
+
+glm::vec3 sedanBodyShape(float u, float t) {
+    const float a = u * 2 * pi;
+    const float profile = std::sin(t * pi);
+    const float vertical = std::copysign(std::pow(std::abs(std::cos(a)), .40f), std::cos(a));
+    const float lateral = std::copysign(std::pow(std::abs(std::sin(a)), .40f), std::sin(a));
+    return {-1.6f + t * 3.2f, .46f + .02f * profile + vertical * .18f * (.78f + .22f * profile),
+            lateral * .64f * (.86f + .14f * profile)};
+}
+
+glm::vec3 leadSleeveShape(glm::vec3 shoulder, glm::vec3 elbow, glm::vec3 wrist, float u, float t) {
+    const float a = u * 2 * pi;
+    const auto center = [=](float v) {
+        constexpr float joint = .51f;
+        const bool upper = v < joint;
+        const float f = upper ? v / joint : (v - joint) / (1 - joint);
+        const glm::vec3 from = upper ? shoulder : elbow, to = upper ? elbow : wrist;
+        const glm::vec3 elbowDirection = (wrist - shoulder) * .20f;
+        const glm::vec3 start = upper ? (elbow - shoulder) * .90f : elbowDirection;
+        const glm::vec3 end = upper ? elbowDirection : (wrist - elbow) * .90f;
+        return (2*f*f*f-3*f*f+1)*from + (f*f*f-2*f*f+f)*start
+            + (-2*f*f*f+3*f*f)*to + (f*f*f-f*f)*end;
+    };
+    const glm::vec3 p = center(t);
+    const glm::vec3 tangent = glm::normalize(center(t + .0005f) - center(t - .0005f));
+    const glm::vec3 across = glm::normalize(glm::cross(tangent, glm::vec3(0, 0, 1)));
+    const glm::vec3 around = glm::cross(tangent, across);
+    const float puff = .030f * std::exp(-std::pow((t - .17f) / .15f, 2.0f));
+    const float folds = .008f * std::sin(a * 10) * std::exp(-std::pow((t - .18f) / .22f, 2.0f))
+        + .003f * std::sin(t * 24 + a * 3);
+    const float radius = glm::mix(.106f, .064f, t) + puff + folds;
+    return p + (across * std::cos(a) + around * std::sin(a)) * radius;
+}
+
+// Only the leading dealer bends its cloth each frame. The CPU storage and GPU
+// buffer remain allocated, and the static triangle indices never change.
+void updateLeadSleeve(std::vector<float>& vertices, glm::vec3 shoulder, glm::vec3 elbow, glm::vec3 wrist) {
+    constexpr int columns = 32, rows = 40;
+    vertices.resize((columns + 1) * (rows + 1) * 8);
+    std::size_t at = 0;
+    for (int row = 0; row <= rows; ++row) {
+        const float t = static_cast<float>(row) / rows;
+        for (int column = 0; column <= columns; ++column) {
+            const float u = static_cast<float>(column) / columns;
+            const glm::vec3 p = leadSleeveShape(shoulder, elbow, wrist, u, t);
+            const glm::vec3 du = leadSleeveShape(shoulder, elbow, wrist, u + .0005f, t)
+                - leadSleeveShape(shoulder, elbow, wrist, u - .0005f, t);
+            const glm::vec3 dv = leadSleeveShape(shoulder, elbow, wrist, u, t + .0005f)
+                - leadSleeveShape(shoulder, elbow, wrist, u, t - .0005f);
+            const glm::vec3 normal = glm::normalize(glm::cross(du, dv));
+            for (const float value : {p.x, p.y, p.z, normal.x, normal.y, normal.z, u, t}) vertices[at++] = value;
+        }
+    }
 }
 
 using Pixel = std::array<unsigned char, 3>;
@@ -556,13 +764,38 @@ struct Renderer::Impl {
     Mesh plane;
     Mesh cylinder;
     Mesh sphere;
-    Mesh halfSphere;
-    Mesh cone;
     Mesh horn;
     Mesh ring;
     Mesh arch;
+    Mesh mask;
+    Mesh jacket;
+    Mesh ruff;
+    Mesh hood;
+    Mesh curtain;
+    Mesh sleeve;
+    Mesh glove;
+    Mesh leadCoat;
+    Mesh leadHat;
+    Mesh leadCap;
+    Mesh leadLace;
+    Mesh leadJabot;
+    Mesh leadTrim;
+    Mesh leadMaskTrim;
+    Mesh leadMask;
+    Mesh leadNeck;
+    Mesh leadLeg;
+    Mesh leadBoot;
+    Mesh sedanBody;
+    Mesh sedanCabin;
+    Mesh sedanGlass;
+    Mesh headlightPatch;
+    Mesh casinoCanopy;
+    Mesh leadSleeve;
+    std::vector<float> leadSleeveVertices;
     Mesh sky;
     Textures textures;
+    std::array<ArtTexture, 3> deckArt;
+    int activeDeck = 0;
     std::array<GLuint, 52> cardFaces{};
     GLuint white = 0;
     GLuint felt = 0;
@@ -570,7 +803,8 @@ struct Renderer::Impl {
     GLuint chip = 0;
     struct Locations {
         GLint model, view, projection, normal, color, uvScale, camera, light,
-              intensity, shininess, specular, emission, fogColor, opacity, velvet, roomLight, useTexture, lighting;
+              intensity, shininess, specular, emission, fogColor, opacity, velvet, roomLight,
+              lampBrightness, material, useTexture, lighting;
     } u{};
     GLint skyResolution = -1;
     bool texturesEnabled = true;
@@ -582,11 +816,173 @@ struct Renderer::Impl {
         plane = makeTopPlane();
         cylinder = makeCylinder(80);
         sphere = makeSphere(24, 16);
-        halfSphere = makeSphere(20, 20, -pi * .5f, pi);
-        cone = makeCone(32);
         horn = makeHorn();
         ring = makeRing(64, false);
         arch = makeRing(48, true);
+        mask = surfaceMesh(surfaceData(96, 96, porcelainShape));
+        jacket = surfaceMesh(surfaceData(72, 64, jacketShape, true));
+        ruff = surfaceMesh(surfaceData(128, 12, [](float u, float v) {
+            const float a = u * 2 * pi, radius = .19f + v * .39f;
+            return glm::vec3(std::cos(a) * radius, .02f - v * .09f + std::sin(a * 24) * v * .065f,
+                             std::sin(a) * radius * .70f);
+        }));
+        hood = surfaceMesh(surfaceData(64, 48, [](float u, float v) {
+            const float a = u * 2 * pi;
+            const float y = -.49f + v * .98f;
+            const float width = .13f + .25f * std::sin(v * pi);
+            const float folds = .013f * std::cos(a * 12 + v * 3);
+            return glm::vec3(std::cos(a) * (width + folds), y,
+                             std::sin(a) * (.24f + folds) - .035f);
+        }, true));
+        curtain = surfaceMesh(surfaceData(100, 64, [](float u, float v) {
+            const float gather = .12f * std::sin(v * pi);
+            const float x = (u * 2 - 1) * (1.65f - gather);
+            const float fold = .12f * std::sin(u * pi * 20) + .025f * std::sin(u * pi * 41 + v * 2);
+            return glm::vec3(x, -.75f + v * 5.1f, fold + .22f * std::sin(v * pi));
+        }));
+        sleeve = surfaceMesh(sleeveSurface({.52f, 1.25f, -2.95f}, {.73f, .70f, -2.70f}, {.86f, .17f, -2.40f}));
+        glove = surfaceMesh(gloveSurface());
+        leadCoat = surfaceMesh(surfaceData(80, 64, leadCoatShape, true));
+        leadMask = surfaceMesh(surfaceData(80, 80, leadPorcelainShape));
+        leadNeck = surfaceMesh(surfaceData(40, 20, [](float u, float v) {
+            const float a = u * 2 * pi;
+            return glm::vec3(std::cos(a) * (.084f + .006f * std::sin(v * pi)), v * .17f,
+                             std::sin(a) * (.068f + .005f * std::sin(v * pi)) + .012f * v);
+        }, true));
+        leadLeg = surfaceMesh(surfaceData(32, 36, [](float u, float t) {
+            const float a = u * 2 * pi;
+            const float fold = .004f * std::sin(a * 8 + t * 7);
+            const float knee = .015f * std::exp(-std::pow((t - .52f) / .13f, 2.0f));
+            return glm::vec3(std::cos(a) * (.13f - t * .045f + fold), -.04f - t * .61f,
+                std::sin(a) * (.14f - t * .055f + fold) + knee);
+        }));
+        leadBoot = surfaceMesh(surfaceData(40, 32, [](float u, float t) {
+            const float a = u * 2 * pi;
+            const float profile = std::pow(std::max(0.0f, std::sin(t * pi)), .45f);
+            return glm::vec3(std::cos(a) * .105f * profile,
+                .014f + std::sin(a) * .058f * profile + .025f * std::exp(-std::pow((t-.35f)/.30f,2.0f)),
+                -.075f + t * .34f);
+        }));
+        leadHat = surfaceMesh(surfaceData(40, 64, leadHatShape));
+        leadCap = surfaceMesh(surfaceData(64, 32, [](float u, float v) {
+            const float a = u * 2 * pi;
+            const float dome = std::sqrt(std::max(.001f, 1 - v * v));
+            const float fold = .008f * std::sin(a * 12 + v * 3);
+            return glm::vec3(std::cos(a) * (.36f * dome + .02f + fold), .28f + .36f * v,
+                             std::sin(a) * (.24f * dome + .018f + fold) - .10f);
+        }, true));
+        leadLace = surfaceMesh(surfaceData(192, 20, [](float u, float v) {
+            const float a = u * 2 * pi;
+            const float scallop = .028f * std::cos(a * 24) * v * v;
+            const float radius = .17f + v * .47f + scallop;
+            return glm::vec3(std::cos(a) * radius,
+                .015f - v * .12f + std::sin(a * 24) * .026f * std::sin(v * pi),
+                std::sin(a) * radius * .67f);
+        }));
+        leadJabot = surfaceMesh(surfaceData(64, 40, [](float u, float v) {
+            const float side = u * 2 - 1;
+            const float x = side * (.045f + v * .225f);
+            const float y = .76f + v * .61f - .035f * (1 - side * side);
+            return glm::vec3(x, y, leadCoatFront(x, y) + .026f
+                + .014f * std::cos(side * pi * 6) * std::sin(v * pi));
+        }));
+        SurfaceData trim;
+        const auto frontPoint = [](float x, float y) { return glm::vec3(x, y, leadCoatFront(x, y) + .022f); };
+        for (const float side : {-1.0f, 1.0f}) {
+            for (const float edge : {-1.0f, 1.0f})
+                appendSurface(trim, cordSurface(48, [=](float t) {
+                    return frontPoint(side * (.035f + .29f * t + edge * (.025f + .04f * t)), .62f + t * .68f);
+                }, .009f));
+            // Sewn gold scrolls curl out from the waist clasp and the lapels.
+            for (int scroll = 0; scroll < 3; ++scroll)
+                appendSurface(trim, cordSurface(48, [=](float t) {
+                    const float a = t * 2 * pi * 1.25f;
+                    const float r = .075f * (1 - .72f * t);
+                    const float x = side * (.12f + static_cast<float>(scroll) * .085f + std::cos(a) * r);
+                    const float y = .46f + static_cast<float>(scroll % 2) * .05f + std::sin(a) * r * .7f;
+                    return frontPoint(x, y);
+                }, .0065f));
+            appendSurface(trim, cordSurface(48, [=](float t) {
+                const float a = t * 2 * pi * 1.3f, r = .065f * (1 - t * .75f);
+                return frontPoint(side * (.20f + std::cos(a) * r), 1.05f + std::sin(a) * r * 1.3f);
+            }, .0065f));
+        }
+        for (const float y : {.32f, .50f})
+            appendSurface(trim, cordSurface(80, [=](float t) {
+                const float x = (t * 2 - 1) * .30f;
+                return frontPoint(x, y);
+            }, .008f));
+        for (const float y : {.43f, 1.37f})
+            appendSurface(trim, cordSurface(64, [=](float t) {
+                const float a = t * 2 * pi;
+                const float x = std::cos(a) * (y > 1 ? .070f : .105f);
+                return frontPoint(x, y + std::sin(a) * (y > 1 ? .090f : .075f));
+            }, .012f));
+        leadTrim = surfaceMesh(trim);
+        SurfaceData faceTrim;
+        const auto onFace = [](float x, float y) {
+            return leadPorcelainShape((x + 1) * .5f, (y + 1) * .5f) + glm::vec3(0, 0, .008f);
+        };
+        appendSurface(faceTrim, cordSurface(80, [=](float t) {
+            const float a = t * 2 * pi;
+            return onFace(.39f + std::cos(a) * .26f, .20f + std::sin(a) * .13f);
+        }, .0035f));
+        for (int curl = 0; curl < 3; ++curl)
+            appendSurface(faceTrim, cordSurface(48, [=](float t) {
+                const float a = t * 2 * pi * 1.15f;
+                const float r = .10f * (1 - t * .78f);
+                return onFace(.64f + static_cast<float>(curl) * .025f + std::cos(a) * r,
+                    .30f - static_cast<float>(curl) * .20f + std::sin(a) * r);
+            }, .0023f));
+        leadMaskTrim = surfaceMesh(faceTrim);
+        const glm::vec3 shoulder(.53f, 1.23f, -2.705f), elbow(.88f, .66f, -2.58f), wrist(1.04f, .14f, -2.35f);
+        const auto firstSleeve = surfaceData(32, 40, [=](float u, float t) {
+            return leadSleeveShape(shoulder, elbow, wrist, u, t);
+        });
+        leadSleeve = surfaceMesh(firstSleeve);
+        leadSleeveVertices = firstSleeve.vertices;
+        SurfaceData car = surfaceData(64, 48, sedanBodyShape);
+        for (const float end : {0.0f, 1.0f})
+            appendSurface(car, surfaceData(64, 8, [=](float u, float v) {
+                const glm::vec3 edge = sedanBodyShape(u, end);
+                return glm::vec3(edge.x, .46f + (edge.y - .46f) * v, edge.z * v);
+            }, end > .5f));
+        sedanBody = surfaceMesh(car);
+        SurfaceData cabin, glass;
+        for (const float side : {-1.0f, 1.0f}) {
+            const auto panel = [=](float u, float v) {
+                return glm::vec3(glm::mix(-.90f + .38f * v, .78f - .46f * v, u),
+                    .64f + .39f * v, side * (.60f - .12f * v));
+            };
+            appendSurface(cabin, surfaceData(24, 12, panel, side < 0));
+            for (int window = 0; window < 2; ++window)
+                appendSurface(glass, surfaceData(16, 12, [=](float u, float v) {
+                    const float across = static_cast<float>(window) * .47f + .055f + u * .415f;
+                    return panel(across, .12f + v * .81f) + glm::vec3(0, 0, side * .009f);
+                }, side < 0));
+        }
+        for (const float end : {-1.0f, 1.0f}) {
+            const auto panel = [=](float u, float v) {
+                return glm::vec3(end > 0 ? .78f - .46f * v : -.90f + .38f * v,
+                    .64f + .39f * v, (u * 2 - 1) * (.60f - .12f * v));
+            };
+            appendSurface(cabin, surfaceData(24, 12, panel, end > 0));
+            appendSurface(glass, surfaceData(24, 12, [=](float u, float v) {
+                return panel(.055f + u * .89f, .10f + v * .82f) + glm::vec3(end * .009f, 0, 0);
+            }, end > 0));
+        }
+        appendSurface(cabin, surfaceData(24, 20, [](float u, float v) {
+            const float x = u * 2 - 1, z = v * 2 - 1;
+            return glm::vec3(-.10f + x * .42f, 1.03f + .025f * (1 - x*x) * (1 - z*z), z * .48f);
+        }, true));
+        sedanCabin = surfaceMesh(cabin);
+        sedanGlass = surfaceMesh(glass);
+        headlightPatch = makeMesh({0,0,-.12f, 0,1,0, 0,0, 0,0,.12f, 0,1,0, 1,0,
+                                   1,0,1.2f, 0,1,0, 1,1, 1,0,-1.2f, 0,1,0, 0,1}, {0,1,2,0,2,3});
+        casinoCanopy = surfaceMesh(surfaceData(48, 16, [](float u, float v) {
+            const float x = u * 2 - 1;
+            return glm::vec3(x, .20f * std::sqrt(std::max(0.0f, 1 - x*x)), v);
+        }, true));
         sky = makeMesh({-1, -1, 0, 0, 0, 1, 0, 0,
                          3, -1, 0, 0, 0, 1, 2, 0,
                         -1,  3, 0, 0, 0, 1, 0, 2}, {0, 1, 2});
@@ -595,6 +991,11 @@ struct Renderer::Impl {
         felt = textures.upload(feltBitmap(), true);
         back = textures.upload(cardBackBitmap());
         chip = textures.upload(chipBitmap());
+        const std::array<const char*, 3> artNames{{"deck-hands.tga", "deck-life.tga", "deck-coins.tga"}};
+        for (std::size_t i = 0; i < deckArt.size(); ++i) {
+            try { deckArt[i].load(root / "art" / artNames[i], true); }
+            catch (const std::exception& error) { std::cerr << "Deck artwork fallback: " << error.what() << '\n'; }
+        }
         for (int suit = 0; suit < 4; ++suit)
             for (int rank = 1; rank <= 13; ++rank)
                 cardFaces[static_cast<std::size_t>(suit * 13 + rank - 1)] = textures.upload(cardBitmap(rank, suit));
@@ -615,6 +1016,8 @@ struct Renderer::Impl {
         u.opacity = uniform("uOpacity");
         u.velvet = uniform("uVelvet");
         u.roomLight = uniform("uRoomLight");
+        u.lampBrightness = uniform("uLampBrightness");
+        u.material = uniform("uMaterial");
         u.useTexture = uniform("uUseTexture");
         u.lighting = uniform("uLighting");
         glUseProgram(program.id);
@@ -625,7 +1028,7 @@ struct Renderer::Impl {
     void draw(const Mesh& mesh, const glm::mat4& model, glm::vec3 color,
               GLuint texture = 0, glm::vec2 uvScale = glm::vec2(1.0f),
               float specular = .08f, float shininess = 32.0f, float emission = 0.0f,
-              float opacity = 1.0f, float velvet = 0.0f) {
+              float opacity = 1.0f, float velvet = 0.0f, int material = 0) {
         const glm::mat3 normal = glm::transpose(glm::inverse(glm::mat3(model)));
         glUniformMatrix4fv(u.model, 1, GL_FALSE, glm::value_ptr(model));
         glUniformMatrix3fv(u.normal, 1, GL_FALSE, glm::value_ptr(normal));
@@ -636,9 +1039,15 @@ struct Renderer::Impl {
         glUniform1f(u.emission, emission);
         glUniform1f(u.opacity, opacity);
         glUniform1f(u.velvet, velvet);
+        glUniform1i(u.material, material);
         glUniform1i(u.useTexture, texturesEnabled && texture != 0 ? GL_TRUE : GL_FALSE);
         glBindTexture(GL_TEXTURE_2D, texture ? texture : white);
         mesh.draw();
+    }
+
+    GLuint cardBack() const {
+        const auto& art = deckArt[static_cast<std::size_t>(activeDeck)];
+        return art ? art.id() : back;
     }
 
     void beam(glm::vec3 from, glm::vec3 to, float radius, glm::vec3 color,
@@ -676,13 +1085,80 @@ struct Renderer::Impl {
         glEnable(GL_DEPTH_TEST);
     }
 
+    void drawMenuSedan(const glm::mat4& street, float time, bool animate) {
+        if (!animate) return; // Parked beyond the visible stretch of road.
+        const float phase = std::fmod(std::max(time, 0.0f), 32.0f);
+        if (phase > 9.4f) return;
+        const float distance = -18.0f + phase / 9.4f * 36.0f;
+        const glm::mat4 car = street * glm::translate(glm::mat4(1), {distance, 0, 6.13f});
+        const glm::vec3 paint{.033f, .031f, .050f}, rubber{.009f, .010f, .012f};
+        const glm::vec3 chrome{.20f, .20f, .19f};
+        draw(sedanBody, car, paint, 0, glm::vec2(1), .48f, 96);
+        draw(sedanCabin, car, paint, 0, glm::vec2(1), .45f, 96);
+        draw(sedanGlass, car, {.042f, .056f, .073f}, 0, glm::vec2(1), .68f, 80);
+        for (const float side : {-1.0f, 1.0f}) {
+            for (const float x : {-1.04f, 1.03f}) {
+                glm::mat4 wheel = car * glm::translate(glm::mat4(1), {x, .292f, side * .645f});
+                wheel = glm::rotate(wheel, pi * .5f, glm::vec3(1, 0, 0));
+                draw(cylinder, glm::scale(wheel, {.27f, .16f, .27f}), rubber,
+                     0, glm::vec2(1), .03f, 16);
+                glm::mat4 hub = car * glm::translate(glm::mat4(1), {x,.292f,side*.733f});
+                hub = glm::rotate(hub,pi*.5f,glm::vec3(1,0,0));
+                draw(cylinder,glm::scale(hub,{.155f,.018f,.155f}),chrome,
+                     0, glm::vec2(1), .45f, 72);
+                for (int spoke = 0; spoke < 5; ++spoke) {
+                    const float angle = static_cast<float>(spoke) * 2 * pi / 5 - distance / .27f;
+                    glm::mat4 detail = car * glm::translate(glm::mat4(1), {x, .292f, side * .748f});
+                    detail = glm::rotate(detail, angle, glm::vec3(0,0,1));
+                    draw(cube, glm::scale(detail, {.24f,.025f,.012f}), {.075f,.078f,.085f},
+                         0,glm::vec2(1),.28f,48);
+                }
+            }
+            for (const float x : {-.47f, .32f})
+                draw(cube, car * transform({x,.615f,side*.650f},{.17f,.025f,.018f}), chrome,
+                     0,glm::vec2(1),.55f,96);
+            draw(cube, car * transform({-.04f,.46f,side*.647f},{.012f,.26f,.008f}), {.014f,.013f,.020f});
+            draw(sphere, car * transform({.64f,.748f,side*.695f},{.12f,.06f,.065f}),paint,
+                 0,glm::vec2(1),.45f,80);
+            draw(cube, car * transform({1.614f,.515f,side*.423f},{.025f,.115f,.265f}),
+                 {.90f,.845f,.69f},0,glm::vec2(1),.15f,24,1.45f);
+            draw(cube, car * transform({-1.614f,.495f,side*.43f},{.025f,.10f,.23f}),
+                 {.48f,.025f,.032f},0,glm::vec2(1),.10f,24,.55f);
+        }
+        draw(cube,car*transform({1.618f,.405f,0},{.025f,.13f,.62f}),{.016f,.018f,.022f});
+        draw(cube,car*transform({1.633f,.342f,0},{.024f,.027f,1.02f}),chrome,0,glm::vec2(1),.5f,80);
+        draw(cube,car*transform({-1.625f,.345f,0},{.022f,.023f,1.03f}),chrome,0,glm::vec2(1),.4f,80);
+        draw(cube,car*transform({-1.635f,.427f,0},{.010f,.075f,.26f}),{.44f,.43f,.36f});
+        // Soft overlapping pools sit on the road, rather than opaque cones.
+        GLboolean depthWrite = GL_TRUE;
+        GLint srcRgb=0,dstRgb=0,srcAlpha=0,dstAlpha=0,equationRgb=0,equationAlpha=0;
+        const GLboolean blend = glIsEnabled(GL_BLEND);
+        glGetBooleanv(GL_DEPTH_WRITEMASK,&depthWrite);
+        glGetIntegerv(GL_BLEND_SRC_RGB,&srcRgb); glGetIntegerv(GL_BLEND_DST_RGB,&dstRgb);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA,&srcAlpha); glGetIntegerv(GL_BLEND_DST_ALPHA,&dstAlpha);
+        glGetIntegerv(GL_BLEND_EQUATION_RGB,&equationRgb); glGetIntegerv(GL_BLEND_EQUATION_ALPHA,&equationAlpha);
+        glEnable(GL_BLEND); glBlendEquation(GL_FUNC_ADD); glBlendFunc(GL_SRC_ALPHA,GL_ONE); glDepthMask(GL_FALSE);
+        for (const float side : {-1.0f,1.0f})
+            for (int layer=0;layer<6;++layer) {
+                const float inset=static_cast<float>(layer)*.10f;
+                draw(headlightPatch,car*transform({1.62f,.029f+layer*.0002f,side*.423f},
+                     {5.5f-inset*2.3f,1,1.0f-inset*.65f}),{.60f,.55f,.38f},
+                     0,glm::vec2(1),0,8,1.1f,.020f);
+            }
+        glDepthMask(depthWrite);
+        glBlendFuncSeparate(static_cast<GLenum>(srcRgb),static_cast<GLenum>(dstRgb),
+                            static_cast<GLenum>(srcAlpha),static_cast<GLenum>(dstAlpha));
+        glBlendEquationSeparate(static_cast<GLenum>(equationRgb),static_cast<GLenum>(equationAlpha));
+        if (!blend) glDisable(GL_BLEND);
+    }
+
     void drawCasino(float time, bool animate) {
-        const glm::vec3 stone{.40f, .22f, .35f};
-        const glm::vec3 plum{.29f, .10f, .38f};
-        const glm::vec3 gold{.78f, .53f, .24f};
-        const glm::vec3 crimson{.55f, .13f, .23f};
-        const glm::vec3 trim{.62f, .46f, .35f};
-        const glm::vec3 window{.96f, .55f, .22f};
+        const glm::vec3 stone{.24f, .16f, .23f};
+        const glm::vec3 plum{.17f, .075f, .23f};
+        const glm::vec3 gold{.50f, .36f, .18f};
+        const glm::vec3 crimson{.32f, .075f, .13f};
+        const glm::vec3 trim{.35f, .28f, .26f};
+        const glm::vec3 window{.82f, .52f, .25f};
         constexpr float streetAngle = -.70f;
         glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -3.0f});
         building = glm::rotate(building, streetAngle, glm::vec3(0, 1, 0));
@@ -694,23 +1170,23 @@ struct Renderer::Impl {
         };
 
         // A diagonal street and shallow forecourt connect the facade to the evening scene.
-        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.16f, .13f, .15f});
+        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.085f, .075f, .095f});
         // The road, curb and forecourt share a basis: their edges meet and stay parallel.
         constexpr float streetCenter = 5.55f;
         constexpr float streetWidth = 3.25f;
-        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.075f, .068f, .095f});
+        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.035f, .033f, .045f});
         for (const float side : {-1.0f, 1.0f})
             block({.6f, .037f, streetCenter + side * streetWidth * .5f},
-                  {60, .055f, .15f}, {.38f, .29f, .31f});
+                  {60, .055f, .15f}, {.19f, .16f, .18f});
         for (int i = -18; i < 19; ++i)
             block({static_cast<float>(i) * 1.65f, .016f, streetCenter},
-                  {.83f, .015f, .055f}, {.59f, .46f, .28f});
-        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.27f, .22f, .25f});
+                  {.83f, .015f, .055f}, {.32f, .26f, .17f});
+        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.18f, .155f, .18f});
         for (int i = -4; i <= 5; ++i)
             block({static_cast<float>(i) * .92f, .07f, 2.55f}, {.016f, .012f, 2.55f}, {.20f, .16f, .20f});
 
         // A modest two-storey casino, with a lower annex and flat cornices.
-        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.34f, .29f, .28f});
+        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.23f, .205f, .21f});
         block({0, 1.98f, 0}, {5.25f, 3.60f, 3.20f}, stone);
         block({0, .54f, 1.63f}, {5.30f, .65f, .10f}, plum);
         block({0, 2.05f, 1.66f}, {5.40f, .12f, .13f}, trim);
@@ -721,8 +1197,8 @@ struct Renderer::Impl {
         for (const float x : {-2.48f, 2.48f})
             block({x, 1.96f, 1.69f}, {.17f, 3.43f, .19f}, trim);
 
-        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.30f, .25f, .27f});
-        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.34f, .19f, .32f});
+        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.21f, .18f, .20f});
+        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.23f, .14f, .22f});
         block({3.65f, 2.73f, -.22f}, {2.61f, .16f, 3.36f}, plum);
         block({3.65f, 2.84f, -.22f}, {2.66f, .055f, 3.42f}, gold);
         block({3.65f, .56f, 1.35f}, {2.40f, .59f, .10f}, plum);
@@ -730,10 +1206,16 @@ struct Renderer::Impl {
 
         // Recessed windows are lit from within; no street or interior characters.
         const auto frontWindow = [&](float x, float y, float z, float width, float height) {
-            block({x, y, z}, {width + .12f, height + .12f, .10f}, trim);
-            block({x, y, z + .065f}, {width, height, .045f}, window, .55f);
-            block({x, y, z + .10f}, {.035f, height + .01f, .035f}, plum);
-            block({x, y, z + .10f}, {width + .01f, .035f, .035f}, plum);
+            block({x,y,z+.025f},{width+.18f,height+.18f,.12f},plum*.55f);
+            block({x,y,z+.092f},{width,height,.025f},window,.40f);
+            for (const float side : {-1.0f,1.0f}) {
+                block({x+side*(width*.5f+.055f),y,z+.16f},{.10f,height+.22f,.25f},trim);
+                block({x,y+side*(height*.5f+.055f),z+.16f},{width+.22f,.10f,.25f},trim);
+                block({x+side*(width*.5f-.05f),y,z+.12f},{.075f,height,.035f},crimson*.65f);
+            }
+            block({x,y-height*.5f-.10f,z+.21f},{width+.32f,.065f,.38f},gold*.70f);
+            block({x,y,z+.14f},{.026f,height+.01f,.025f},plum);
+            block({x,y,z+.14f},{width+.01f,.025f,.025f},plum);
         };
         for (const float x : {-1.63f, 1.63f}) {
             frontWindow(x, 1.23f, 1.67f, .63f, 1.02f);
@@ -741,10 +1223,15 @@ struct Renderer::Impl {
         }
         for (const float x : {3.08f, 4.20f}) frontWindow(x, 1.25f, 1.36f, .56f, .95f);
         for (const float z : {-.94f, .38f}) {
-            block({4.845f, 1.25f, z}, {.10f, 1.07f, .69f}, trim);
-            block({4.91f, 1.25f, z}, {.045f, .95f, .57f}, window, .45f);
-            block({4.94f, 1.25f, z}, {.03f, .98f, .035f}, plum);
-            block({4.94f, 1.25f, z}, {.03f, .035f, .60f}, plum);
+            block({4.88f,1.25f,z},{.12f,1.12f,.74f},plum*.55f);
+            block({4.95f,1.25f,z},{.025f,.95f,.57f},window,.35f);
+            for(const float side : {-1.0f,1.0f}) {
+                block({5.02f,1.25f,z+side*.34f},{.25f,1.13f,.10f},trim);
+                block({5.02f,1.25f+side*.525f,z},{.25f,.10f,.78f},trim);
+            }
+            block({5.06f,.665f,z},{.36f,.065f,.88f},gold*.7f);
+            block({4.99f,1.25f,z},{.025f,.98f,.026f},plum);
+            block({4.99f,1.25f,z},{.025f,.026f,.60f},plum);
         }
 
         // A red double door and restrained three-bell emblem carry the jester theme.
@@ -752,19 +1239,33 @@ struct Renderer::Impl {
         block({0, 1.10f, 1.79f}, {1.23f, 1.66f, .085f}, plum);
         for (const float side : {-1.0f, 1.0f}) {
             block({side * .30f, 1.08f, 1.85f}, {.55f, 1.56f, .075f}, crimson);
-            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.62f, .37f, .22f}, .20f);
+            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.45f, .29f, .17f}, .18f);
             draw(sphere, building * transform({side * .09f, .98f, 1.94f}, {.035f, .035f, .025f}), gold);
         }
         block({0, .22f, 2.02f}, {1.90f, .16f, .76f}, trim);
         block({0, .11f, 2.36f}, {2.17f, .12f, .68f}, {.40f, .33f, .31f});
-        block({0, 2.89f, 1.71f}, {1.63f, .81f, .12f}, gold);
-        block({0, 2.89f, 1.79f}, {1.48f, .66f, .05f}, plum);
-        diamond({0, 2.77f, 1.84f}, .28f, crimson, building);
-        for (int i = -1; i <= 1; ++i) {
-            const float x = static_cast<float>(i) * .37f;
-            beam({0, 2.80f, 1.87f}, {x, 3.09f, 1.87f}, .024f, gold, building);
-            draw(sphere, building * transform({x, 3.10f, 1.87f}, {.07f, .07f, .045f}), gold,
-                 0, glm::vec2(1), .2f, 32, .10f);
+        draw(casinoCanopy,building*transform({0,2.06f,1.82f},{1.04f,1,.95f}),plum,
+             0,glm::vec2(1),.16f,48);
+        draw(arch,building*transform({0,2.06f,2.77f},{1.04f,.20f,1}),gold,
+             0,glm::vec2(1),.45f,72);
+        for (const float side : {-1.0f,1.0f}) {
+            beam({side*.94f,.31f,2.68f},{side*.94f,2.07f,2.68f},.025f,gold,building);
+            diamond({side*2.48f,3.22f,1.81f},.15f,gold,building);
+        }
+        glm::mat4 plaque=building*glm::translate(glm::mat4(1),{0,2.98f,1.79f});
+        plaque=glm::rotate(plaque,pi*.5f,glm::vec3(1,0,0));
+        draw(cylinder,glm::scale(plaque,{.50f,.075f,.50f}),gold,0,glm::vec2(1),.48f,84);
+        glm::mat4 inset=building*glm::translate(glm::mat4(1),{0,2.98f,1.84f});
+        inset=glm::rotate(inset,pi*.5f,glm::vec3(1,0,0));
+        draw(cylinder,glm::scale(inset,{.435f,.025f,.435f}),plum,0,glm::vec2(1),.20f,48);
+        for (const float x : {-.16f,.13f}) {
+            const glm::vec3 origin(x,2.98f,1.865f);
+            const std::array<glm::vec2,6> points{{{-.10f,.19f},{.085f,.19f},{.055f,.19f},
+                                                {.055f,-.105f},{.015f,-.18f},{-.075f,-.18f}}};
+            beam(origin+glm::vec3(points[0],0),origin+glm::vec3(points[1],0),.012f,gold,building);
+            for (std::size_t i=2;i+1<points.size();++i)
+                beam(origin+glm::vec3(points[i],0),origin+glm::vec3(points[i+1],0),.012f,gold,building);
+            beam(origin+glm::vec3(-.075f,-.18f,0),origin+glm::vec3(-.11f,-.115f,0),.012f,gold,building);
         }
         for (const float x : {-3.10f, 5.28f}) {
             const float pulse = animate ? .025f * std::sin(time * 1.4f + x) : 0.0f;
@@ -772,146 +1273,120 @@ struct Renderer::Impl {
             block({x, 2.05f, 2.1f}, {.25f, .39f, .25f}, window, .55f + pulse);
             block({x, 2.29f, 2.1f}, {.34f, .08f, .34f}, plum);
         }
+        drawMenuSedan(building,time,animate);
     }
 
-    void drawRoom(float time, bool animate) {
-        const glm::vec3 bronze{.48f, .32f, .14f};
-        const glm::vec3 stone{.13f, .105f, .14f};
-        draw(cube, transform({0, -.92f, -1}, {26, .25f, 24}), {.045f, .038f, .052f});
-        for (int row = 0; row < 9; ++row)
-            for (int column = -7; column <= 7; ++column)
-                draw(cube, transform({static_cast<float>(column), -.775f, -5.0f + static_cast<float>(row)},
-                                     {.98f, .025f, .98f}), (row + column) % 2 == 0
-                     ? glm::vec3(.105f, .083f, .095f) : glm::vec3(.055f, .048f, .064f),
-                     0, glm::vec2(1), .32f, 64);
-        draw(cube, transform({0, 1.8f, -5.6f}, {22, 6.3f, .32f}), {.075f, .045f, .085f});
-        for (const float x : {-4.5f, 0.0f, 4.5f}) {
-            draw(cube, transform({x, 1.1f, -5.38f}, {3.15f, 3.8f, .09f}), {.027f, .025f, .043f});
-            draw(arch, transform({x, 1.72f, -5.27f}, {1.76f, 1.76f, 1}), stone);
-            draw(arch, transform({x, 1.72f, -5.23f}, {1.60f, 1.60f, 1}), bronze);
-            for (const float side : {-1.0f, 1.0f}) {
-                draw(cylinder, transform({x + side * 1.60f, .48f, -5.20f}, {.14f, 2.5f, .14f}), stone);
-                draw(cylinder, transform({x + side * 1.60f, 1.70f, -5.20f}, {.21f, .12f, .21f}), bronze);
-                draw(cylinder, transform({x + side * 1.60f, -.68f, -5.20f}, {.23f, .16f, .23f}), bronze);
-            }
-        }
-        // Velvet folds and tied-back wings frame the central dealer alcove.
-        for (const float side : {-1.0f, 1.0f}) {
-            for (int fold = 0; fold < 8; ++fold) {
-                const float x = side * (2.9f + static_cast<float>(fold) * .32f);
-                draw(cylinder, transform({x, 1.55f, -4.98f}, {.24f, 4.65f, .24f}),
-                     fold % 2 == 0 ? glm::vec3(.23f, .045f, .095f) : glm::vec3(.125f, .035f, .17f),
-                     felt, {1, 5}, .05f, 12, 0, 1, 1);
-            }
-            draw(sphere, transform({side * 4.05f, 3.63f, -4.97f}, {1.45f, .32f, .36f}), {.28f, .055f, .11f});
-            draw(cube, transform({side * 4.05f, .92f, -4.70f}, {2.65f, .08f, .08f}), bronze);
-            diamond({side * 4.05f, .76f, -4.63f}, .22f, bronze);
-            const float x = side * 3.7f;
-            draw(cylinder, transform({x, -.64f, -2.6f}, {.30f, .14f, .30f}), bronze, 0, glm::vec2(1), .55f, 64);
-            beam({x, -.61f, -2.6f}, {x, 1.03f, -2.6f}, .055f, bronze);
-            for (int branch = -1; branch <= 1; ++branch) {
-                const float bx = x + static_cast<float>(branch) * .28f;
-                const float by = branch == 0 ? 1.18f : .96f;
-                beam({x, .70f, -2.6f}, {bx, by, -2.6f}, .035f, bronze);
-                draw(cylinder, transform({bx, by, -2.6f}, {.13f, .06f, .13f}), bronze);
-                draw(cylinder, transform({bx, by + .23f, -2.6f}, {.073f, .42f, .073f}), {.85f, .73f, .47f});
-                const float flicker = animate ? std::sin(time * 7.3f + bx * 8.0f) * .022f : 0.0f;
-                draw(sphere, transform({bx + flicker * .35f, by + .51f, -2.6f}, {.047f, .11f + flicker, .047f}),
-                     {1, .40f, .065f}, 0, glm::vec2(1), 0, 8, 1.7f);
-                draw(sphere, transform({bx, by + .48f, -2.56f}, {.024f, .055f, .024f}),
-                     {1, .86f, .43f}, 0, glm::vec2(1), 0, 8, 2.0f);
-            }
-        }
-        draw(cube, transform({0, 3.80f, -5.1f}, {17, .07f, .16f}), bronze);
-        diamond({0, 2.97f, -5.18f}, .35f, bronze);
-    }
+#include "RendererRoom.inl"
 
     void drawDealer(const Scene& scene, bool animate) {
-        const glm::vec3 purple{.29f, .075f, .40f}, red{.56f, .065f, .14f};
-        const glm::vec3 gold{.80f, .55f, .20f}, ivory{.85f, .78f, .62f};
-        const glm::vec3 ink{.025f, .018f, .040f};
-        const float breath = animate ? std::sin(scene.time * .9f) * .008f : 0;
-        constexpr float z = -3.05f;
-        const auto detail = [&](glm::vec3 p, glm::vec3 size, float tilt, glm::vec3 color, float emission = 0.0f) {
-            glm::mat4 m = glm::translate(glm::mat4(1), p);
-            m = glm::rotate(m, tilt, glm::vec3(0, 0, 1));
-            draw(sphere, glm::scale(m, size), color, 0, glm::vec2(1), .18f, 48, emission);
-        };
-        draw(sphere, transform({0, .10f, z - .1f}, {.65f, .82f, .39f}), ink);
-        draw(halfSphere, transform({0, .67f + breath, z}, {.53f, .62f, .31f}), red,
-             felt, {1, 2}, .08f, 16, 0, 1, .4f);
-        draw(halfSphere, transform({0, .67f + breath, z}, {.53f, .62f, .31f}, pi), purple,
-             felt, {1, 2}, .08f, 16, 0, 1, .4f);
-        for (int button = 0; button < 4; ++button)
-            detail({0, .28f + static_cast<float>(button) * .23f + breath, z + .316f}, {.036f, .036f, .023f}, 0, gold);
-        for (int petal = 0; petal < 9; ++petal) {
-            const float angle = static_cast<float>(petal) * pi / 8;
-            detail({std::cos(angle) * .34f, 1.15f + breath, z + std::sin(angle) * .22f},
-                   {.12f, .14f, .10f}, (angle - pi * .5f) * .35f, ivory);
-        }
-        draw(sphere, transform({0, 1.26f + breath, z}, {.13f, .20f, .13f}), ink);
-        detail({0, 1.58f + breath, z}, {.30f, .37f, .245f}, 0, ivory);
-        for (const float side : {-1.0f, 1.0f}) {
-            detail({side * .15f, 1.49f + breath, z + .175f}, {.15f, .14f, .11f}, -side * .18f, ivory);
-            detail({side * .115f, 1.67f + breath, z + .223f}, {.115f, .052f, .036f}, side * .18f, ink);
-            detail({side * .105f, 1.67f + breath, z + .255f}, {.023f, .017f, .012f}, side * .18f,
-                   {.94f, .57f, .13f}, .7f);
-            diamond({side * .17f, 1.53f + breath, z + .26f}, .058f, red);
-            beam({side * .04f, 1.76f + breath, z + .22f}, {side * .23f, 1.78f + breath, z + .18f}, .012f, gold);
-        }
-        glm::mat4 nose = glm::translate(glm::mat4(1), {0, 1.56f + breath, z + .275f});
-        nose = glm::rotate(nose, pi * .5f, glm::vec3(1, 0, 0));
-        draw(cone, glm::scale(nose, {.043f, .15f, .055f}), ivory, 0, glm::vec2(1), .12f, 48);
-        beam({-.13f, 1.42f + breath, z + .226f}, {0, 1.38f + breath, z + .257f}, .012f, ink);
-        beam({0, 1.38f + breath, z + .257f}, {.13f, 1.42f + breath, z + .226f}, .012f, ink);
-        detail({0, 1.36f + breath, z + .22f}, {.075f, .018f, .028f}, 0, red);
-        draw(halfSphere, transform({0, 1.89f + breath, z}, {.32f, .18f, .27f}), red);
-        draw(halfSphere, transform({0, 1.89f + breath, z}, {.32f, .18f, .27f}, pi), purple);
-        for (int tip = -1; tip <= 1; ++tip) {
-            const float rotation = tip < 0 ? pi : tip == 0 ? pi * .5f : 0;
-            const glm::vec3 base(static_cast<float>(tip) * .13f, 1.94f + breath, z);
-            const glm::mat4 m = transform(base, glm::vec3(tip == 0 ? .85f : 1.0f), rotation);
-            draw(horn, m, tip < 0 ? purple : red, felt, {2, 1}, .12f, 24);
-            const glm::vec3 bell = glm::vec3(m * glm::vec4(.68f, .65f * std::sin(pi * .72f), 0, 1));
-            draw(sphere, transform(bell, {.075f, .075f, .075f}), gold, 0, glm::vec2(1), .65f, 72);
-        }
-        for (int stud = 0; stud < 11; ++stud) {
-            const float a = static_cast<float>(stud) / 10 * pi;
-            detail({std::cos(a) * .30f, 1.83f + breath, z + std::sin(a) * .26f}, {.025f, .025f, .025f}, 0, gold);
-        }
-        float activeReach = std::clamp(scene.dealerReach, 0.0f, 1.0f);
-        for (const auto* hand : {&scene.player, &scene.dealer})
-            for (const auto& card : *hand)
-                if (card.arrival < 1) activeReach = std::max(activeReach, std::sin(pi * std::clamp(card.arrival, 0.0f, 1.0f)));
-        for (const float side : {-1.0f, 1.0f}) {
-            const bool active = (side > 0) == scene.dealingToPlayer;
-            const float reach = active ? activeReach : 0;
-            const glm::vec3 shoulder(side * .43f, 1.02f + breath, z);
-            const glm::vec3 elbow = glm::mix(glm::vec3(side * .67f, .56f, -2.84f),
-                                            glm::vec3(side * .69f, 1.05f, -2.40f), reach);
-            const glm::vec3 wrist = glm::mix(glm::vec3(side * .80f, .16f, -2.43f),
-                                            glm::vec3(side * .80f, 1.0f, -1.70f), reach);
-            const glm::vec3 cloth = side > 0 ? red : purple;
-            detail(shoulder, {.20f, .22f, .20f}, 0, cloth);
-            beam(shoulder, elbow, .13f, cloth);
-            detail(elbow, {.135f, .135f, .135f}, 0, cloth);
-            beam(elbow, wrist, .10f, cloth);
-            detail(wrist, {.13f, .075f, .09f}, side * reach * .2f, gold);
-            detail(wrist + glm::vec3(0, 0, .09f), {.12f, .07f, .16f}, side * reach * .2f, ivory);
-            for (int finger = 0; finger < 4; ++finger) {
-                const float fx = (static_cast<float>(finger) - 1.5f) * .047f;
-                beam(wrist + glm::vec3(fx, -.005f, .13f), wrist + glm::vec3(fx, -.025f + reach * .025f, .29f),
-                     .021f, ivory);
+        const glm::vec3 black{.027f, .018f, .047f}, violet{.18f, .055f, .31f}, burgundy{.30f, .022f, .067f};
+        const glm::vec3 gold{.55f, .39f, .17f}, ivory{.88f, .855f, .80f};
+        const float breath = animate ? std::sin(scene.time * .65f) * .005f : 0;
+        constexpr float z = -3.68f;
+        float activeReach = std::clamp(scene.dealerReach, 0.0f, 1.0f), gazeStrength = 0;
+        glm::vec3 gazeTarget(scene.dealingToPlayer ? .83f : -.83f, .15f, -2.3f);
+        for (int hand = 0; hand < 2; ++hand) {
+            const auto& cards = hand == 0 ? scene.player : scene.dealer;
+            const float count = static_cast<float>(cards.size());
+            const float spacing = cards.size() < 8 ? .88f : 5.65f / std::max(count - 1.0f, 1.0f);
+            for (std::size_t i = 0; i < cards.size(); ++i) {
+                const float arrival = std::clamp(cards[i].arrival, 0.0f, 1.0f);
+                if (arrival <= 0 || arrival >= 1) continue;
+                const float strength = std::sin(pi * arrival);
+                activeReach = std::max(activeReach, strength);
+                if (strength > gazeStrength) {
+                    const float slot = static_cast<float>(i) - (count - 1.0f) * .5f;
+                    gazeTarget = cardPosition(cards[i], {slot * spacing, .05f,
+                        (hand == 0 ? 1.12f : -1.12f) + std::abs(slot) * .014f}, hand != 0);
+                    gazeStrength = strength;
+                }
             }
-            detail(wrist + glm::vec3(-side * .13f, -.025f, .08f), {.045f, .04f, .09f}, side * .45f, ivory);
+        }
+        if (gazeStrength == 0) gazeStrength = activeReach;
+        const glm::vec3 toCard = gazeTarget - glm::vec3(0, 1.54f, z + .015f);
+        const float gazeYaw = animate ? std::clamp(std::atan2(toCard.x, toCard.z), -.14f, .14f) * gazeStrength : 0;
+        const float gazePitch = animate ? std::clamp(std::atan2(-toCard.y,
+            std::hypot(toCard.x, toCard.z)), 0.0f, .26f) * gazeStrength : 0;
+        const float bust = animate ? std::sin(pi * std::clamp(scene.bustReaction, 0.0f, 1.0f)) : 0;
+        const float winGesture = animate && activeReach < .001f
+            ? std::sin(pi * std::clamp(scene.celebration, 0.0f, 1.0f)) : 0;
+        const glm::mat4 body = transform({0, -.32f + breath, z}, {.86f, 1.02f, .92f});
+        // The waist is near the tabletop; the hips, knees and planted boots
+        // continue all the way to the room floor behind its far edge.
+        for (const float side : {-1.0f, 1.0f}) {
+            const glm::mat4 leg = transform({side * .18f, 0, z + .015f}, {1, 1, 1}, side * .035f);
+            draw(leadLeg, leg, black, felt, {3, 5}, .045f, 24, 0, 1, .35f, 2);
+            draw(leadBoot, transform({side * .18f, -.740f, z + .015f}, {1, 1, 1}, side * .035f),
+                 {.020f, .018f, .020f}, 0, glm::vec2(1), .16f, 48);
+        }
+        draw(leadCoat, body, burgundy, felt, {4, 4}, .10f, 32, 0, 1, 1, 9);
+        draw(leadJabot, body, {.78f, .735f, .64f}, 0, glm::vec2(1), .06f, 20, 0, 1, .35f, 7);
+        draw(leadTrim, body, gold, 0, glm::vec2(1), .58f, 84);
+        draw(sphere, body * transform({0, 1.37f, leadCoatFront(0, 1.37f) + .045f}, {.034f, .049f, .023f}),
+             {.20f, .018f, .056f}, 0, glm::vec2(1), .65f, 96);
+        draw(ruff, body * transform({0, 1.43f, .015f}, {.65f, .35f, .65f}),
+             {.40f, .27f, .13f}, 0, glm::vec2(1), .30f, 48);
+        draw(leadLace, body * transform({0, 1.465f, .015f}, {.70f, .80f, .72f}),
+             {.80f, .755f, .66f}, 0, glm::vec2(1), .07f, 24, 0, 1, .45f, 7);
+        draw(leadNeck, transform({0, 1.18f + breath, z - .015f}, {1, 1, 1}),
+             black, felt, {2, 2}, .06f, 28, 0, 1, .35f, 2);
+        glm::mat4 head = glm::translate(glm::mat4(1), {0, 1.54f + breath, z + .015f});
+        head = glm::rotate(head, -.045f * bust, glm::vec3(0, 0, 1));
+        head = glm::rotate(head, gazeYaw * (1 - bust * .5f), glm::vec3(0, 1, 0));
+        head = glm::rotate(head, -.12f + gazePitch * (1 - bust * .5f) + .055f * bust, glm::vec3(1, 0, 0));
+        draw(hood, head * transform({0, 0, -.10f}, {.45f, .62f, .52f}),
+             black, felt, {4, 3}, .08f, 16, 0, 1, .8f, 2);
+        draw(leadMask, head, ivory, 0, glm::vec2(1), .28f, 76, .02f, 1, 0, 8);
+        draw(leadMaskTrim, head, gold, 0, glm::vec2(1), .62f, 96);
+        draw(leadCap, head * glm::scale(glm::mat4(1), {.49f, .52f, .52f}),
+             violet * .55f, felt, {3, 3}, .045f, 18, 0, 1, 1, 5);
+        draw(ring, head * transform({0, .19f, -.052f}, {.175f, .007f, .125f}), burgundy,
+             0, glm::vec2(1), .22f, 48, 0, 1, .4f, 6);
+        for (const float side : {-1.0f, 1.0f}) {
+            const float scale = side < 0 ? 1.02f : .94f;
+            glm::mat4 h = head * glm::translate(glm::mat4(1), {side * .06f, .23f, -.078f});
+            h = glm::scale(h, {side * scale * .47f, scale * .58f, scale * .50f});
+            draw(leadHat, h, side < 0 ? violet : burgundy,
+                 felt, {3, 4}, .045f, 18, 0, 1, 1, 5);
+            const glm::vec3 bell = glm::vec3(h * glm::vec4(leadHatCenter(1), 1));
+            draw(sphere, transform(bell, {.024f, .029f, .024f}), gold, 0, glm::vec2(1), .7f, 110);
+            draw(cube, transform(bell + glm::vec3(0, -.004f, .024f), {.033f, .004f, .004f}), {.025f, .018f, .025f});
+        }
+
+        for (const float side : {-1.0f, 1.0f}) {
+            const float reach = ((side > 0) == scene.dealingToPlayer) ? activeReach : 0;
+            const float greeting = side < 0 ? winGesture : 0;
+            const glm::vec3 shoulder(side * .29f, 1.05f + breath, z + .015f);
+            const glm::vec3 elbow = glm::mix(glm::vec3(side * .62f, .50f, -3.41f),
+                                            glm::vec3(side * .63f, .65f, -3.24f), reach) + glm::vec3(0, greeting * .025f, 0);
+            const glm::vec3 wrist = glm::mix(glm::vec3(side * .83f, .082f, -2.89f),
+                                            glm::vec3(side * .75f, .33f, -2.49f), reach) + glm::vec3(0, greeting * .055f, greeting * .035f);
+            updateLeadSleeve(leadSleeveVertices, shoulder, elbow, wrist);
+            leadSleeve.update(leadSleeveVertices);
+            const auto cloth = side < 0 ? violet : burgundy;
+            draw(leadSleeve, glm::mat4(1), cloth, felt, {4, 3}, .08f, 30, 0, 1, .8f, 10);
+            const glm::vec3 axis = glm::normalize(wrist - elbow);
+            const glm::vec3 rotationAxis = glm::cross(glm::vec3(0, 1, 0), axis);
+            glm::mat4 cuff = glm::translate(glm::mat4(1), wrist);
+            if (glm::length(rotationAxis) > .0001f)
+                cuff = glm::rotate(cuff, std::acos(std::clamp(axis.y, -1.0f, 1.0f)), glm::normalize(rotationAxis));
+            draw(cylinder, glm::scale(cuff, {.082f, .080f, .082f}), cloth,
+                 0, glm::vec2(1), .12f, 32, 0, 1, .4f, 6);
+            draw(leadLace, glm::scale(cuff, {.21f, .35f, .21f}), {.78f, .725f, .63f},
+                 0, glm::vec2(1), .08f, 24, 0, 1, .5f, 7);
+            glm::mat4 hand = glm::translate(glm::mat4(1), wrist + glm::vec3(0, 0, .015f));
+            hand = glm::rotate(hand, side * .11f, glm::vec3(0, 1, 0));
+            hand = glm::rotate(hand, -reach * .17f - greeting * .04f, glm::vec3(1, 0, 0));
+            hand = glm::rotate(hand, side * reach * .10f - greeting * .055f, glm::vec3(0, 0, 1));
+            draw(glove, glm::scale(hand, {side * .72f, .72f, .72f}), {.66f, .605f, .51f},
+                 felt, {5, 6}, .08f, 28, 0, 1, .28f);
         }
     }
-
     glm::vec3 cardPosition(const VisualCard& card, glm::vec3 target, bool dealer) const {
         const float a = std::clamp(card.arrival, 0.0f, 1.0f);
         const float flight = std::min(1.0f, a / .78f);
         const float eased = flight * flight * (3.0f - 2.0f * flight);
-        const glm::vec3 source(dealer ? -.8f : .8f, 1.0f, -1.7f);
+        const glm::vec3 source(dealer ? -.83f : .83f, .12f, -2.55f);
         glm::vec3 p = glm::mix(source, target, eased);
         p.y += std::sin(flight * pi) * .72f;
         if (a > .78f && a < 1) p.y += std::sin((a - .78f) / .22f * pi) * .045f;
@@ -928,9 +1403,9 @@ struct Renderer::Impl {
         model = glm::scale(model, {.74f, .045f, 1.08f});
         draw(cube, model, {.90f, .86f, .72f}, 0, glm::vec2(1), .04f);
         const int rank = std::clamp(card.rank, 1, 13), suit = std::clamp(card.suit, 0, 3);
-        const GLuint face = card.faceDown ? back : cardFaces[static_cast<std::size_t>(suit * 13 + rank - 1)];
+        const GLuint face = card.faceDown ? cardBack() : cardFaces[static_cast<std::size_t>(suit * 13 + rank - 1)];
         draw(plane, model, glm::vec3(1), face, glm::vec2(1), .025f);
-        draw(plane, model * glm::rotate(glm::mat4(1), pi, glm::vec3(1, 0, 0)), glm::vec3(1), back,
+        draw(plane, model * glm::rotate(glm::mat4(1), pi, glm::vec3(1, 0, 0)), glm::vec3(1), cardBack(),
              glm::vec2(1), .025f);
     }
     void drawHand(const std::vector<VisualCard>& cards, float rowZ, float time,
@@ -963,10 +1438,20 @@ struct Renderer::Impl {
              0, glm::vec2(1), 0, 8, 1.8f, alpha);
     }
 
-    void drawEffects(const Scene& scene) {
+    void drawEffects(const Scene& scene, bool animate) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         glDepthMask(GL_FALSE);
+        for (int dust = 0; dust < 32; ++dust) {
+            const float phase = static_cast<float>(dust) * 2.39996f;
+            const float drift = animate ? scene.time * .025f : 0;
+            const float height = std::fmod(static_cast<float>(dust) * .137f + drift, 1.0f);
+            const glm::vec3 p(std::sin(phase + drift * .3f) * 5.5f, -.3f + height * 3.2f,
+                               -2.5f + std::cos(phase) * 3.0f);
+            const float alpha = .055f * std::sin(height * pi);
+            draw(sphere, transform(p, glm::vec3(.008f + .003f * static_cast<float>(dust % 3))),
+                 {.81f, .58f, .28f}, 0, glm::vec2(1), 0, 8, 1.2f, alpha);
+        }
         for (int hand = 0; hand < 2; ++hand) {
             const auto& cards = hand == 0 ? scene.player : scene.dealer;
             const float count = static_cast<float>(cards.size());
@@ -985,7 +1470,7 @@ struct Renderer::Impl {
                     if (ghost.arrival <= 0 || ghost.arrival > .78f) continue;
                     const glm::vec3 p = cardPosition(ghost, target, hand != 0);
                     draw(plane, transform(p, {.72f, .02f, 1.05f}, slot * .015f), tint,
-                         back, glm::vec2(1), 0, 8, .65f,
+                         cardBack(), glm::vec2(1), 0, 8, .65f,
                          .075f * (1.0f - static_cast<float>(trail) / 7));
                 }
                 if (a > .78f) {
@@ -1037,6 +1522,7 @@ struct Renderer::Impl {
 
     void render(const Scene& scene, const RenderSettings& settings, int width, int height) {
         if (width <= 0 || height <= 0) return;
+        activeDeck = std::clamp(scene.deckDesign, 0, 2);
         glViewport(0, 0, width, height);
         glEnable(GL_DEPTH_TEST);
         glDepthFunc(GL_LESS);
@@ -1044,12 +1530,14 @@ struct Renderer::Impl {
         glDisable(GL_BLEND);
         glDisable(GL_CULL_FACE);
         glDisable(GL_SCISSOR_TEST);
-        glClearColor(.026f, .014f, .050f, 1.0f);
+        if (scene.menu) glClearColor(.026f, .014f, .050f, 1.0f);
+        else glClearColor(0, 0, 0, 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (scene.menu) drawSky(width, height);
 
         int renderWidth = width;
         int renderHeight = height;
+        int renderLeft = 0, renderBottom = 0;
         if (!scene.menu) {
             const auto& area = scene.tableViewport;
             const int left = std::clamp(static_cast<int>(area.left * static_cast<float>(width)), 0, width - 1);
@@ -1060,7 +1548,10 @@ struct Renderer::Impl {
                                           top + 1, height);
             renderWidth = right - left;
             renderHeight = bottom - top;
-            glViewport(left, height - bottom, renderWidth, renderHeight);
+            renderLeft = left;
+            renderBottom = height - bottom;
+            // The UI rectangle controls framing; the room itself extends
+            // across the framebuffer, including beneath transparent UI.
         }
 
         const float yaw = glm::radians(settings.yaw);
@@ -1073,21 +1564,34 @@ struct Renderer::Impl {
                         distance * std::sin(pitch),
                         distance * std::cos(pitch) * std::cos(yaw));
         const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
-                                                                         : glm::vec3(0, .50f, -.30f),
+                                                                         : glm::vec3(0, .60f, -.50f),
                                          glm::vec3(0, 1, 0));
-        const glm::mat4 projection = glm::perspective(glm::radians(43.0f),
+        glm::mat4 projection = glm::perspective(glm::radians(43.0f),
             aspect, .1f, 60.0f);
+        if (!scene.menu) {
+            const float sx = static_cast<float>(renderWidth) / static_cast<float>(width);
+            const float sy = static_cast<float>(renderHeight) / static_cast<float>(height);
+            const float ox = static_cast<float>(2 * renderLeft + renderWidth) / static_cast<float>(width) - 1;
+            const float oy = static_cast<float>(2 * renderBottom + renderHeight) / static_cast<float>(height) - 1;
+            for (int column = 0; column < 4; ++column) {
+                projection[column][0] = sx * projection[column][0] + ox * projection[column][3];
+                projection[column][1] = sy * projection[column][1] + oy * projection[column][3];
+            }
+        }
+        glViewport(0, 0, width, height);
         glUseProgram(program.id);
         glActiveTexture(GL_TEXTURE0);
         glUniformMatrix4fv(u.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(u.projection, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(u.camera, 1, glm::value_ptr(eye));
-        glUniform3f(u.light, scene.menu ? -5.0f : -3.0f, 7.0f, 4.0f);
-        if (scene.menu) glUniform3f(u.fogColor, .25f, .17f, .22f);
-        else glUniform3f(u.fogColor, .026f, .014f, .050f);
-        glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f));
+        const float lightMotion = settings.animate ? std::sin(scene.time * .17f) * .85f : 0;
+        glUniform3f(u.light, scene.menu ? -5.0f : -2.2f + lightMotion, 7.0f, 4.0f);
+        if (scene.menu) glUniform3f(u.fogColor, .10f, .07f, .13f);
+        else glUniform3f(u.fogColor, 0, 0, 0);
+        glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f) * (scene.menu ? .8f : 1.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         glUniform1f(u.roomLight, scene.menu ? 0.0f : 1.0f);
+        glUniform1f(u.lampBrightness, roomLampBrightness(scene.time, settings.animate));
         texturesEnabled = settings.textures;
 
         if (scene.menu) {
@@ -1102,7 +1606,7 @@ struct Renderer::Impl {
         drawDealer(scene, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.
-        draw(cylinder, transform({0, -.35f, 0}, {4.2f, .5f, 3.0f}),
+        draw(cylinder, transform({0, -.16f, 0}, {4.2f, .18f, 3.0f}),
              {.10f, .038f, .055f}, 0, glm::vec2(1), .22f, 48.0f);
         draw(cylinder, transform({0, -.085f, 0}, {4.05f, .06f, 2.85f}),
              {.78f, .52f, .18f}, 0, glm::vec2(1), .5f, 72.0f);
@@ -1130,7 +1634,7 @@ struct Renderer::Impl {
                  i % 2 == 0 ? glm::vec3(.89f, .85f, .71f) : glm::vec3(.69f, .66f, .55f));
         }
         draw(plane, transform({2.98f, .272f, -.04f}, {.74f, .019f, 1.08f}, -.08f),
-             glm::vec3(1), back);
+             glm::vec3(1), cardBack());
 
         const int available = std::clamp(scene.coins, 0, 1000);
         drawChipStack(-3.0f, -.12f, 2 + std::min(available / 10, 5), {.66f, .17f, .14f}, .3f);
@@ -1139,7 +1643,7 @@ struct Renderer::Impl {
 
         drawHand(scene.dealer, -1.12f, scene.time, settings.animate, true);
         drawHand(scene.player, 1.12f, scene.time + .7f, settings.animate, false);
-        drawEffects(scene);
+        drawEffects(scene, settings.animate);
 
         glBindVertexArray(0);
         glBindTexture(GL_TEXTURE_2D, 0);
