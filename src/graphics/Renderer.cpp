@@ -1545,15 +1545,17 @@ struct Renderer::Impl {
 
         const float yaw = glm::radians(settings.yaw);
         const float pitch = glm::radians(std::clamp(settings.pitch, 20.0f, 85.0f));
-        const float distance = std::clamp(settings.distance, 5.0f, 18.0f);
+        const float distance = std::clamp(settings.distance, minZoom, maxZoom);
         const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
         const float menuDistance = 15.5f * std::max(1.0f, 1.45f / aspect);
         const glm::vec3 eye = scene.menu ? glm::vec3(0, 4.8f, menuDistance)
             : glm::vec3(distance * std::cos(pitch) * std::sin(yaw),
                         distance * std::sin(pitch),
                         distance * std::cos(pitch) * std::cos(yaw));
+        const float closeView=1.0f-glm::smoothstep(minZoom,8.0f,distance);
+        const glm::vec3 tableTarget=glm::mix(glm::vec3(0,.60f,-.50f),glm::vec3(0,.10f,.55f),closeView);
         const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
-                                                                         : glm::vec3(0, .60f, -.50f),
+                                                                         : tableTarget,
                                          glm::vec3(0, 1, 0));
         const float viewportRatio=static_cast<float>(renderHeight)/static_cast<float>(height);
         // Keep the full-frame vertical field of view stable as fixed-pixel HUD bands change.
@@ -1581,7 +1583,7 @@ struct Renderer::Impl {
         else glUniform3f(u.light,0,5.4f,-1.6f); // The visible pendant's luminous underside.
         if (scene.menu) glUniform3f(u.fogColor, .10f, .07f, .13f);
         else glUniform3f(u.fogColor, .003f, .005f, .008f);
-        glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f) * (scene.menu ? .8f : 1.0f));
+        glUniform1f(u.intensity, std::clamp(settings.lightIntensity, minLight, maxLight) * (scene.menu ? .8f : 1.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         glUniform1f(u.roomLight, scene.menu ? 0.0f : 1.0f);
         texturesEnabled = settings.textures;

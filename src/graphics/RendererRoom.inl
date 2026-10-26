@@ -181,7 +181,7 @@
         draw(sphere,transform(lamp+glm::vec3(0,.32f,0),{.66f,.28f,.66f}),{.13f,.105f,.065f},
              0,glm::vec2(1),.22f,40);
         draw(cylinder,transform(lamp+glm::vec3(0,.03f,0),{.66f,.06f,.66f}),bronze*.70f);
-        draw(cylinder,transform(lamp,{.56f,.025f,.56f}),{1,.83f,.54f},0,glm::vec2(1),0,8,1.2f);
+        draw(cylinder,transform(lamp,{.56f,.025f,.56f}),{1,.88f,.65f},0,glm::vec2(1),0,8,0,1,0,14);
         roomMainLegs();
     }
 
@@ -191,18 +191,18 @@
         glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);
         // Fixed world-space populations behind the card area and inside the stage lights.
-        // No spawning/wrapping discontinuities: slow bounded drift, 48 grains total.
-        for(int i=0;i<48;++i) {
+        // No spawning/wrapping discontinuities: slow bounded drift, 112 grains total.
+        for(int i=0;i<112;++i) {
             const float phase=i*2.399963f;
-            const bool stage=i>=24;
-            const float x=std::sin(phase)*(stage?9.0f:2.8f)+std::sin(t*.11f+phase)*.18f;
-            const float y=(stage?2.0f:1.4f)+(i%7)*(stage?.75f:.35f)+std::sin(t*.09f+phase)*.16f;
-            const float z=(stage?-42.0f:-4.4f)+std::cos(phase*1.7f)*(stage?3.4f:.55f)
+            const bool stage=i>=64;
+            const float x=std::sin(phase)*(stage?9.0f:4.0f)+std::sin(t*.11f+phase)*.18f;
+            const float y=(stage?2.0f:1.4f)+(.5f+.5f*std::sin(phase*3.71f))*(stage?4.5f:2.6f)+std::sin(t*.09f+phase)*.16f;
+            const float z=(stage?-42.0f:-4.4f)+std::cos(phase*1.7f)*(stage?3.4f:1.4f)
                 +std::sin(t*.07f+phase)*.12f;
-            const float radius=(stage?.025f:.010f)+(i%3)*(stage?.009f:.004f);
-            const float opacity=.11f+(i%4)*.025f;
+            const float radius=(stage?.035f:.013f)+(i%3)*(stage?.009f:.004f);
+            const float opacity=.28f+(i%4)*.045f;
             draw(sphere,transform({x,y,z},{radius,radius,radius}),{.72f,.60f,.39f},
-                 0,glm::vec2(1),0,8,.25f,opacity);
+                 0,glm::vec2(1),0,8,.55f,opacity);
         }
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);

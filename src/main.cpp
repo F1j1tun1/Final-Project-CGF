@@ -87,6 +87,8 @@ struct Options {
     bool noAnimation = false;
     bool noAmbientMotion = false;
     bool cameraOverride = false;
+    float light = 1.2f;
+    bool lightSmoke = false;
     float cameraYaw=0, cameraPitch=32, cameraDistance=9.1f;
     int width = 1440;
     int height = 900;
@@ -139,10 +141,15 @@ Options parseOptions(int argc, char** argv) {
                 || comma1!=',' || comma2!=',' || !input.eof()
                 || !std::isfinite(options.cameraYaw) || !std::isfinite(options.cameraPitch) || !std::isfinite(options.cameraDistance)
                 || std::abs(options.cameraYaw)>35 || options.cameraPitch<32 || options.cameraPitch>68
-                || options.cameraDistance<8 || options.cameraDistance>14)
-                throw std::runtime_error("Camera must be yaw,pitch,distance within -35..35,32..68,8..14.");
+                || options.cameraDistance<gfx::minZoom || options.cameraDistance>gfx::maxZoom)
+                throw std::runtime_error("Camera must be yaw,pitch,distance within -35..35,32..68,3.5..14.");
             options.cameraOverride=true;
-        } else if (arg == "--screenshot") options.screenshot = value();
+        } else if (arg == "--light") {
+            options.light=std::stof(value());
+            if(!std::isfinite(options.light)||options.light<gfx::minLight||options.light>gfx::maxLight)
+                throw std::runtime_error("Light must be within .55..2.5.");
+        } else if(arg=="--light-smoke") options.lightSmoke=true;
+        else if (arg == "--screenshot") options.screenshot = value();
         else if (arg == "--capture-states") options.captures = value();
         else if (arg == "--assets") options.assets = value();
         else if (arg == "--hidden") options.hidden = true;
@@ -164,6 +171,8 @@ Options parseOptions(int argc, char** argv) {
                 "  --size WxH        Initial window size (minimum 1100x720)\n"
                 "  --screenshot FILE Save the final frame as PNG\n"
                 "  --camera Y,P,D    Diagnostic orbit: yaw,pitch,distance\n"
+                "  --light VALUE     Lamp intensity (.55..2.5)\n"
+                "  --light-smoke     Exercise live light slider at three values\n"
                 "  --capture-states DIR Save menu, table, shop and end screens\n"
                 "  --assets DIR      Override assets directory\n"
                 "  --hidden          Create an invisible graphics window\n"
@@ -325,6 +334,7 @@ struct ArtAssets {
 };
 
 struct Session {
+    ImVec2 lightMin{},lightMax{};
     presentation::ScoreHistory history;
     bool menu = true;
     bool collection = false;
@@ -1401,7 +1411,9 @@ void drawSettings(Session& session, gfx::RenderSettings& settings, const Interfa
         ImGui::Checkbox("Textures", &settings.textures);
         ImGui::Checkbox("Ambient motion", &settings.animate);
         ImGui::Checkbox("Start transition", &session.transitions);
-        ImGui::SliderFloat("Light", &settings.lightIntensity, 0.25f, 2.5f);
+        ImGui::SliderFloat("Light", &settings.lightIntensity, gfx::minLight, gfx::maxLight);
+        session.lightMin=ImGui::GetItemRectMin();
+        session.lightMax={session.lightMin.x+ImGui::CalcItemWidth(),ImGui::GetItemRectMax().y};
         ImGui::Spacing();
         ImGui::TextUnformatted("DEALING SPEED");
         ImGui::SliderFloat("##speed", &session.animationSpeed, 0.0f, 1.0f, "");
@@ -1655,6 +1667,7 @@ int main(int argc, char** argv) {
         ArtAssets art(assets);
         gfx::RenderSettings settings;
         settings.animate = !options.noAmbientMotion;
+        settings.lightIntensity=options.light;
         if(options.cameraOverride) {settings.yaw=options.cameraYaw;settings.pitch=options.cameraPitch;settings.distance=options.cameraDistance;}
         const gfx::RenderSettings defaultView;
         bj::Game game(options.seed,options.demo ? options.deck : bj::StartDeck::Standard);
@@ -1718,8 +1731,30 @@ int main(int argc, char** argv) {
             session.updateGameOver(dt,!session.menu && !timeline.busy() && timeline.visible().phase==bj::Phase::RunLost);
             session.updateRelicReaction(!session.menu&&!session.settings&&!session.rules?dt:0,timeline);
             session.updateBustReaction(dt,timeline.visible());
+            if(options.lightSmoke) {
+                if(frame==8) session.settings=true;
+                if(frame==45) session.settings=false;
+            }
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
+            if(options.lightSmoke) {
+                auto& input=ImGui::GetIO();
+                for(int phase=0;phase<3;++phase) {
+                    const int down=12+phase*10;
+                    if(frame==down||frame==down+1) {
+                        const float fraction=phase*.5f;
+                        input.AddMousePosEvent(session.lightMin.x+3+(session.lightMax.x-session.lightMin.x-6)*fraction,
+                            (session.lightMin.y+session.lightMax.y)*.5f);
+                        input.AddMouseButtonEvent(0,frame==down);
+                    }
+                    if(frame==down+4) {
+                        const float expected=gfx::minLight+(gfx::maxLight-gfx::minLight)*phase*.5f;
+                        if(std::abs(settings.lightIntensity-expected)>.035f)
+                            throw std::runtime_error("Light slider input failed");
+                        std::cout<<"Live light slider: "<<settings.lightIntensity<<'\n';
+                    }
+                }
+            }
             if(options.smoke) {
                 auto& io=ImGui::GetIO();
                 const auto menu=menuLayout(io.DisplaySize);
@@ -1842,7 +1877,7 @@ int main(int argc, char** argv) {
                 settings.yaw=std::clamp(settings.yaw-io.MouseDelta.x*.20f,-35.0f,35.0f);
                 settings.pitch=std::clamp(settings.pitch+io.MouseDelta.y*.16f,32.0f,68.0f);
             }
-            if(freeTable && io.MouseWheel!=0) settings.distance=std::clamp(settings.distance-io.MouseWheel*.5f,8.0f,14.0f);
+            if(freeTable && io.MouseWheel!=0) settings.distance=std::clamp(settings.distance-io.MouseWheel*.5f,gfx::minZoom,gfx::maxZoom);
             if(options.smoke) {
                 smokeCollection=smokeCollection||session.collection;
                 smokeDeck=smokeDeck||session.deckSelection;

@@ -37,6 +37,9 @@ struct Scene {
     float bustReaction = 0.0f; // Presentation envelope: 1 at a player bust, decays to 0.
 };
 
+inline constexpr float minLight = .55f, maxLight = 2.5f;
+inline constexpr float minZoom = 3.5f, maxZoom = 14.0f;
+
 struct RenderSettings {
     float yaw = 0.0f;
     float pitch = 32.0f;

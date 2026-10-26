@@ -23,6 +23,9 @@ uniform bool uUseTexture;
 uniform bool uLighting;
 
 vec4 finishSurface(vec3 color) {
+    // Soft highlight shoulder preserves ink and brass at the upper light setting.
+    float peak=max(color.r,max(color.g,color.b));
+    if(uRoomLight>0.0 && peak>.75) color *= (.75+.25*(1.0-exp(-(peak-.75)/.25)))/peak;
     return vec4(color, uOpacity);
 }
 
@@ -152,7 +155,7 @@ void main() {
     float attenuation = 1.0 / (1.0 + 0.012 * distanceToLight * distanceToLight);
     if (uRoomLight > 0.0) {
         // The opaque shade sends the pendant light down onto the playing area.
-        attenuation *= smoothstep(.50,.86,dot(-lightDirection,vec3(0,-1,0)));
+        attenuation *= smoothstep(.30,.75,dot(-lightDirection,vec3(0,-1,0)));
     }
     vec3 warmLight = vec3(1.0, 0.94, 0.82);
     vec3 result = surface * ((uRoomLight > 0.0 ? 0.075 : 0.34) + uEmission)
@@ -170,14 +173,14 @@ void main() {
         float cone = smoothstep(.65,.91,dot(normalize(-delta),aim));
         float falloff = 1.0/(1.0+dot(delta,delta)*.0045);
         result += surface*vec3(1.0,.84,.60)*cone*falloff*
-            (.3+max(dot(normal,normalize(delta)),0.0)*2.5)*uRoomLight*1.35;
+            (.3+max(dot(normal,normalize(delta)),0.0)*2.5)*uRoomLight*1.45;
     }
     // Broad footlight wash stays around the stage, away from the playing cards.
     float depth=(vWorldPosition.z+42.375)/8.75;
     float across=abs(vWorldPosition.x)/17.4;
     float stageWash=exp(-depth*depth)
         * exp(-pow(across,4.0));
-    result += surface*vec3(1.0,.82,.55)*stageWash*uRoomLight*.60;
+    result += surface*vec3(1.0,.82,.55)*stageWash*uRoomLight*.67;
 
     if (uRoomLight > 0.0 && (uMaterial == 11 || uMaterial == 12 ||
         abs(vWorldPosition.x) > 10.0)) {
@@ -199,8 +202,13 @@ void main() {
     }
     // Thin paper edges scatter light; retain a readable neutral body even on vertical sides.
     // This material is used only on the deck layers, never on illustrated card backs.
-    if(uMaterial == 13) result = surface * (vec3(.70,.69,.67)
-        + warmLight * diffuse * uLightIntensity * attenuation * .25);
+    if(uMaterial == 13) result = surface * (vec3(.075)
+        + warmLight * uLightIntensity * (.46 + diffuse * attenuation * .25));
+    // The visible diffuser follows the same bounded lamp intensity as its light.
+    if(uMaterial == 14) result = surface * ((.15 + .65*uLightIntensity)/(1.0+.15*uLightIntensity));
+    // Sparse warm haze lives in the distant stage volume, never over cards or UI.
+    float stageHaze = smoothstep(12.0,28.0,-vWorldPosition.z)*exp(-pow((vWorldPosition.z+40.0)/18.0,2.0));
+    result = mix(result,vec3(.12,.095,.065),stageHaze*uRoomLight*.035);
     // Auditorium haze preserves stage depth; retain the separate menu treatment.
     float viewDistance = length(uCameraPosition - vWorldPosition);
     float fog = uRoomLight > 0.0 ? smoothstep(30.0, 90.0, viewDistance)
