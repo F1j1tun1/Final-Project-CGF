@@ -1,3 +1,4 @@
+#include "presentation/ScoreHistory.hpp"
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -311,6 +312,7 @@ struct ArtAssets {
 };
 
 struct Session {
+    presentation::ScoreHistory history;
     bool menu = true;
     bool collection = false;
     bool deckSelection = false;
@@ -356,6 +358,7 @@ struct Session {
         fade += (transitions ? dt : 1.0f) / 0.9f;
         if (fade >= 0.5f && !switched) {
             game.restart(nextSeed, selectedDeck);
+            history.reset();
             menu = false;
             started = true;
             switched = true;
@@ -892,23 +895,45 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
         ImGui::PopStyleColor();
         ImGui::PopID();
     }
-    if (height >= 700) {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14, 8});
-        ImGui::BeginChild("hand-reward", {-1, 94}, ImGuiChildFlags_Borders);
-        ImGui::PushFont(ui.small);
-        ImGui::TextColored(muted, "LAST HAND REWARD");
-        ImGui::PopFont();
-        ImGui::TextColored(green, "+%d points  /  +%d coins", state.score.total, state.score.coins);
-        ImGui::PushFont(ui.small);
-        ImGui::TextColored(muted, "(%d + %d)  x  %.1f", state.score.base, state.score.bonus, state.score.multiplier);
-        ImGui::PopFont();
-        ImGui::EndChild();
-        ImGui::PopStyleVar();
-    }
     ImGui::PushFont(ui.small);
     if (state.startDeck == bj::StartDeck::SecondLife) ImGui::TextColored(gold, "REVIVE: %d / 1", state.revivesLeft);
-    ImGui::TextColored(muted, "Run score: %d", state.totalScore);
-
+    ImGui::TextColored(muted, "RUN TOTAL  %d", state.totalScore);
+    ImGui::Spacing();
+    ImGui::TextColored(gold, "SCORE JOURNAL");
+    const float journalHeight=std::max(60.0f,height-32-120-ImGui::GetCursorPosY());
+    ImGui::BeginChild("score-journal",{-1,journalHeight},ImGuiChildFlags_None);
+    if(session.history.records().empty()) {
+        ImGui::TextColored(cream,"Your story starts here.");
+        ImGui::TextWrapped("Finish a hand to record its score and the relics that contributed.");
+    }
+    int recordIndex=0;
+    for(const auto& record:session.history.records()) {
+        ImGui::PushID(recordIndex++);
+        const auto& score=record.score;
+        const char* result=record.outcome==bj::Outcome::Win?"WIN":
+            record.outcome==bj::Outcome::Loss?"LOSS":"PUSH";
+        ImGui::TextColored(muted,"R%d / HAND %d%s",record.round,record.hand,record.attempt>1?" / RETRY":"");
+        ImGui::TextColored(record.outcome==bj::Outcome::Win?green:cream,
+                           "%s   +%d pts / +%d coins",result,score.total,score.coins);
+        if(record.outcome==bj::Outcome::Win) {
+            ImGui::TextColored(cream,"(%d base + %d bonus) x %.2f",score.base,score.bonus,score.multiplier);
+            for(const auto& effect:score.appliedEffects) {
+                const auto& catalog=bj::relicCatalog();
+                const auto item=std::find_if(catalog.begin(),catalog.end(),[&](const auto& info){return info.id==effect.relic;});
+                if(item==catalog.end()) continue;
+                std::ostringstream contribution;
+                contribution<<item->name<<":";
+                if(effect.points) contribution<<" +"<<effect.points<<" pts";
+                if(effect.multiplierBonus>0) contribution<<" +"<<std::fixed<<std::setprecision(2)<<effect.multiplierBonus<<" mult";
+                if(effect.coins) contribution<<" +"<<effect.coins<<" coins";
+                ImGui::TextWrapped("%s",contribution.str().c_str());
+            }
+        } else ImGui::TextColored(muted,"No points awarded");
+        if(record.roundScore>=record.goal) ImGui::TextColored(gold,"ROUND TARGET REACHED");
+        ImGui::Separator();
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
     ImGui::PopFont();
 
     ImGui::SetCursorPosY(height - 32 - 108);
@@ -1635,6 +1660,7 @@ int main(int argc, char** argv) {
             session.update(dt, game);
             if(!switched && session.switched) timeline.reset(game.state());
             if(!session.menu && !session.settings && !session.rules) timeline.update(dt,session.animationSpeed);
+            session.history.observe(timeline.visible(),timeline.busy());
             session.updateGameOver(dt,!session.menu && !timeline.busy() && timeline.visible().phase==bj::Phase::RunLost);
             session.updateRelicReaction(!session.menu&&!session.settings&&!session.rules?dt:0,timeline);
             session.updateBustReaction(dt,timeline.visible());
@@ -1832,6 +1858,10 @@ int main(int argc, char** argv) {
                     capture("relic-hover"+suffix);
                 if(name=="shop-full"||name=="table"||name=="collection"||name=="menu") capture(name+suffix);
                 if(session.collection && session.collectionFilter) capture("collection-filter");
+                if(!session.menu && game.state().phase!=bj::Phase::Shop && !session.history.records().empty())
+                    capture("journal-filled");
+                if(!session.menu && game.state().phase!=bj::Phase::Shop && session.history.records().size()>=5)
+                    capture("journal-history");
                 const auto& visible=timeline.visible();
                 const auto hand = bj::evaluateHand(visible.player);
                 if(timeline.rewardStep()>0 && !visible.score.appliedEffects.empty())

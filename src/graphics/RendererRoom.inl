@@ -21,9 +21,14 @@
     }
 
     void roomLamp(glm::vec3 bulb, float brightness) {
-        const glm::vec3 brass{.28f,.20f,.105f};
-        beam(bulb+glm::vec3(0,.35f,0),{bulb.x,4.1f,bulb.z},.009f,{.045f,.034f,.032f});
-        draw(cylinder,transform({bulb.x,4.10f,bulb.z},{.12f,.035f,.12f}),brass);
+        const glm::vec3 brass{.52f,.36f,.18f};
+        const float anchorX=bulb.x+(bulb.x>0?.40f:-.40f);
+        // Wall plate, projecting arm and down-stem form one continuous support.
+        draw(cube,transform({anchorX,3.67f,-7.02f},{.24f,.42f,.08f}),brass,
+             0,glm::vec2(1),.15f,40,.1f);
+        beam({anchorX,3.67f,-6.98f},{bulb.x,3.67f,bulb.z},.045f,brass);
+        beam({bulb.x,3.67f,bulb.z},bulb+glm::vec3(0,.25f,0),.035f,brass);
+        beam({anchorX,3.42f,-6.98f},{bulb.x,3.67f,bulb.z+.03f},.025f,brass);
         draw(sphere,transform(bulb+glm::vec3(0,.25f,0),{.46f,.30f,.46f}),
              {.43f,.33f,.22f},0,glm::vec2(1),.035f,18,.24f*brightness);
         draw(cylinder,transform(bulb+glm::vec3(0,.05f,0),{.42f,.04f,.42f}),brass,
@@ -94,62 +99,55 @@
         draw(cube,transform({0,-.79f,-10},{50,.03f,64}),{.12f,.10f,.12f},
              0,glm::vec2(1),.18f,48,0,1,0,3);
 
-        // A quiet paneled salon encloses the stage instead of an unlit void.
-        draw(cube,transform({0,8.0f,-18.2f},{80,20,.3f}),{.075f,.17f,.165f},
-             0,glm::vec2(1),.03f,24,.15f);
+        // One rear wall: the niche, curtains and sconces all attach to this shell.
+        const glm::vec3 plaster{.115f,.20f,.19f},wood{.075f,.105f,.105f};
+        draw(cube,transform({0,2.1f,-7.30f},{22,5.75f,.35f}),plaster,
+             0,glm::vec2(1),.02f,24,.22f);
+        draw(cube,transform({0,1.0f,-7.08f},{4.8f,3.55f,.07f}),{.026f,.050f,.052f});
+        roomPortal(-6.98f,1.10f,2.50f,1.65f,1.0f);
+        // Continuous crown and skirting meet the grounded pilasters.
+        draw(cube,transform({0,4.52f,-7.02f},{22,.24f,.48f}),wood);
+        draw(cube,transform({0,4.39f,-6.78f},{22,.055f,.06f}),bronze);
+        draw(cube,transform({0,-.60f,-7.02f},{22,.33f,.20f}),wood);
+        draw(cube,transform({0,-.42f,-6.90f},{22,.035f,.03f}),bronze*.7f);
         for (const float side : {-1.0f,1.0f}) {
-            for (int panel=0;panel<4;++panel) {
-                const float x=side*(3.0f+panel*2.8f);
-                draw(cube,transform({x,2.3f,-17.95f},{2.5f,4.6f,.06f}),{.10f,.21f,.195f},
-                     0,glm::vec2(1),.04f,24,.13f);
-                for (float edge : {-1.0f,1.0f})
-                    draw(cube,transform({x+edge*1.22f,2.3f,-17.88f},{.025f,4.6f,.03f}),bronze*.95f);
-                for (float y : {.02f,4.58f})
-                    draw(cube,transform({x,y,-17.88f},{2.46f,.025f,.03f}),bronze*.95f);
-                diamond({x,3.0f,-17.82f},.22f,bronze*.8f);
+            // Side returns make the rear wall read as a room, not a flat backdrop.
+            draw(cube,transform({side*8.65f,2.1f,1.35f},{.25f,5.75f,17.1f}),plaster*.7f,
+                 0,glm::vec2(1),.02f,24,.15f);
+            draw(cube,transform({side*8.48f,4.52f,1.35f},{.35f,.24f,17.1f}),wood);
+            for (float x : {2.35f,5.55f,8.35f}) {
+                draw(cube,transform({side*x,1.83f,-6.96f},{.25f,5.2f,.25f}),wood);
+                draw(cube,transform({side*x,-.65f,-6.88f},{.42f,.25f,.38f}),bronze*.7f);
+                draw(cube,transform({side*x,4.32f,-6.88f},{.42f,.18f,.38f}),bronze*.7f);
+                roomContactShadow({side*x,0,-6.8f},{.35f,.3f},.35f);
             }
-        }
-        draw(cube,transform({0,.12f,-17.8f},{26,.045f,.08f}),bronze*.55f);
-
-        // An open proscenium frames the host; successive portals give it depth.
-        // A restrained sunburst makes the dealer the architectural focal point.
-        for (int spoke=0;spoke<=12;++spoke) {
-            const float a=pi*static_cast<float>(spoke)/12;
-            const glm::vec3 inner{std::cos(a)*1.7f,1.0f+std::sin(a)*1.4f,-9.2f};
-            const glm::vec3 outer{std::cos(a)*3.25f,1.0f+std::sin(a)*3.0f,-9.2f};
-            beam(inner,outer,.012f,bronze*.7f);
-        }
-        roomPortal(-9.3f,1.0f,3.4f,3.1f,.65f);
-        roomPortal(-6.50f,1.12f,2.50f,1.62f,1.0f);
-        roomPortal(-10.80f,1.02f,2.20f,1.28f,.64f);
-        roomPortal(-16.00f,.82f,1.90f,1.00f,.38f);
-
-        // Mirrored wings share level hems, rails and matching tiebacks.
-        for (const float side : {-1.0f,1.0f}) {
-            const glm::vec3 inner{side*3.90f,-.04f,-6.425f};
-            const glm::vec3 outer{side*7.25f,-.04f,-7.125f};
-            const glm::vec3 innerScale{-side*.77f,.98f,1};
-            const glm::vec3 outerScale{-side*.68f,.98f,1};
-            draw(curtain,transform(inner,innerScale),{.245f,.029f,.080f},
+            // Exposed outer panel with joinery, attached to the same wall plane.
+            draw(cube,transform({side*6.95f,1.95f,-7.08f},{2.35f,4.5f,.09f}),plaster*1.12f);
+            for(float edge : {-1.0f,1.0f})
+                draw(cube,transform({side*6.95f+edge*1.12f,1.95f,-7.01f},{.025f,4.4f,.03f}),bronze*.7f);
+            for(float y : {-.25f,4.15f})
+                draw(cube,transform({side*6.95f,y,-7.01f},{2.27f,.025f,.03f}),bronze*.7f);
+            const glm::vec3 curtainPosition{side*3.90f,-.04f,-6.425f};
+            const glm::vec3 curtainScale{-side*.77f,.98f,1};
+            draw(curtain,transform(curtainPosition,curtainScale),{.245f,.029f,.080f},
                  felt,{7,8},.035f,16,.025f,1,.95f,2);
-            draw(curtain,transform(outer,outerScale),{.085f,.050f,.11f},
-                 felt,{7,8},.03f,16,.015f,1,.9f,2);
-            roomCurtainRail(inner,innerScale,0);
-            roomCurtainRail(outer,outerScale,0);
+            roomCurtainRail(curtainPosition,curtainScale,0);
+            // Rod end brackets connect back to the wall immediately under the crown.
+            for(float edge : {-1.0f,1.0f}) {
+                const float x=side*3.9f+edge*1.36f;
+                draw(cube,transform({x,4.277f,-7.0f},{.14f,.23f,.09f}),bronze);
+                beam({x,4.277f,-6.96f},{x,4.277f,-6.385f},.04f,bronze);
+            }
             draw(cube,transform({side*3.90f,.98f,-6.065f},{1.60f,.055f,.055f}),bronze*.80f);
             diamond({side*3.90f,.81f,-6.015f},.15f,bronze*.95f);
-
-            roomColumn({side*5.55f,0,-6.95f},2.58f);
-            roomColumn({side*5.75f,0,-11.35f},2.48f,.64f);
-            roomColumn({side*6.15f,0,-16.5f},2.32f,.40f);
-            draw(cube,transform({side*2.20f,-.772f,-13.0f},{.028f,.003f,18}),
-                 bronze*.24f,0,glm::vec2(1),.06f,24);
+            roomContactShadow({side*3.9f,0,-6.42f},{1.45f,.32f},.32f);
         }
 
         const float lampBrightness=roomLampBrightness(time,animate);
         for (const float side : {-1.0f,1.0f}) {
-            roomLamp({side*4.7f,3.1f,-5.75f},lampBrightness);
+            roomLamp({side*6.65f,2.9f,-6.25f},lampBrightness);
             const float x=side*5.45f;
+            roomContactShadow({x,0,-2.6f},{.36f,.30f},.4f);
             draw(cylinder,transform({x,-.64f,-2.6f},{.27f,.14f,.27f}),bronze,0,glm::vec2(1),.26f,48);
             beam({x,-.61f,-2.6f},{x,1.03f,-2.6f},.048f,bronze);
             for (int branch=-1;branch<=1;++branch) {

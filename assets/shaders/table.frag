@@ -156,7 +156,7 @@ void main() {
             * (0.35 + candleDiffuse * 1.6) * uRoomLight;
     }
     for (int i = 0; i < 2; ++i) {
-        vec3 lamp = vec3(i == 0 ? -4.70 : 4.70, 3.10, -5.75);
+        vec3 lamp = vec3(i == 0 ? -6.65 : 6.65, 2.90, -6.25);
         vec3 delta = lamp - vWorldPosition;
         float glow = 1.0 / (1.0 + dot(delta, delta) * 2.1);
         float lampDiffuse = max(dot(normal, normalize(delta)), 0.0);
