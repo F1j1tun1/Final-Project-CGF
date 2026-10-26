@@ -560,7 +560,7 @@ void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* wind
 
 ImVec4 rarityColor(bj::Rarity rarity) {
     switch (rarity) {
-        case bj::Rarity::Common: return {0.78f, 0.76f, 0.67f, 1};
+        case bj::Rarity::Common: return {0.70f, 0.72f, 0.72f, 1};
         case bj::Rarity::Rare: return {0.39f, 0.66f, 0.88f, 1};
         case bj::Rarity::Legendary: return {0.98f, 0.73f, 0.32f, 1};
     }
@@ -952,7 +952,40 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     ImGui::PopStyleVar(2);
 }
 
-void drawShop(bj::Game& game, Commands& commands, const Interface& ui, const ArtAssets& art) {
+// Effects stay in the border gutter; rarity text remains the non-color signal.
+void drawRarityFrame(ImDrawList* draw, ImVec2 origin, ImVec2 size, bj::Rarity rarity, bool animate) {
+    const bool legendary=rarity==bj::Rarity::Legendary;
+    const bool rare=rarity==bj::Rarity::Rare;
+    const auto accent=rarityColor(rarity);
+    const ImU32 ink=ImGui::ColorConvertFloat4ToU32(accent);
+    const ImVec2 end{origin.x+size.x-2,origin.y+size.y-2};
+    draw->AddRect({origin.x+2,origin.y+2},end,ink,5,0,legendary?2.5f:rare?1.5f:1.0f);
+    if(!legendary&&!rare) return;
+    if(legendary) draw->AddRect({origin.x+6,origin.y+6},{end.x-4,end.y-4},
+                              IM_COL32(207,150,62,100),3,0,1);
+    for(float side : {0.0f,1.0f}) {
+        const float x=origin.x+8+side*(size.x-16),dir=side? -1.0f:1.0f;
+        for(float bottom : {0.0f,1.0f}) {
+            const float y=origin.y+8+bottom*(size.y-16),dy=bottom?-1.0f:1.0f;
+            draw->AddLine({x,y},{x+dir*(legendary?26:15),y},ink,2);
+            draw->AddLine({x,y},{x,y+dy*(legendary?26:15)},ink,2);
+        }
+    }
+    if(legendary) {
+        const float t=animate?static_cast<float>(ImGui::GetTime()):0;
+        const float x=origin.x+12+(size.x-24)*(.5f+.5f*std::sin(t*.45f));
+        draw->AddLine({x-12,origin.y+3},{x+12,origin.y+3},IM_COL32(255,235,166,210),2);
+        for(int i=0;i<3;++i) {
+            const float px=origin.x+20+(size.x-40)*(i+1)/4;
+            const float alpha=.45f+.15f*std::sin(t*.8f+i*2);
+            const auto glow=ImGui::ColorConvertFloat4ToU32({1,.83f,.43f,alpha});
+            draw->AddLine({px-3,end.y-4},{px+3,end.y-4},glow,1);
+            draw->AddLine({px,end.y-7},{px,end.y-1},glow,1);
+        }
+    }
+}
+
+void drawShop(bj::Game& game, Commands& commands, const Interface& ui, const ArtAssets& art, bool animate) {
     const auto state = game.state();
     const auto display = ImGui::GetIO().DisplaySize;
     ImGui::GetBackgroundDrawList()->AddRectFilled({0, 0}, display, IM_COL32(8, 9, 18, 190));
@@ -986,11 +1019,12 @@ void drawShop(bj::Game& game, Commands& commands, const Interface& ui, const Art
         ImGui::PushID(static_cast<int>(item.id));
         ImGui::SetCursorPos({20 + static_cast<float>(i) * (cardWidth + 14), offerY});
         ImGui::PushStyleColor(ImGuiCol_Border, {accent.x*.57f,accent.y*.57f,accent.z*.57f,1});
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, {.13f, .105f, .12f, 1});
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, item.rarity==bj::Rarity::Legendary?ImVec4(.16f,.125f,.07f,1):ImVec4(.085f,.105f,.12f,1));
         ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{14,12});
         ImGui::BeginChild("offer", {cardWidth, offerHeight}, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar);
         const auto origin=ImGui::GetWindowPos();
+        drawRarityFrame(ImGui::GetWindowDrawList(),origin,{cardWidth,offerHeight},item.rarity,animate);
         const float radius=height<700?65.0f:76.0f;
         drawChip(ImGui::GetWindowDrawList(),{origin.x+radius+18,origin.y+radius+22},radius,item,art);
         const float textX=radius*2+36;
@@ -1195,7 +1229,7 @@ bj::Snapshot settledState(const presentation::Presentation& timeline) {
 }
 
 void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedback& feedback,
-               const Interface& ui, const ArtAssets& art, GLFWwindow* window, const presentation::Presentation& timeline) {
+               const Interface& ui, const ArtAssets& art, GLFWwindow* window, const presentation::Presentation& timeline, bool animate) {
     const auto state = settledState(timeline);
     const auto display = ImGui::GetIO().DisplaySize;
     const auto layout = tableLayout(display);
@@ -1204,7 +1238,7 @@ void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedbac
         return;
     }
     if (state.phase == bj::Phase::Shop) {
-        drawShop(game, commands, ui, art);
+        drawShop(game, commands, ui, art, animate);
         return;
     }
     drawSidebar(state, layout, session, commands, ui, display.y);
@@ -1769,7 +1803,7 @@ int main(int argc, char** argv) {
             // Space is handled above; prevent focused buttons from receiving it again.
             ImGui::BeginDisabled(gameSpace);
             if(session.menu) drawMenu(game,session,interface,window.handle);
-            else drawTable(game,commands,session,feedback,interface,art,window.handle,timeline);
+            else drawTable(game,commands,session,feedback,interface,art,window.handle,timeline,settings.animate);
             drawDeckSelection(game,session,interface,art);
             drawCollection(session,interface,art);
             drawSettings(session,settings,interface);
@@ -1857,6 +1891,12 @@ int main(int argc, char** argv) {
                     session.relicHover[session.hoveredRelic]>.7f&&game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost)
                     capture("relic-hover"+suffix);
                 if(name=="shop-full"||name=="table"||name=="collection"||name=="menu") capture(name+suffix);
+                if(game.state().phase==bj::Phase::Shop) {
+                    for(auto relic:game.state().offers) {
+                        if(relicInfo(relic).rarity==bj::Rarity::Legendary) capture("shop-legendary");
+                        if(relicInfo(relic).rarity==bj::Rarity::Rare) capture("shop-rare");
+                    }
+                }
                 if(session.collection && session.collectionFilter) capture("collection-filter");
                 if(!session.menu && game.state().phase!=bj::Phase::Shop && !session.history.records().empty())
                     capture("journal-filled");

@@ -93,12 +93,48 @@
         }
     }
 
-    void drawRoom(float time, bool animate) {
+    void drawRoom(float time, bool animate, float cameraY) {
         const glm::vec3 bronze{.43f,.29f,.145f};
         draw(cube,transform({0,-.92f,-10},{50,.25f,64}),{.042f,.030f,.048f});
         draw(cube,transform({0,-.79f,-10},{50,.03f,64}),{.12f,.10f,.12f},
              0,glm::vec2(1),.18f,48,0,1,0,3);
 
+        // The underside is visible from normal play. Above-roof inspection uses
+        // an architectural cutaway so the high-angle camera still sees the cards.
+        if(cameraY<5.1f) {
+            const glm::mat4 roof=glm::rotate(glm::translate(glm::mat4(1),{0,6.5f,0}),-.19f,glm::vec3(1,0,0));
+            const glm::vec3 ceiling{.22f,.235f,.215f},beamColor{.11f,.105f,.085f};
+            draw(cube,roof*transform({0,0,0},{17.5f,.16f,15.6f}),ceiling,
+                 0,glm::vec2(1),.04f,24,.35f);
+            for(int bay=0;bay<5;++bay) {
+                const float z=-6.7f+bay*3.1f;
+                draw(cube,roof*transform({0,-.21f,z},{17.3f,.28f,.16f}),beamColor);
+                draw(cube,roof*transform({0,-.36f,z},{17.3f,.025f,.035f}),bronze*.8f,
+                     0,glm::vec2(1),.1f,24,.08f);
+                for(int column=0;column<4;++column) {
+                    const float x=-6.45f+column*4.3f;
+                    draw(cube,roof*transform({x,-.10f,z+1.55f},{3.82f,.05f,2.62f}),ceiling*.8f,
+                         0,glm::vec2(1),.02f,24,.4f);
+                    for(float edge : {-1.0f,1.0f})
+                        draw(cube,roof*transform({x+edge*1.92f,-.16f,z+1.55f},{.035f,.04f,2.65f}),bronze*.65f);
+                    // Small inset rosette, physically attached to the recessed panel.
+                    draw(cylinder,roof*transform({x,-.16f,z+1.55f},{.16f,.055f,.16f}),bronze*.8f);
+                }
+            }
+            for(float x : {-8.6f,-4.3f,0.0f,4.3f,8.6f})
+                draw(cube,roof*transform({x,-.21f,0},{.16f,.28f,15.6f}),beamColor);
+            for(float side : {-1.0f,1.0f})
+                draw(cube,roof*transform({side*8.40f,-.40f,0},{.035f,.025f,15.4f}),{.62f,.40f,.18f},
+                     0,glm::vec2(1),0,8,.7f);
+        }
+
+        for(float side : {-1.0f,1.0f}) {
+            for(int bay=0;bay<5;++bay) {
+                const float z=-5.9f+bay*3.1f;
+                const float rise=.35f+bay*.59f;
+                draw(cube,transform({side*8.65f,4.92f+rise*.5f,z},{.25f,rise,3.15f}),{.08f,.14f,.135f});
+            }
+        }
         // One rear wall: the niche, curtains and sconces all attach to this shell.
         const glm::vec3 plaster{.115f,.20f,.19f},wood{.075f,.105f,.105f};
         draw(cube,transform({0,2.1f,-7.30f},{22,5.75f,.35f}),plaster,
@@ -142,6 +178,29 @@
             diamond({side*3.90f,.81f,-6.015f},.15f,bronze*.95f);
             roomContactShadow({side*3.9f,0,-6.42f},{1.45f,.32f},.32f);
         }
+
+        // A framed card print and a recessed cashier hatch are wall joinery,
+        // not clickable game controls. Both stay below the existing sconces.
+        const glm::vec3 frame{.38f,.255f,.12f};
+        draw(cube,transform({-6.95f,1.20f,-6.94f},{1.65f,1.85f,.12f}),frame);
+        draw(cube,transform({-6.95f,1.20f,-6.86f},{1.45f,1.65f,.025f}),{.25f,.23f,.18f},
+             0,glm::vec2(1),0,8,.15f);
+        draw(cube,transform({-6.95f,1.20f,-6.83f},{1.18f,1.38f,.025f}),{.085f,.10f,.10f});
+        for(int motif=0;motif<3;++motif)
+            diamond({-6.95f+(motif-1)*.28f,1.20f+(motif-1)*.28f,-6.79f},.24f,
+                    motif==1?glm::vec3(.55f,.19f,.15f):glm::vec3(.43f,.33f,.17f));
+        draw(cube,transform({6.95f,1.17f,-6.96f},{1.90f,1.82f,.16f}),frame);
+        draw(cube,transform({6.95f,1.17f,-6.85f},{1.64f,1.56f,.03f}),{.025f,.038f,.039f});
+        for(int bar=0;bar<5;++bar)
+            draw(cube,transform({6.35f+bar*.30f,1.27f,-6.80f},{.025f,1.27f,.035f}),bronze*.75f);
+        draw(cube,transform({6.95f,1.45f,-6.79f},{1.63f,.035f,.035f}),bronze*.75f);
+        draw(cube,transform({6.95f,.42f,-6.63f},{2.1f,.12f,.60f}),{.13f,.085f,.055f});
+        for(float x : {6.2f,7.7f})
+            beam({x,.1f,-7.0f},{x,.39f,-6.4f},.045f,frame);
+        draw(cube,transform({6.95f,2.25f,-6.94f},{1.50f,.32f,.09f}),frame);
+        draw(sphere,transform({6.95f,2.25f,-6.87f},{.105f,.105f,.025f}),{.68f,.46f,.19f});
+        for(float x : {6.55f,7.35f})
+            draw(cube,transform({x,2.25f,-6.87f},{.33f,.02f,.02f}),bronze);
 
         const float lampBrightness=roomLampBrightness(time,animate);
         for (const float side : {-1.0f,1.0f}) {

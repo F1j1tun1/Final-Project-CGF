@@ -1602,7 +1602,7 @@ struct Renderer::Impl {
             return;
         }
 
-        drawRoom(scene.time, settings.animate);
+        drawRoom(scene.time, settings.animate, eye.y);
         drawDealer(scene, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.
