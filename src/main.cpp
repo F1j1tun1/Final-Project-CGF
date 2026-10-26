@@ -180,6 +180,8 @@ struct Window {
 #endif
         glfwWindowHint(GLFW_SAMPLES, 4);
         glfwWindowHint(GLFW_VISIBLE, hidden ? GLFW_FALSE : GLFW_TRUE);
+        // Keep capture dimensions exact on Windows, including full desktop sizes.
+        if (hidden) glfwWindowHint(GLFW_DECORATED, GLFW_FALSE);
         handle = glfwCreateWindow(width, height, "Jester Jack", nullptr, nullptr);
         if (!handle) {
             glfwTerminate();
@@ -246,21 +248,21 @@ struct Interface {
         }
         ImGui::StyleColorsDark();
         auto& style = ImGui::GetStyle();
-        style.WindowRounding = 14.0f;
-        style.FrameRounding = 8.0f;
+        style.WindowRounding = 8.0f;
+        style.FrameRounding = 5.0f;
         style.WindowBorderSize = 1.0f;
         style.FrameBorderSize = 1.0f;
         style.FramePadding = ImVec2(16, 8);
         style.WindowPadding = ImVec2(20, 16);
         style.ItemSpacing = ImVec2(12, 9);
-        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.105f, 0.085f, 0.105f, 0.985f);
-        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.13f, 0.105f, 0.12f, 0.97f);
+        style.Colors[ImGuiCol_WindowBg] = ImVec4(0.055f, 0.085f, 0.09f, 0.985f);
+        style.Colors[ImGuiCol_ChildBg] = ImVec4(0.075f, 0.11f, 0.115f, 0.97f);
         style.Colors[ImGuiCol_Border] = ImVec4(0.38f, 0.31f, 0.24f, 0.82f);
         style.Colors[ImGuiCol_Text] = cream;
         style.Colors[ImGuiCol_TextDisabled] = muted;
-        style.Colors[ImGuiCol_Button] = ImVec4(0.24f, 0.17f, 0.25f, 1.0f);
-        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.34f, 0.25f, 0.34f, 1.0f);
-        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.19f, 0.13f, 0.20f, 1.0f);
+        style.Colors[ImGuiCol_Button] = ImVec4(0.12f, 0.19f, 0.20f, 1.0f);
+        style.Colors[ImGuiCol_ButtonHovered] = ImVec4(0.20f, 0.30f, 0.30f, 1.0f);
+        style.Colors[ImGuiCol_ButtonActive] = ImVec4(0.09f, 0.15f, 0.16f, 1.0f);
         style.Colors[ImGuiCol_FrameBg] = ImVec4(0.19f, 0.15f, 0.18f, 1.0f);
         style.Colors[ImGuiCol_FrameBgHovered] = ImVec4(0.28f, 0.22f, 0.25f, 1.0f);
         style.Colors[ImGuiCol_FrameBgActive] = ImVec4(0.32f, 0.24f, 0.30f, 1.0f);
@@ -845,39 +847,34 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     ImGui::PopFont();
     ImGui::Separator();
 
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {.23f, .13f, .15f, 1});
-    ImGui::BeginChild("target", {-1, 128}, ImGuiChildFlags_Borders);
+    ImGui::Spacing();
     ImGui::PushFont(ui.small);
-    ImGui::TextColored(cream, "SCORE AT LEAST");
+    ImGui::TextColored(muted, "ROUND PROGRESS");
     ImGui::PopFont();
     ImGui::PushFont(ui.number);
-    ImGui::TextColored(red, "%d", state.goal);
+    ImGui::TextColored(cream, "%d", state.roundScore);
     ImGui::PopFont();
+    ImGui::SameLine(0, 10);
+    ImGui::PushFont(ui.button);
+    ImGui::TextColored(gold, "/ %d", state.goal);
+    ImGui::PopFont();
+    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, gold);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, {.12f,.19f,.20f,1});
+    ImGui::ProgressBar(std::min(1.0f, static_cast<float>(state.roundScore) / state.goal), {-1, 6}, "");
+    ImGui::PopStyleColor(2);
     ImGui::PushFont(ui.small);
-    ImGui::TextColored(muted, "points to clear this round");
+    if(state.roundScore >= state.goal) ImGui::TextColored(green, "TARGET REACHED");
+    else ImGui::TextColored(muted, "%d points to the next round", state.goal-state.roundScore);
     ImGui::PopFont();
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
-
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {.17f, .12f, .22f, 1});
-    ImGui::BeginChild("score", {-1, 122}, ImGuiChildFlags_Borders);
-    ImGui::PushFont(ui.small);
-    ImGui::TextColored(cream, "ROUND SCORE");
-    ImGui::PopFont();
-    ImGui::PushFont(ui.number);
-    ImGui::TextColored(blue, "%d", state.roundScore);
-    ImGui::PopFont();
-    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, blue);
-    ImGui::ProgressBar(std::min(1.0f, static_cast<float>(state.roundScore) / state.goal), {-1, 7}, "");
-    ImGui::PopStyleColor();
-    ImGui::EndChild();
-    ImGui::PopStyleColor();
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::Spacing();
 
     const float half = (ImGui::GetContentRegionAvail().x - 8) * .5f;
     for (int column = 0; column < 2; ++column) {
         if (column) ImGui::SameLine();
         ImGui::PushID(column);
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, column ? ImVec4(.20f, .15f, .09f, 1) : ImVec4(.16f, .12f, .20f, 1));
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(.075f, .115f, .12f, 1));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14, 8});
         ImGui::BeginChild("counter", {half, 92}, ImGuiChildFlags_Borders);
         ImGui::PushFont(ui.small);
@@ -895,11 +892,11 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
         ImGui::PopStyleColor();
         ImGui::PopID();
     }
-    if (height >= 820) {
+    if (height >= 700) {
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {14, 8});
         ImGui::BeginChild("hand-reward", {-1, 94}, ImGuiChildFlags_Borders);
         ImGui::PushFont(ui.small);
-        ImGui::TextColored(muted, "HAND REWARD");
+        ImGui::TextColored(muted, "LAST HAND REWARD");
         ImGui::PopFont();
         ImGui::TextColored(green, "+%d points  /  +%d coins", state.score.total, state.score.coins);
         ImGui::PushFont(ui.small);
@@ -911,7 +908,7 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     ImGui::PushFont(ui.small);
     if (state.startDeck == bj::StartDeck::SecondLife) ImGui::TextColored(gold, "REVIVE: %d / 1", state.revivesLeft);
     ImGui::TextColored(muted, "Run score: %d", state.totalScore);
-    ImGui::TextColored(muted, "%d more points needed", std::max(0, state.goal - state.roundScore));
+
     ImGui::PopFont();
 
     ImGui::SetCursorPosY(height - 32 - 108);

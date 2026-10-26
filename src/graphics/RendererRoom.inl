@@ -94,7 +94,32 @@
         draw(cube,transform({0,-.79f,-10},{50,.03f,64}),{.12f,.10f,.12f},
              0,glm::vec2(1),.18f,48,0,1,0,3);
 
+        // A quiet paneled salon encloses the stage instead of an unlit void.
+        draw(cube,transform({0,8.0f,-18.2f},{80,20,.3f}),{.075f,.17f,.165f},
+             0,glm::vec2(1),.03f,24,.15f);
+        for (const float side : {-1.0f,1.0f}) {
+            for (int panel=0;panel<4;++panel) {
+                const float x=side*(3.0f+panel*2.8f);
+                draw(cube,transform({x,2.3f,-17.95f},{2.5f,4.6f,.06f}),{.10f,.21f,.195f},
+                     0,glm::vec2(1),.04f,24,.13f);
+                for (float edge : {-1.0f,1.0f})
+                    draw(cube,transform({x+edge*1.22f,2.3f,-17.88f},{.025f,4.6f,.03f}),bronze*.95f);
+                for (float y : {.02f,4.58f})
+                    draw(cube,transform({x,y,-17.88f},{2.46f,.025f,.03f}),bronze*.95f);
+                diamond({x,3.0f,-17.82f},.22f,bronze*.8f);
+            }
+        }
+        draw(cube,transform({0,.12f,-17.8f},{26,.045f,.08f}),bronze*.55f);
+
         // An open proscenium frames the host; successive portals give it depth.
+        // A restrained sunburst makes the dealer the architectural focal point.
+        for (int spoke=0;spoke<=12;++spoke) {
+            const float a=pi*static_cast<float>(spoke)/12;
+            const glm::vec3 inner{std::cos(a)*1.7f,1.0f+std::sin(a)*1.4f,-9.2f};
+            const glm::vec3 outer{std::cos(a)*3.25f,1.0f+std::sin(a)*3.0f,-9.2f};
+            beam(inner,outer,.012f,bronze*.7f);
+        }
+        roomPortal(-9.3f,1.0f,3.4f,3.1f,.65f);
         roomPortal(-6.50f,1.12f,2.50f,1.62f,1.0f);
         roomPortal(-10.80f,1.02f,2.20f,1.28f,.64f);
         roomPortal(-16.00f,.82f,1.90f,1.00f,.38f);
@@ -107,7 +132,7 @@
             const glm::vec3 outerScale{-side*.68f,.98f,1};
             draw(curtain,transform(inner,innerScale),{.245f,.029f,.080f},
                  felt,{7,8},.035f,16,.025f,1,.95f,2);
-            draw(curtain,transform(outer,outerScale),{.130f,.036f,.20f},
+            draw(curtain,transform(outer,outerScale),{.085f,.050f,.11f},
                  felt,{7,8},.03f,16,.015f,1,.9f,2);
             roomCurtainRail(inner,innerScale,0);
             roomCurtainRail(outer,outerScale,0);

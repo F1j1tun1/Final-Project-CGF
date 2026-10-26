@@ -1531,7 +1531,7 @@ struct Renderer::Impl {
         glDisable(GL_CULL_FACE);
         glDisable(GL_SCISSOR_TEST);
         if (scene.menu) glClearColor(.026f, .014f, .050f, 1.0f);
-        else glClearColor(0, 0, 0, 1);
+        else glClearColor(.018f, .034f, .037f, 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (scene.menu) drawSky(width, height);
 
@@ -1587,7 +1587,7 @@ struct Renderer::Impl {
         const float lightMotion = settings.animate ? std::sin(scene.time * .17f) * .85f : 0;
         glUniform3f(u.light, scene.menu ? -5.0f : -2.2f + lightMotion, 7.0f, 4.0f);
         if (scene.menu) glUniform3f(u.fogColor, .10f, .07f, .13f);
-        else glUniform3f(u.fogColor, 0, 0, 0);
+        else glUniform3f(u.fogColor, .018f, .034f, .037f);
         glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f) * (scene.menu ? .8f : 1.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         glUniform1f(u.roomLight, scene.menu ? 0.0f : 1.0f);

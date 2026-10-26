@@ -75,9 +75,9 @@ void main() {
     } else if (uMaterial == 3) {
         vec2 tile = vWorldPosition.xz / 1.3;
         float checker = mod(floor(tile.x) + floor(tile.y), 2.0);
-        surface = mix(vec3(0.045, 0.033, 0.043), vec3(0.14, 0.112, 0.13), checker);
+        surface = mix(vec3(0.055, 0.071, 0.073), vec3(0.075, 0.089, 0.089), checker);
         float grout = min(fract(tile.x), fract(tile.y));
-        surface *= mix(0.45, 1.0, smoothstep(0.0, 0.018, grout));
+        surface *= mix(0.70, 1.0, smoothstep(0.0, 0.012, grout));
     } else if (uMaterial == 5) {
         // Diagonal panes follow the curved, slack fabric of each hat point.
         vec2 cloth = vec2(vTexCoord.x * 5.0, vTexCoord.y * 3.5);
