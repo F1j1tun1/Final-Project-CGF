@@ -86,6 +86,8 @@ struct Options {
     bool smoke = false;
     bool noAnimation = false;
     bool noAmbientMotion = false;
+    bool cameraOverride = false;
+    float cameraYaw=0, cameraPitch=32, cameraDistance=9.1f;
     int width = 1440;
     int height = 900;
     bj::StartDeck deck = bj::StartDeck::ExtraHand;
@@ -130,6 +132,16 @@ Options parseOptions(int argc, char** argv) {
             options.height = parseDimension(size.substr(separator + 1));
             if (options.width < 1100 || options.height < 720 || options.width > 7680 || options.height > 4320)
                 throw std::runtime_error("Size must be between 1100x720 and 7680x4320.");
+        } else if (arg == "--camera") {
+            std::istringstream input(value());
+            char comma1=0,comma2=0;
+            if(!(input>>options.cameraYaw>>comma1>>options.cameraPitch>>comma2>>options.cameraDistance)
+                || comma1!=',' || comma2!=',' || !input.eof()
+                || !std::isfinite(options.cameraYaw) || !std::isfinite(options.cameraPitch) || !std::isfinite(options.cameraDistance)
+                || std::abs(options.cameraYaw)>35 || options.cameraPitch<32 || options.cameraPitch>68
+                || options.cameraDistance<8 || options.cameraDistance>14)
+                throw std::runtime_error("Camera must be yaw,pitch,distance within -35..35,32..68,8..14.");
+            options.cameraOverride=true;
         } else if (arg == "--screenshot") options.screenshot = value();
         else if (arg == "--capture-states") options.captures = value();
         else if (arg == "--assets") options.assets = value();
@@ -151,6 +163,7 @@ Options parseOptions(int argc, char** argv) {
                 "  --frames N        Exit after N rendered frames\n"
                 "  --size WxH        Initial window size (minimum 1100x720)\n"
                 "  --screenshot FILE Save the final frame as PNG\n"
+                "  --camera Y,P,D    Diagnostic orbit: yaw,pitch,distance\n"
                 "  --capture-states DIR Save menu, table, shop and end screens\n"
                 "  --assets DIR      Override assets directory\n"
                 "  --hidden          Create an invisible graphics window\n"
@@ -561,7 +574,7 @@ void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* wind
 ImVec4 rarityColor(bj::Rarity rarity) {
     switch (rarity) {
         case bj::Rarity::Common: return {0.70f, 0.72f, 0.72f, 1};
-        case bj::Rarity::Rare: return {0.39f, 0.66f, 0.88f, 1};
+        case bj::Rarity::Rare: return {0.70f, 0.53f, 0.88f, 1};
         case bj::Rarity::Legendary: return {0.98f, 0.73f, 0.32f, 1};
     }
     return cream;
@@ -970,6 +983,12 @@ void drawRarityFrame(ImDrawList* draw, ImVec2 origin, ImVec2 size, bj::Rarity ra
             draw->AddLine({x,y},{x+dir*(legendary?26:15),y},ink,2);
             draw->AddLine({x,y},{x,y+dy*(legendary?26:15)},ink,2);
         }
+    }
+    if(rare) {
+        const float t=animate?static_cast<float>(ImGui::GetTime()):0;
+        const float x=origin.x+20+(size.x-40)*(.5f+.5f*std::sin(t*.32f));
+        draw->AddRect({origin.x+4,origin.y+4},{end.x-2,end.y-2},IM_COL32(165,115,215,35),4,0,3);
+        draw->AddLine({x-8,origin.y+3},{x+8,origin.y+3},IM_COL32(219,190,244,125),1.5f);
     }
     if(legendary) {
         const float t=animate?static_cast<float>(ImGui::GetTime()):0;
@@ -1636,6 +1655,7 @@ int main(int argc, char** argv) {
         ArtAssets art(assets);
         gfx::RenderSettings settings;
         settings.animate = !options.noAmbientMotion;
+        if(options.cameraOverride) {settings.yaw=options.cameraYaw;settings.pitch=options.cameraPitch;settings.distance=options.cameraDistance;}
         const gfx::RenderSettings defaultView;
         bj::Game game(options.seed,options.demo ? options.deck : bj::StartDeck::Standard);
         Session session;

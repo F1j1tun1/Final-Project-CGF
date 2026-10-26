@@ -17,7 +17,6 @@ uniform float uEmission;
 uniform float uOpacity;
 uniform float uVelvet;
 uniform float uRoomLight;
-uniform float uLampBrightness;
 uniform int uMaterial;
 uniform vec3 uFogColor;
 uniform bool uUseTexture;
@@ -123,6 +122,18 @@ void main() {
         surface = mix(surface, vec3(0.018, 0.028, 0.030), belt);
         surface *= 0.975 + 0.025 * sin(vTexCoord.x * 145.0) * sin(vTexCoord.y * 120.0);
     }
+    if (uMaterial == 11) {
+        // Broad plaster patina, fixed in world space, with no animated noise.
+        vec3 p = vWorldPosition;
+        float stain = sin(p.x*.61 + sin(p.z*.29))*sin(p.y*.87+p.z*.23);
+        surface *= .91 + .09*stain;
+        surface = mix(surface, surface*vec3(.72,.77,.75), smoothstep(.35,.85,stain)*.18);
+    } else if (uMaterial == 12) {
+        vec2 p = vWorldPosition.xz;
+        float plank = fract(p.x/.62);
+        float seam = smoothstep(0.0,.018,plank)*(1.0-smoothstep(.982,1.0,plank));
+        surface *= mix(.58,1.0,seam) * (.94+.06*sin(p.y*1.7+sin(p.x*7.0)));
+    }
     if (!uLighting) {
         fragColor = finishSurface(surface);
         return;
@@ -155,18 +166,28 @@ void main() {
         result += surface * vec3(1.0, 0.48, 0.16) * glow
             * (0.35 + candleDiffuse * 1.6) * uRoomLight;
     }
+    // Warm stage spots originate at visible truss-mounted luminaires.
     for (int i = 0; i < 2; ++i) {
-        vec3 lamp = vec3(i == 0 ? -6.65 : 6.65, 2.90, -6.25);
+        vec3 lamp = vec3(i == 0 ? -6.0 : 6.0, 8.35, -25.18);
+        vec3 aim = normalize(vec3(i == 0 ? 2.0 : -2.0, 1.0, -30.0) - lamp);
         vec3 delta = lamp - vWorldPosition;
-        float glow = 1.0 / (1.0 + dot(delta, delta) * 2.1);
-        float lampDiffuse = max(dot(normal, normalize(delta)), 0.0);
-        result += surface * vec3(1.0, 0.64, 0.34) * glow
-            * (0.28 + lampDiffuse) * uRoomLight * uLampBrightness * 0.70;
+        float cone = smoothstep(.65,.91,dot(normalize(-delta),aim));
+        float falloff = 1.0/(1.0+dot(delta,delta)*.008);
+        result += surface*vec3(1.0,.84,.60)*cone*falloff*
+            (.3+max(dot(normal,normalize(delta)),0.0)*2.5)*uRoomLight*1.35;
     }
+    // Broad footlight wash stays around the stage, away from the playing cards.
+    float depth=(vWorldPosition.z+27.5)/7.0;
+    float across=abs(vWorldPosition.x)/12.0;
+    float stageWash=exp(-depth*depth)
+        * exp(-pow(across,4.0));
+    result += surface*vec3(1.0,.82,.55)*stageWash*uRoomLight*.60;
 
-    // Subtle distance haze keeps the back edge of the table in the scene.
-    float fog = smoothstep(9.0, 20.0, length(uCameraPosition - vWorldPosition));
-    result = mix(result, uFogColor, fog * 0.45);
+    // Auditorium haze preserves stage depth; retain the separate menu treatment.
+    float viewDistance = length(uCameraPosition - vWorldPosition);
+    float fog = uRoomLight > 0.0 ? smoothstep(20.0, 60.0, viewDistance)
+                                : smoothstep(9.0, 20.0, viewDistance);
+    result = mix(result, uFogColor, fog * (uRoomLight > 0.0 ? 0.25 : 0.45));
     if (uMaterial == 3)
         result *= exp(-max(length(uCameraPosition - vWorldPosition) - 7.0, 0.0) * 0.14);
     fragColor = finishSurface(result);

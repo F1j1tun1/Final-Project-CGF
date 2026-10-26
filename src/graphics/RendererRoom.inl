@@ -1,11 +1,3 @@
-    float roomLampBrightness(float time, bool animate) const {
-        if (!animate) return 1.0f;
-        const float phase=std::fmod(time,31.0f);
-        const float first=(phase-12.0f)/.55f;
-        const float second=(phase-13.3f)/.45f;
-        return 1.0f-.16f*std::exp(-first*first)-.07f*std::exp(-second*second);
-    }
-
     void roomContactShadow(glm::vec3 center, glm::vec2 radius, float strength=.24f, float yaw=0) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
@@ -20,25 +12,6 @@
         glDisable(GL_BLEND);
     }
 
-    void roomLamp(glm::vec3 bulb, float brightness) {
-        const glm::vec3 brass{.52f,.36f,.18f};
-        const float anchorX=bulb.x+(bulb.x>0?.40f:-.40f);
-        // Wall plate, projecting arm and down-stem form one continuous support.
-        draw(cube,transform({anchorX,3.67f,-7.02f},{.24f,.42f,.08f}),brass,
-             0,glm::vec2(1),.15f,40,.1f);
-        beam({anchorX,3.67f,-6.98f},{bulb.x,3.67f,bulb.z},.045f,brass);
-        beam({bulb.x,3.67f,bulb.z},bulb+glm::vec3(0,.25f,0),.035f,brass);
-        beam({anchorX,3.42f,-6.98f},{bulb.x,3.67f,bulb.z+.03f},.025f,brass);
-        draw(sphere,transform(bulb+glm::vec3(0,.25f,0),{.46f,.30f,.46f}),
-             {.43f,.33f,.22f},0,glm::vec2(1),.035f,18,.24f*brightness);
-        draw(cylinder,transform(bulb+glm::vec3(0,.05f,0),{.42f,.04f,.42f}),brass,
-             0,glm::vec2(1),.13f,40);
-        draw(cylinder,transform(bulb+glm::vec3(0,.022f,0),{.37f,.012f,.37f}),
-             {.85f,.55f,.25f},0,glm::vec2(1),0,8,.85f*brightness);
-        draw(sphere,transform(bulb,{.065f,.065f,.065f}),{1,.76f,.40f},
-             0,glm::vec2(1),0,8,1.20f*brightness);
-    }
-
     void roomMainLegs() {
         const glm::vec3 wood{.115f,.040f,.055f},brass{.38f,.26f,.12f};
         for (const float side : {-1.0f,1.0f})
@@ -50,30 +23,6 @@
                 draw(cylinder,transform({side*2.76f,-.32f,front*1.38f},{.105f,.045f,.105f}),
                      brass,0,glm::vec2(1),.18f,40);
             }
-    }
-
-    void roomColumn(glm::vec3 position, float top, float shade=1) {
-        const glm::vec3 stone=glm::vec3(.18f,.125f,.185f)*shade;
-        const glm::vec3 brass=glm::vec3(.48f,.32f,.16f)*shade;
-        const float height=top+.775f;
-        draw(cylinder,transform({position.x,(top-.775f)*.5f,position.z},{.17f,height,.17f}),
-             stone,0,glm::vec2(1),.08f,28,.015f);
-        draw(cylinder,transform({position.x,-.68f,position.z},{.28f,.18f,.28f}),
-             brass,0,glm::vec2(1),.20f,48);
-        draw(cylinder,transform({position.x,top-.04f,position.z},{.27f,.13f,.27f}),
-             brass,0,glm::vec2(1),.20f,48);
-    }
-
-    void roomPortal(float z, float spring, float radiusX, float radiusY, float shade) {
-        const glm::vec3 stone=glm::vec3(.20f,.14f,.205f)*shade;
-        const glm::vec3 brass=glm::vec3(.50f,.34f,.17f)*shade;
-        draw(arch,transform({0,spring,z},{radiusX,radiusY,1}),stone,
-             0,glm::vec2(1),.10f,36,.025f);
-        draw(arch,transform({0,spring,z+.025f},{radiusX-.12f,radiusY-.11f,1}),brass,
-             0,glm::vec2(1),.22f,56,.02f);
-        for (const float side : {-1.0f,1.0f})
-            roomColumn({side*(radiusX-.14f),0,z+.035f},spring,shade);
-        diamond({0,spring+radiusY-.06f,z+.055f},.19f,brass);
     }
 
     void roomCurtainRail(glm::vec3 position, glm::vec3 scale, float yaw) {
@@ -93,118 +42,110 @@
         }
     }
 
-    void drawRoom(float time, bool animate, float cameraY) {
-        const glm::vec3 bronze{.43f,.29f,.145f};
-        draw(cube,transform({0,-.92f,-10},{50,.25f,64}),{.042f,.030f,.048f});
-        draw(cube,transform({0,-.79f,-10},{50,.03f,64}),{.12f,.10f,.12f},
-             0,glm::vec2(1),.18f,48,0,1,0,3);
-
-        // The underside is visible from normal play. Above-roof inspection uses
-        // an architectural cutaway so the high-angle camera still sees the cards.
-        if(cameraY<5.1f) {
-            const glm::mat4 roof=glm::rotate(glm::translate(glm::mat4(1),{0,6.5f,0}),-.19f,glm::vec3(1,0,0));
-            const glm::vec3 ceiling{.22f,.235f,.215f},beamColor{.11f,.105f,.085f};
-            draw(cube,roof*transform({0,0,0},{17.5f,.16f,15.6f}),ceiling,
-                 0,glm::vec2(1),.04f,24,.35f);
-            for(int bay=0;bay<5;++bay) {
-                const float z=-6.7f+bay*3.1f;
-                draw(cube,roof*transform({0,-.21f,z},{17.3f,.28f,.16f}),beamColor);
-                draw(cube,roof*transform({0,-.36f,z},{17.3f,.025f,.035f}),bronze*.8f,
-                     0,glm::vec2(1),.1f,24,.08f);
-                for(int column=0;column<4;++column) {
-                    const float x=-6.45f+column*4.3f;
-                    draw(cube,roof*transform({x,-.10f,z+1.55f},{3.82f,.05f,2.62f}),ceiling*.8f,
-                         0,glm::vec2(1),.02f,24,.4f);
-                    for(float edge : {-1.0f,1.0f})
-                        draw(cube,roof*transform({x+edge*1.92f,-.16f,z+1.55f},{.035f,.04f,2.65f}),bronze*.65f);
-                    // Small inset rosette, physically attached to the recessed panel.
-                    draw(cylinder,roof*transform({x,-.16f,z+1.55f},{.16f,.055f,.16f}),bronze*.8f);
-                }
-            }
-            for(float x : {-8.6f,-4.3f,0.0f,4.3f,8.6f})
-                draw(cube,roof*transform({x,-.21f,0},{.16f,.28f,15.6f}),beamColor);
-            for(float side : {-1.0f,1.0f})
-                draw(cube,roof*transform({side*8.40f,-.40f,0},{.035f,.025f,15.4f}),{.62f,.40f,.18f},
-                     0,glm::vec2(1),0,8,.7f);
-        }
-
+    void drawRoom(float time, bool animate) {
+        // Full-sized auditorium: 32 wide, 58 deep, 20 high. The stage is 18x11,
+        // twenty-two units behind the table; camera rotation never changes its scale.
+        const glm::vec3 bronze{.46f,.32f,.16f}, plaster{.29f,.255f,.205f};
+        const glm::vec3 wood{.105f,.078f,.060f}, stone{.39f,.33f,.24f};
+        const auto masonry=[&](glm::vec3 pos,glm::vec3 size,glm::vec3 color) {
+            draw(cube,transform(pos,size),color,0,glm::vec2(1),.025f,20,0,1,0,11);
+        };
+        draw(cube,transform({0,-.92f,-5},{32.6f,.28f,58.6f}),wood,
+             0,glm::vec2(1),.10f,28,0,1,0,12);
+        // A continuous shell remains present at every supported orbit angle.
+        masonry({0,9.6f,-34},{32.6f,20.8f,.5f},plaster*.62f);
+        masonry({0,9.6f,24},{32.6f,20.8f,.5f},plaster*.62f);
+        masonry({0,20,-5},{32.6f,.5f,58.6f},plaster*.75f);
         for(float side : {-1.0f,1.0f}) {
-            for(int bay=0;bay<5;++bay) {
-                const float z=-5.9f+bay*3.1f;
-                const float rise=.35f+bay*.59f;
-                draw(cube,transform({side*8.65f,4.92f+rise*.5f,z},{.25f,rise,3.15f}),{.08f,.14f,.135f});
+            masonry({side*16,9.6f,-5},{.5f,20.8f,58.6f},plaster*.77f);
+            masonry({side*15.65f,18.7f,-5},{.55f,.6f,58},stone*.72f);
+            masonry({side*15.72f,.10f,-5},{.4f,1.8f,58},wood);
+            for(float z : {-30.0f,-20.0f,-10.0f,0.0f,10.0f,20.0f}) {
+                masonry({side*15.5f,8.6f,z},{.65f,18.8f,.85f},stone*.75f);
+                masonry({side*15.35f,17.6f,z},{.95f,.4f,1.3f},stone);
+            }
+            // Deep side boxes, with slabs, load-bearing brackets and balustrades.
+            for(float z : {-10.0f,3.0f,16.0f}) {
+                masonry({side*14.25f,4.1f,z},{3.5f,.48f,7.4f},stone*.8f);
+                masonry({side*12.60f,4.75f,z},{.22f,.95f,7.4f},wood);
+                draw(cube,transform({side*12.58f,5.25f,z},{.3f,.10f,7.5f}),bronze);
+                for(float end : {-1.0f,1.0f}) {
+                    masonry({side*14.25f,4.75f,z+end*3.6f},{3.5f,.95f,.22f},wood);
+                    beam({side*15.8f,2.4f,z+end*2.6f},{side*12.8f,3.9f,z+end*2.6f},.22f,stone*.7f);
+                }
+                for(int i=0;i<9;++i)
+                    draw(cube,transform({side*12.45f,4.75f,z-3.2f+i*.8f},{.04f,.75f,.05f}),bronze*.65f);
             }
         }
-        // One rear wall: the niche, curtains and sconces all attach to this shell.
-        const glm::vec3 plaster{.115f,.20f,.19f},wood{.075f,.105f,.105f};
-        draw(cube,transform({0,2.1f,-7.30f},{22,5.75f,.35f}),plaster,
-             0,glm::vec2(1),.02f,24,.22f);
-        draw(cube,transform({0,1.0f,-7.08f},{4.8f,3.55f,.07f}),{.026f,.050f,.052f});
-        roomPortal(-6.98f,1.10f,2.50f,1.65f,1.0f);
-        // Continuous crown and skirting meet the grounded pilasters.
-        draw(cube,transform({0,4.52f,-7.02f},{22,.24f,.48f}),wood);
-        draw(cube,transform({0,4.39f,-6.78f},{22,.055f,.06f}),bronze);
-        draw(cube,transform({0,-.60f,-7.02f},{22,.33f,.20f}),wood);
-        draw(cube,transform({0,-.42f,-6.90f},{22,.035f,.03f}),bronze*.7f);
-        for (const float side : {-1.0f,1.0f}) {
-            // Side returns make the rear wall read as a room, not a flat backdrop.
-            draw(cube,transform({side*8.65f,2.1f,1.35f},{.25f,5.75f,17.1f}),plaster*.7f,
-                 0,glm::vec2(1),.02f,24,.15f);
-            draw(cube,transform({side*8.48f,4.52f,1.35f},{.35f,.24f,17.1f}),wood);
-            for (float x : {2.35f,5.55f,8.35f}) {
-                draw(cube,transform({side*x,1.83f,-6.96f},{.25f,5.2f,.25f}),wood);
-                draw(cube,transform({side*x,-.65f,-6.88f},{.42f,.25f,.38f}),bronze*.7f);
-                draw(cube,transform({side*x,4.32f,-6.88f},{.42f,.18f,.38f}),bronze*.7f);
-                roomContactShadow({side*x,0,-6.8f},{.35f,.3f},.35f);
-            }
-            // Exposed outer panel with joinery, attached to the same wall plane.
-            draw(cube,transform({side*6.95f,1.95f,-7.08f},{2.35f,4.5f,.09f}),plaster*1.12f);
-            for(float edge : {-1.0f,1.0f})
-                draw(cube,transform({side*6.95f+edge*1.12f,1.95f,-7.01f},{.025f,4.4f,.03f}),bronze*.7f);
-            for(float y : {-.25f,4.15f})
-                draw(cube,transform({side*6.95f,y,-7.01f},{2.27f,.025f,.03f}),bronze*.7f);
-            const glm::vec3 curtainPosition{side*3.90f,-.04f,-6.425f};
-            const glm::vec3 curtainScale{-side*.77f,.98f,1};
-            draw(curtain,transform(curtainPosition,curtainScale),{.245f,.029f,.080f},
-                 felt,{7,8},.035f,16,.025f,1,.95f,2);
-            roomCurtainRail(curtainPosition,curtainScale,0);
-            // Rod end brackets connect back to the wall immediately under the crown.
-            for(float edge : {-1.0f,1.0f}) {
-                const float x=side*3.9f+edge*1.36f;
-                draw(cube,transform({x,4.277f,-7.0f},{.14f,.23f,.09f}),bronze);
-                beam({x,4.277f,-6.96f},{x,4.277f,-6.385f},.04f,bronze);
-            }
-            draw(cube,transform({side*3.90f,.98f,-6.065f},{1.60f,.055f,.055f}),bronze*.80f);
-            diamond({side*3.90f,.81f,-6.015f},.15f,bronze*.95f);
-            roomContactShadow({side*3.9f,0,-6.42f},{1.45f,.32f},.32f);
+        // Three broad ceiling ribs, no small coffers or camera-dependent cutaway.
+        for(float z : {-15.0f,1.0f,17.0f})
+            masonry({0,19.55f,z},{32,.65f,.7f},stone*.65f);
+
+        // Raised stage and three real, walkable-depth stair treads.
+        draw(cube,transform({0,-.08f,-27.5f},{18,1.30f,11}),wood,
+             0,glm::vec2(1),.08f,24,0,1,0,12);
+        for(int step=0;step<3;++step) {
+            const float top=-.39f+step*.32f;
+            draw(cube,transform({0,(top-.78f)*.5f,-20.4f-step*.55f},
+                 {6.8f-step*.2f,top+.78f,1.1f}),stone*.68f);
+            draw(cube,transform({0,top+.015f,-20.14f-step*.55f},{6.8f-step*.2f,.025f,.035f}),bronze);
         }
-
-        // A framed card print and a recessed cashier hatch are wall joinery,
-        // not clickable game controls. Both stay below the existing sconces.
-        const glm::vec3 frame{.38f,.255f,.12f};
-        draw(cube,transform({-6.95f,1.20f,-6.94f},{1.65f,1.85f,.12f}),frame);
-        draw(cube,transform({-6.95f,1.20f,-6.86f},{1.45f,1.65f,.025f}),{.25f,.23f,.18f},
-             0,glm::vec2(1),0,8,.15f);
-        draw(cube,transform({-6.95f,1.20f,-6.83f},{1.18f,1.38f,.025f}),{.085f,.10f,.10f});
-        for(int motif=0;motif<3;++motif)
-            diamond({-6.95f+(motif-1)*.28f,1.20f+(motif-1)*.28f,-6.79f},.24f,
-                    motif==1?glm::vec3(.55f,.19f,.15f):glm::vec3(.43f,.33f,.17f));
-        draw(cube,transform({6.95f,1.17f,-6.96f},{1.90f,1.82f,.16f}),frame);
-        draw(cube,transform({6.95f,1.17f,-6.85f},{1.64f,1.56f,.03f}),{.025f,.038f,.039f});
-        for(int bar=0;bar<5;++bar)
-            draw(cube,transform({6.35f+bar*.30f,1.27f,-6.80f},{.025f,1.27f,.035f}),bronze*.75f);
-        draw(cube,transform({6.95f,1.45f,-6.79f},{1.63f,.035f,.035f}),bronze*.75f);
-        draw(cube,transform({6.95f,.42f,-6.63f},{2.1f,.12f,.60f}),{.13f,.085f,.055f});
-        for(float x : {6.2f,7.7f})
-            beam({x,.1f,-7.0f},{x,.39f,-6.4f},.045f,frame);
-        draw(cube,transform({6.95f,2.25f,-6.94f},{1.50f,.32f,.09f}),frame);
-        draw(sphere,transform({6.95f,2.25f,-6.87f},{.105f,.105f,.025f}),{.68f,.46f,.19f});
-        for(float x : {6.55f,7.35f})
-            draw(cube,transform({x,2.25f,-6.87f},{.33f,.02f,.02f}),bronze);
-
-        const float lampBrightness=roomLampBrightness(time,animate);
+        // Solid proscenium piers and an extruded elliptical arch, not a backdrop.
+        for(float side : {-1.0f,1.0f}) {
+            masonry({side*12.5f,9.6f,-24.3f},{7,20.8f,1.1f},plaster);
+            masonry({side*9.1f,2.65f,-23.55f},{1.0f,6.9f,1.25f},stone);
+            masonry({side*9.1f,-.35f,-23.4f},{1.5f,.85f,1.5f},stone*.85f);
+            masonry({side*9.1f,5.85f,-23.4f},{1.5f,.38f,1.5f},stone);
+            draw(cube,transform({side*8.75f,2.8f,-22.88f},{.07f,6,.05f}),bronze);
+        }
+        masonry({0,15.1f,-24.3f},{18,10,1.1f},plaster);
+        for(int segment=0;segment<40;++segment) {
+            const float a=(segment+.5f)*pi/40;
+            const float x=9.1f*std::cos(a),y=6+4.1f*std::sin(a);
+            const float tangent=std::atan2(4.1f*std::cos(a),-9.1f*std::sin(a));
+            const float length=glm::length(glm::vec2(9.1f*std::sin(a),4.1f*std::cos(a)))*pi/40+.025f;
+            auto model=glm::translate(glm::mat4(1),{x,y,-23.55f});
+            model=glm::rotate(model,tangent,glm::vec3(0,0,1));
+            draw(cube,glm::scale(model,{length,.70f,1.3f}),stone,0,glm::vec2(1),.04f,24,0,1,0,11);
+        }
+        // Masonry spandrels close the space above the curved opening.
+        for(int strip=0;strip<40;++strip) {
+            const float x=-8.8f+(strip+.5f)*17.6f/40;
+            const float bottom=6+4.1f*std::sqrt(std::max(0.0f,1-x*x/(9.1f*9.1f)));
+            masonry({x,(bottom+10.35f)*.5f,-24.3f},{.45f,10.35f-bottom,1.1f},plaster);
+        }
+        draw(arch,transform({0,6,-22.88f},{8.85f,3.95f,1}),bronze,0,glm::vec2(1),.15f,32,.05f);
+        // Wing curtains hang from a truss inside the stage, with visible hangers.
+        beam({-9,9.0f,-25},{9,9.0f,-25},.12f,wood);
+        for(float side : {-1.0f,1.0f}) {
+            beam({side*8.8f,9,-25},{side*9.5f,9,-24.3f},.10f,bronze);
+            const glm::vec3 pos{side*6.7f,1.80f,-25};
+            const glm::vec3 scale{1.15f,1.62f,1};
+            draw(curtain,transform(pos,scale),{.19f,.067f,.052f},felt,{7,8},.02f,14,0,1,.7f,2);
+            roomCurtainRail(pos,scale,0);
+        }
+        // Rear drape is eleven units behind the apron; side returns close the wings.
+        draw(curtain,transform({0,1.80f,-32.8f},{5.1f,1.62f,1}),{.255f,.205f,.14f},
+             felt,{14,8},.02f,14,0,1,.65f,2);
+        roomCurtainRail({0,1.80f,-32.8f},{5.1f,1.62f,1},0);
+        for(float x : {-8.5f,0.0f,8.5f})
+            beam({x,8.94f,-33.75f},{x,8.94f,-32.76f},.075f,bronze);
+        for(float side : {-1.0f,1.0f})
+            masonry({side*9.25f,4.6f,-29},{.5f,8.3f,9.5f},wood);
+        // Stage luminaires attach to the same overhead truss; shader lights match.
+        for(float side : {-1.0f,1.0f}) {
+            beam({side*6,9,-25},{side*6,8.6f,-25},.05f,bronze);
+            draw(sphere,transform({side*6,8.5f,-25},{.25f,.20f,.30f}),wood);
+            draw(sphere,transform({side*6,8.35f,-25.18f},{.16f,.08f,.16f}),{1,.73f,.35f},
+                 0,glm::vec2(1),0,8,1.4f);
+        }
+        for(int i=0;i<9;++i) {
+            const float x=-7.2f+i*1.8f;
+            draw(cube,transform({x,.65f,-22.18f},{.30f,.16f,.22f}),wood);
+            draw(sphere,transform({x,.74f,-22.16f},{.10f,.05f,.07f}),{1,.68f,.28f},
+                 0,glm::vec2(1),0,8,1.2f);
+        }
         for (const float side : {-1.0f,1.0f}) {
-            roomLamp({side*6.65f,2.9f,-6.25f},lampBrightness);
             const float x=side*5.45f;
             roomContactShadow({x,0,-2.6f},{.36f,.30f},.4f);
             draw(cylinder,transform({x,-.64f,-2.6f},{.27f,.14f,.27f}),bronze,0,glm::vec2(1),.26f,48);

@@ -804,7 +804,7 @@ struct Renderer::Impl {
     struct Locations {
         GLint model, view, projection, normal, color, uvScale, camera, light,
               intensity, shininess, specular, emission, fogColor, opacity, velvet, roomLight,
-              lampBrightness, material, useTexture, lighting;
+              material, useTexture, lighting;
     } u{};
     GLint skyResolution = -1;
     bool texturesEnabled = true;
@@ -1016,7 +1016,6 @@ struct Renderer::Impl {
         u.opacity = uniform("uOpacity");
         u.velvet = uniform("uVelvet");
         u.roomLight = uniform("uRoomLight");
-        u.lampBrightness = uniform("uLampBrightness");
         u.material = uniform("uMaterial");
         u.useTexture = uniform("uUseTexture");
         u.lighting = uniform("uLighting");
@@ -1566,7 +1565,11 @@ struct Renderer::Impl {
         const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
                                                                          : glm::vec3(0, .60f, -.50f),
                                          glm::vec3(0, 1, 0));
-        glm::mat4 projection = glm::perspective(glm::radians(43.0f),
+        const float viewportRatio=static_cast<float>(renderHeight)/static_cast<float>(height);
+        // Keep the full-frame vertical field of view stable as fixed-pixel HUD bands change.
+        const float fieldOfView=scene.menu?glm::radians(43.0f)
+            :2.0f*std::atan(std::tan(glm::radians(21.5f))*viewportRatio/.53f);
+        glm::mat4 projection = glm::perspective(fieldOfView,
             aspect, .1f, 60.0f);
         if (!scene.menu) {
             const float sx = static_cast<float>(renderWidth) / static_cast<float>(width);
@@ -1591,7 +1594,6 @@ struct Renderer::Impl {
         glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f) * (scene.menu ? .8f : 1.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         glUniform1f(u.roomLight, scene.menu ? 0.0f : 1.0f);
-        glUniform1f(u.lampBrightness, roomLampBrightness(scene.time, settings.animate));
         texturesEnabled = settings.textures;
 
         if (scene.menu) {
@@ -1602,7 +1604,7 @@ struct Renderer::Impl {
             return;
         }
 
-        drawRoom(scene.time, settings.animate, eye.y);
+        drawRoom(scene.time, settings.animate);
         drawDealer(scene, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.
