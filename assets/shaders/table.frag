@@ -197,6 +197,10 @@ void main() {
         vec2 footprint=(vWorldPosition.xz-vec2(0,.231))/vec2(4.81,3.43);
         result *= mix(.22,1.0,smoothstep(.92,1.20,length(footprint)));
     }
+    // Thin paper edges scatter light; retain a readable neutral body even on vertical sides.
+    // This material is used only on the deck layers, never on illustrated card backs.
+    if(uMaterial == 13) result = surface * (vec3(.70,.69,.67)
+        + warmLight * diffuse * uLightIntensity * attenuation * .25);
     // Auditorium haze preserves stage depth; retain the separate menu treatment.
     float viewDistance = length(uCameraPosition - vWorldPosition);
     float fog = uRoomLight > 0.0 ? smoothstep(30.0, 90.0, viewDistance)

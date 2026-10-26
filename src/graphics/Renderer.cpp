@@ -1623,7 +1623,8 @@ struct Renderer::Impl {
         for (int i = 0; i < 12; ++i) {
             draw(cube, transform({2.98f, .026f + static_cast<float>(i) * .022f, -.04f},
                                  {.74f, .019f, 1.08f}, -.08f),
-                 i % 2 == 0 ? glm::vec3(.89f, .85f, .71f) : glm::vec3(.69f, .66f, .55f));
+                 i % 2 == 0 ? glm::vec3(.96f,.94f,.89f) : glm::vec3(.88f,.86f,.81f),
+                 0,glm::vec2(1),.025f,32,0,1,0,13);
         }
         draw(plane, transform({2.98f, .272f, -.04f}, {.74f, .019f, 1.08f}, -.08f),
              glm::vec3(1), cardBack());

@@ -13,16 +13,14 @@
     }
 
     void roomMainLegs() {
-        const glm::vec3 wood{.115f,.040f,.055f},brass{.38f,.26f,.12f};
-        for (const float side : {-1.0f,1.0f})
-            for (const float front : {-1.0f,1.0f}) {
-                const glm::vec3 foot(side*2.88f,-.75f,front*1.47f);
-                roomContactShadow(foot,{.18f,.16f},.23f);
-                beam(foot,{side*2.73f,-.23f,front*1.35f},.095f,wood);
-                draw(cylinder,transform(foot,{.13f,.04f,.13f}),brass,0,glm::vec2(1),.18f,40);
-                draw(cylinder,transform({side*2.76f,-.32f,front*1.38f},{.105f,.045f,.105f}),
-                     brass,0,glm::vec2(1),.18f,40);
-            }
+        // One continuous pedestal, seated on the floor at -.78 and joined to the apron at -.25.
+        const glm::vec3 wood{.22f,.105f,.055f},brass{.38f,.26f,.12f};
+        roomContactShadow({0,-.78f,0},{1.7f,1.25f},.30f);
+        draw(cylinder,transform({0,-.72f,0},{1.55f,.12f,1.12f}),wood);
+        draw(cylinder,transform({0,-.65f,0},{1.40f,.035f,1.0f}),brass,0,glm::vec2(1),.18f,40);
+        draw(cylinder,transform({0,-.48f,0},{.63f,.36f,.58f}),wood);
+        draw(cylinder,transform({0,-.29f,0},{1.12f,.12f,.86f}),wood);
+        draw(cylinder,transform({0,-.31f,0},{1.14f,.025f,.88f}),brass,0,glm::vec2(1),.18f,40);
     }
 
     void roomCurtainRail(glm::vec3 position, glm::vec3 scale, float yaw, const glm::mat4& parent=glm::mat4(1)) {
@@ -103,6 +101,14 @@
                  {6.8f-step*.2f,top+.78f,1.1f}),stone*.68f);
             draw(cube,stageRoot*transform({0,top+.015f,-20.14f-step*.55f},{6.8f-step*.2f,.025f,.035f}),bronze);
         }
+        // Continuous apron mouldings and recessed panels remain attached to the podium.
+        for(float y : {-.48f,.42f})
+            draw(cube,stageRoot*transform({0,y,-21.97f},{18.08f,.07f,.10f}),bronze*.65f);
+        for(float x : {-7.2f,-4.8f,4.8f,7.2f}) {
+            draw(cube,stageRoot*transform({x,-.03f,-21.94f},{1.95f,.60f,.035f}),wood*.65f);
+            for(float side : {-1.0f,1.0f})
+                draw(cube,stageRoot*transform({x+side*.99f,-.03f,-21.91f},{.035f,.66f,.04f}),bronze*.55f);
+        }
         // Solid proscenium piers and an extruded elliptical arch, not a backdrop.
         for(float side : {-1.0f,1.0f}) {
             stageMasonry({side*12.5f,9.6f,-24.3f},{7,20.8f,1.1f},plaster);
@@ -110,6 +116,13 @@
             stageMasonry({side*9.1f,-.35f,-23.4f},{1.5f,.85f,1.5f},stone*.85f);
             stageMasonry({side*9.1f,5.85f,-23.4f},{1.5f,.38f,1.5f},stone);
             draw(cube,stageRoot*transform({side*8.75f,2.8f,-22.88f},{.07f,6,.05f}),bronze);
+        }
+        // Recessed pilaster fluting and restrained paired mouldings around the portal.
+        for(float side : {-1.0f,1.0f}) {
+            for(float offset : {-.22f,0.0f,.22f})
+                draw(cube,stageRoot*transform({side*9.1f+offset,2.75f,-22.91f},{.055f,5.6f,.055f}),bronze*.55f);
+            for(float y : {-.72f,5.66f,6.06f})
+                draw(cube,stageRoot*transform({side*9.1f,y,-22.86f},{1.55f,.07f,.12f}),bronze*.70f);
         }
         stageMasonry({0,15.1f,-24.3f},{18,10,1.1f},plaster);
         for(int segment=0;segment<40;++segment) {
