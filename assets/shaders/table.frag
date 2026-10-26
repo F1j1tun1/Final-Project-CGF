@@ -150,44 +150,54 @@ void main() {
         ? pow(max(dot(normal, halfway), 0.0), uShininess) * uSpecular
         : 0.0;
     float attenuation = 1.0 / (1.0 + 0.012 * distanceToLight * distanceToLight);
+    if (uRoomLight > 0.0) {
+        // The opaque shade sends the pendant light down onto the playing area.
+        attenuation *= smoothstep(.50,.86,dot(-lightDirection,vec3(0,-1,0)));
+    }
     vec3 warmLight = vec3(1.0, 0.94, 0.82);
-    vec3 result = surface * (0.34 + uEmission)
+    vec3 result = surface * ((uRoomLight > 0.0 ? 0.075 : 0.34) + uEmission)
         + (surface * diffuse + vec3(specular))
           * warmLight * uLightIntensity * attenuation;
     float fibers = pow(1.0 - abs(dot(normal, viewDirection)), 3.0);
     result += surface * fibers * uVelvet * 0.32;
     float rim = pow(1.0 - max(dot(normal, viewDirection), 0.0), 4.0);
     result += vec3(0.34, 0.22, 0.11) * rim * uVelvet * uRoomLight * 0.16;
-    for (int i = 0; i < 2; ++i) {
-        vec3 candle = vec3(i == 0 ? -5.45 : 5.45, 1.5, -2.6);
-        vec3 delta = candle - vWorldPosition;
-        float glow = 1.0 / (1.0 + dot(delta, delta) * 1.8);
-        float candleDiffuse = max(dot(normal, normalize(delta)), 0.0);
-        result += surface * vec3(1.0, 0.48, 0.16) * glow
-            * (0.35 + candleDiffuse * 1.6) * uRoomLight;
-    }
     // Warm stage spots originate at visible truss-mounted luminaires.
     for (int i = 0; i < 2; ++i) {
-        vec3 lamp = vec3(i == 0 ? -6.0 : 6.0, 8.35, -25.18);
-        vec3 aim = normalize(vec3(i == 0 ? 2.0 : -2.0, 1.0, -30.0) - lamp);
+        vec3 lamp = vec3(i == 0 ? -8.7 : 8.7, 11.089, -39.475);
+        vec3 aim = normalize(vec3(i == 0 ? 2.9 : -2.9, 1.534, -45.5) - lamp);
         vec3 delta = lamp - vWorldPosition;
         float cone = smoothstep(.65,.91,dot(normalize(-delta),aim));
-        float falloff = 1.0/(1.0+dot(delta,delta)*.008);
+        float falloff = 1.0/(1.0+dot(delta,delta)*.0045);
         result += surface*vec3(1.0,.84,.60)*cone*falloff*
             (.3+max(dot(normal,normalize(delta)),0.0)*2.5)*uRoomLight*1.35;
     }
     // Broad footlight wash stays around the stage, away from the playing cards.
-    float depth=(vWorldPosition.z+27.5)/7.0;
-    float across=abs(vWorldPosition.x)/12.0;
+    float depth=(vWorldPosition.z+42.375)/8.75;
+    float across=abs(vWorldPosition.x)/17.4;
     float stageWash=exp(-depth*depth)
         * exp(-pow(across,4.0));
     result += surface*vec3(1.0,.82,.55)*stageWash*uRoomLight*.60;
 
+    if (uRoomLight > 0.0 && (uMaterial == 11 || uMaterial == 12 ||
+        abs(vWorldPosition.x) > 10.0)) {
+        // Suppress auditorium fill, retaining a local warm stage and gentle floor pool.
+        float tablePool=exp(-dot(vWorldPosition.xz,vWorldPosition.xz)*.018);
+        float visibility=.10 + .38*tablePool + .90*stageWash;
+        result *= visibility;
+        if(uMaterial == 11) result += surface*vec3(.035,.040,.045)*(1.0-stageWash);
+        if(uMaterial == 12) result += surface*vec3(.24,.21,.16)*tablePool;
+    }
+    if (uRoomLight > 0.0 && uMaterial == 12 && vWorldPosition.y < -.5) {
+        // Soft analytic table shadow projected from the pendant onto the floor.
+        vec2 footprint=(vWorldPosition.xz-vec2(0,.231))/vec2(4.81,3.43);
+        result *= mix(.22,1.0,smoothstep(.92,1.20,length(footprint)));
+    }
     // Auditorium haze preserves stage depth; retain the separate menu treatment.
     float viewDistance = length(uCameraPosition - vWorldPosition);
-    float fog = uRoomLight > 0.0 ? smoothstep(20.0, 60.0, viewDistance)
+    float fog = uRoomLight > 0.0 ? smoothstep(30.0, 90.0, viewDistance)
                                 : smoothstep(9.0, 20.0, viewDistance);
-    result = mix(result, uFogColor, fog * (uRoomLight > 0.0 ? 0.25 : 0.45));
+    result = mix(result, uFogColor, fog * (uRoomLight > 0.0 ? 0.20 : 0.45));
     if (uMaterial == 3)
         result *= exp(-max(length(uCameraPosition - vWorldPosition) - 7.0, 0.0) * 0.14);
     fragColor = finishSurface(result);

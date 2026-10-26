@@ -1437,20 +1437,10 @@ struct Renderer::Impl {
              0, glm::vec2(1), 0, 8, 1.8f, alpha);
     }
 
-    void drawEffects(const Scene& scene, bool animate) {
+    void drawEffects(const Scene& scene) {
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE);
         glDepthMask(GL_FALSE);
-        for (int dust = 0; dust < 32; ++dust) {
-            const float phase = static_cast<float>(dust) * 2.39996f;
-            const float drift = animate ? scene.time * .025f : 0;
-            const float height = std::fmod(static_cast<float>(dust) * .137f + drift, 1.0f);
-            const glm::vec3 p(std::sin(phase + drift * .3f) * 5.5f, -.3f + height * 3.2f,
-                               -2.5f + std::cos(phase) * 3.0f);
-            const float alpha = .055f * std::sin(height * pi);
-            draw(sphere, transform(p, glm::vec3(.008f + .003f * static_cast<float>(dust % 3))),
-                 {.81f, .58f, .28f}, 0, glm::vec2(1), 0, 8, 1.2f, alpha);
-        }
         for (int hand = 0; hand < 2; ++hand) {
             const auto& cards = hand == 0 ? scene.player : scene.dealer;
             const float count = static_cast<float>(cards.size());
@@ -1530,7 +1520,7 @@ struct Renderer::Impl {
         glDisable(GL_CULL_FACE);
         glDisable(GL_SCISSOR_TEST);
         if (scene.menu) glClearColor(.026f, .014f, .050f, 1.0f);
-        else glClearColor(.018f, .034f, .037f, 1);
+        else glClearColor(.003f, .005f, .008f, 1);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (scene.menu) drawSky(width, height);
 
@@ -1570,7 +1560,7 @@ struct Renderer::Impl {
         const float fieldOfView=scene.menu?glm::radians(43.0f)
             :2.0f*std::atan(std::tan(glm::radians(21.5f))*viewportRatio/.53f);
         glm::mat4 projection = glm::perspective(fieldOfView,
-            aspect, .1f, 60.0f);
+            aspect, .1f, 100.0f);
         if (!scene.menu) {
             const float sx = static_cast<float>(renderWidth) / static_cast<float>(width);
             const float sy = static_cast<float>(renderHeight) / static_cast<float>(height);
@@ -1587,10 +1577,10 @@ struct Renderer::Impl {
         glUniformMatrix4fv(u.view, 1, GL_FALSE, glm::value_ptr(view));
         glUniformMatrix4fv(u.projection, 1, GL_FALSE, glm::value_ptr(projection));
         glUniform3fv(u.camera, 1, glm::value_ptr(eye));
-        const float lightMotion = settings.animate ? std::sin(scene.time * .17f) * .85f : 0;
-        glUniform3f(u.light, scene.menu ? -5.0f : -2.2f + lightMotion, 7.0f, 4.0f);
+        if(scene.menu) glUniform3f(u.light,-5.0f,7.0f,4.0f);
+        else glUniform3f(u.light,0,5.4f,-1.6f); // The visible pendant's luminous underside.
         if (scene.menu) glUniform3f(u.fogColor, .10f, .07f, .13f);
-        else glUniform3f(u.fogColor, .018f, .034f, .037f);
+        else glUniform3f(u.fogColor, .003f, .005f, .008f);
         glUniform1f(u.intensity, std::clamp(settings.lightIntensity, 0.0f, 3.0f) * (scene.menu ? .8f : 1.0f));
         glUniform1i(u.lighting, settings.lighting ? GL_TRUE : GL_FALSE);
         glUniform1f(u.roomLight, scene.menu ? 0.0f : 1.0f);
@@ -1604,7 +1594,7 @@ struct Renderer::Impl {
             return;
         }
 
-        drawRoom(scene.time, settings.animate);
+        drawRoom();
         drawDealer(scene, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.
@@ -1645,7 +1635,8 @@ struct Renderer::Impl {
 
         drawHand(scene.dealer, -1.12f, scene.time, settings.animate, true);
         drawHand(scene.player, 1.12f, scene.time + .7f, settings.animate, false);
-        drawEffects(scene, settings.animate);
+        drawRoomDust(scene.time, settings.animate);
+        drawEffects(scene);
 
         glBindVertexArray(0);
         glBindTexture(GL_TEXTURE_2D, 0);

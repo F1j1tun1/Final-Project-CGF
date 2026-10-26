@@ -574,7 +574,7 @@ void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* wind
 ImVec4 rarityColor(bj::Rarity rarity) {
     switch (rarity) {
         case bj::Rarity::Common: return {0.70f, 0.72f, 0.72f, 1};
-        case bj::Rarity::Rare: return {0.70f, 0.53f, 0.88f, 1};
+        case bj::Rarity::Rare: return {0.39f, 0.66f, 0.88f, 1};
         case bj::Rarity::Legendary: return {0.98f, 0.73f, 0.32f, 1};
     }
     return cream;
@@ -987,8 +987,8 @@ void drawRarityFrame(ImDrawList* draw, ImVec2 origin, ImVec2 size, bj::Rarity ra
     if(rare) {
         const float t=animate?static_cast<float>(ImGui::GetTime()):0;
         const float x=origin.x+20+(size.x-40)*(.5f+.5f*std::sin(t*.32f));
-        draw->AddRect({origin.x+4,origin.y+4},{end.x-2,end.y-2},IM_COL32(165,115,215,35),4,0,3);
-        draw->AddLine({x-8,origin.y+3},{x+8,origin.y+3},IM_COL32(219,190,244,125),1.5f);
+        draw->AddRect({origin.x+4,origin.y+4},{end.x-2,end.y-2},IM_COL32(100,168,224,35),4,0,3);
+        draw->AddLine({x-8,origin.y+3},{x+8,origin.y+3},IM_COL32(180,221,250,125),1.5f);
     }
     if(legendary) {
         const float t=animate?static_cast<float>(ImGui::GetTime()):0;
