@@ -189,6 +189,10 @@ void main() {
         if(uMaterial == 12) result += surface*vec3(.24,.21,.16)*tablePool;
     }
     if (uRoomLight > 0.0 && uMaterial == 12 && vWorldPosition.y < -.5) {
+        // The oak floor reflects the actual pendant, without auditorium fill suppression.
+        // Keep only a small ambient base outside its downward cone.
+        result = surface * .012 + (surface * diffuse + vec3(specular))
+            * warmLight * uLightIntensity * attenuation;
         // Soft analytic table shadow projected from the pendant onto the floor.
         vec2 footprint=(vWorldPosition.xz-vec2(0,.231))/vec2(4.81,3.43);
         result *= mix(.22,1.0,smoothstep(.92,1.20,length(footprint)));

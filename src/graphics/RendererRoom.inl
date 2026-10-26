@@ -51,7 +51,7 @@
         const auto masonry=[&](glm::vec3 pos,glm::vec3 size,glm::vec3 color) {
             draw(cube,shellRoot*transform(pos,size),color,0,glm::vec2(1),.025f,20,0,1,0,11);
         };
-        draw(cube,shellRoot*transform({0,-.92f,-13.5f},{32.6f,.28f,75.6f}),wood,
+        draw(cube,shellRoot*transform({0,-.92f,-13.5f},{32.6f,.28f,75.6f}),{.38f,.27f,.17f},
              0,glm::vec2(1),.10f,28,0,1,0,12);
         // A continuous shell remains present at every supported orbit angle.
         masonry({0,22.6f,-51},{32.6f,46.8f,.5f},plaster*.62f);
