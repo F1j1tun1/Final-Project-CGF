@@ -289,5 +289,3 @@ inline void relicSigil(ImDrawList* draw, ImVec2 center, float radius, int id, Im
     }
 }
 } // namespace palace
-
-
