@@ -794,9 +794,9 @@ SceneCamera sceneCamera(const Scene& scene, const RenderSettings& settings, int 
         const float approach = std::clamp(scene.menuApproach, 0.0f, 1.0f);
         const float push = std::clamp(scene.menuPush, 0.0f, 1.0f);
         const float menuDistance = 17.5f * std::max(1.0f, 1.45f / aspect);
-        eye = glm::mix(glm::vec3(0, 5.3f, menuDistance), world({0, 1.36f, 4.5f}), approach);
-        eye = glm::mix(eye, world({0, 1.36f, .35f}), push);
-        target = glm::mix(glm::vec3(0, 2.15f, 0), world({0, 1.36f, -1.5f}), approach);
+        eye = glm::mix(glm::vec3(0, 5.3f, menuDistance), world({0, 1.47f, 6.8f}), approach);
+        eye = glm::mix(eye, world({0, 1.47f, 1.45f}), push);
+        target = glm::mix(glm::vec3(0, 2.15f, 0), world({0, 1.47f, -1.5f}), approach);
     }
     const float viewportRatio = static_cast<float>(renderHeight) / static_cast<float>(height);
     const float fov = scene.menu ? glm::radians(43.0f)
