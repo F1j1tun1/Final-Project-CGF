@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <functional>
 #include <iomanip>
 #include <iostream>
 #include <stdexcept>
@@ -53,7 +54,10 @@ bool sameState(const bj::Snapshot& a, const bj::Snapshot& b) {
         && a.wins == b.wins && a.totalScore == b.totalScore
         && a.coins == b.coins && a.streak == b.streak && a.dealerStand == b.dealerStand
         && a.seed == b.seed && a.usedSecondChance == b.usedSecondChance && a.owned == b.owned
-        && a.offers == b.offers && a.score.base == b.score.base && a.score.bonus == b.score.bonus
+        && a.offers == b.offers && a.usedHandAbilities == b.usedHandAbilities
+        && a.usedRoundAbilities == b.usedRoundAbilities && sameCards(a.cardChoices, b.cardChoices)
+        && a.pendingRescue == b.pendingRescue && a.alteredThisHand == b.alteredThisHand
+        && a.rescuedThisHand == b.rescuedThisHand && a.score.base == b.score.base && a.score.bonus == b.score.bonus
         && a.score.multiplier == b.score.multiplier && a.score.total == b.score.total
         && a.score.coins == b.score.coins && sameEffects(a.score.appliedEffects, b.score.appliedEffects) && a.message == b.message;
 }
@@ -90,6 +94,10 @@ void checkBlockedActions(bj::Game& game) {
     }
     check(!game.buy(static_cast<bj::Relic>(99)), "unknown upgrade cannot be bought");
     check(!game.sell(static_cast<bj::Relic>(99)), "unknown upgrade cannot be sold");
+    check(!game.activate(static_cast<bj::Relic>(99)), "unknown ability cannot activate");
+    check(!game.activate(bj::Relic::Precision), "passive cannot be activated");
+    check(!game.chooseCard(99), "invalid card selection is harmless");
+    check(!game.replace(static_cast<bj::Relic>(99), bj::Relic::Precision), "invalid replacement is harmless");
     check(sameState(original, game.state()), "blocked commands preserve every snapshot field");
 }
 
@@ -123,10 +131,10 @@ void testHands() {
 
 void testExpandedCatalogueContract() {
     const auto& catalog = bj::relicCatalog();
-    check(catalog.size() == 24, "expanded catalogue contains exactly twenty-four relics");
+    check(catalog.size() == 40, "expanded catalogue contains exactly forty relics");
     const std::array<bj::Rarity, 3> rarities{bj::Rarity::Common, bj::Rarity::Rare, bj::Rarity::Legendary};
-    const std::array<int, 3> counts{10, 8, 6};
-    const std::array<int, 3> weights{55, 35, 10};
+    const std::array<int, 3> counts{14, 15, 11};
+    const std::array<int, 3> weights{50, 36, 14};
     const std::array<int, 3> costs{3, 6, 10};
     for (std::size_t tier = 0; tier < rarities.size(); ++tier) {
         check(bj::rarityWeight(rarities[tier]) == weights[tier], "three-tier shop uses the agreed rarity weights");
@@ -172,6 +180,7 @@ bj::Game finishBest(bj::Game game) {
             best = standing;
             bestRank = resultRank(standing.state());
         }
+        if (game.state().pendingRescue) break;
         game.hit();
     }
     return best;
@@ -229,7 +238,7 @@ void testNaturalBaseAndActualBust() {
             naturalWin = true;
             check(result.score.base == 21 && result.score.bonus == 0 && result.score.total == 21
                 && result.roundScore == 21 && result.totalScore == 21, "an unupgraded natural scores exactly twenty-one, without an automatic bonus");
-            check(result.score.coins == 3 && result.coins == 3 && result.handsLeft == 4,
+            check(result.score.coins == 4 && result.coins == 4 && result.handsLeft == 4,
                 "a natural pays normal win income and consumes one hand");
             check(result.phase == bj::Phase::RoundOver && game.advance()
                 && game.state().phase == bj::Phase::Ready && game.state().roundScore == 21,
@@ -509,9 +518,9 @@ void testUnbiasedOpeningDistribution() {
 
 void testRarityDistribution() {
     constexpr std::array<bj::Rarity, 3> rarities{bj::Rarity::Common, bj::Rarity::Rare, bj::Rarity::Legendary};
-    constexpr std::array<int, 3> weights{55, 35, 10};
+    constexpr std::array<int, 3> weights{50, 36, 14};
     constexpr std::array<const char*, 3> names{"Common", "Rare", "Legendary"};
-    constexpr std::array<int, 3> tierSizes{10, 8, 6};
+    constexpr std::array<int, 3> tierSizes{14, 15, 11};
     const std::array<const char*, 13> legacyNames{
         "Precision", "Long Hand", "Second Chance", "Streak", "Royal Purse", "Soft Touch",
         "Narrow Escape", "Red Ribbon", "Black Velvet", "Even Odds", "Court Favor", "Humble Crown", "Blackjack Bonus"
@@ -532,7 +541,7 @@ void testRarityDistribution() {
 
     int shops = 0;
     std::array<int, 3> firstCounts{};
-    std::array<int, 24> itemCounts{};
+    std::array<int, 40> itemCounts{};
     std::array<std::array<int, 3>, 3> secondCounts{};
     for (std::uint32_t seed = 0; seed < 40000; ++seed) {
         bj::Game game(seed);
@@ -559,13 +568,13 @@ void testRarityDistribution() {
         const double tolerance = 6.0 * std::sqrt(shops * probability * (1.0 - probability)) + 10.0;
         check(std::abs(firstCounts[tier] - shops * probability) < tolerance,
             std::string(names[tier]) + " first-slot frequency follows its tier weight, independent of tier size");
-        // Every tier contains at least six items. Even a full four-item inventory
-        // and the first slot leave a candidate in every tier for slot two.
+        // Every tier contains at least eleven items. Even eight equipped items
+        // and the first offer leave a candidate in every tier for slot two.
         for (std::size_t second = 0; second < rarities.size(); ++second) {
             const double conditional = static_cast<double>(weights[second]) / 100.0;
             const double conditionalTolerance = 6.0 * std::sqrt(firstCounts[tier] * conditional * (1.0 - conditional)) + 10.0;
             check(std::abs(secondCounts[tier][second] - firstCounts[tier] * conditional) < conditionalTolerance,
-                "slot two keeps 55/35/10 tier weights while excluding its first selected item");
+                "slot two keeps 50/36/14 tier weights while excluding its first selected item");
         }
     }
     for (const auto& item : catalog) {
@@ -592,8 +601,8 @@ struct Coverage {
     int additiveStacks = 0, legendaryWins = 0, ongoingRuns = 0;
     int purchases = 0, sales = 0, reoffers = 0, fullBuilds = 0, cardStreams = 0;
     int shields = 0, spentShields = 0, persistentShields = 0;
-    std::array<int, 24> active{};
-    std::array<int, 24> inactive{};
+    std::array<int, 40> active{};
+    std::array<int, 40> inactive{};
 };
 
 bool red(const bj::Card& card) {
@@ -612,7 +621,7 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
         check(result.streak == (result.outcome == bj::Outcome::Loss ? 0 : before.streak), "loss breaks streak; push preserves it");
         return;
     }
-    int expectedCoins = 3;
+    int expectedCoins = 4;
     int expectedBonus = 0;
     float expectedMultiplier = 1.0f;
     float productMultiplier = 1.0f;
@@ -658,6 +667,22 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
         case bj::Relic::FinalAct: active = result.handsLeft == 0; multiplier = 1.0f; break;
         case bj::Relic::Underdog: active = player.total <= 16 && dealer.bust; multiplier = 1.5f; break;
         case bj::Relic::Encore: active = before.streak >= 3; multiplier = 1.0f; break;
+        case bj::Relic::Rewind: case bj::Relic::Redraw: case bj::Relic::ForkedPath: case bj::Relic::Lifeline: break;
+        case bj::Relic::VelvetDividend: active = true; coins = 2; break;
+        case bj::Relic::LuckySeven:
+            active = std::any_of(result.player.begin(), result.player.end(), [](const bj::Card& c) { return c.rank == 7; }); points = 7; break;
+        case bj::Relic::TwinSigil: active = result.player[0].rank == result.player[1].rank; points = 10; break;
+        case bj::Relic::MixedCompany:
+            active = std::any_of(result.player.begin(), result.player.end(), red) && !std::all_of(result.player.begin(), result.player.end(), red); points = 5; break;
+        case bj::Relic::Crescendo: active = result.player.size() >= 3; multiplier = .75f; break;
+        case bj::Relic::AceHigh:
+            active = std::any_of(result.player.begin(), result.player.end(), [](const bj::Card& c) { return c.rank == 1; }); multiplier = .75f; coins = 1; break;
+        case bj::Relic::SilverLining: active = true; multiplier = .35f; break;
+        case bj::Relic::LoadedDice: active = player.total >= 18; points = 8; break;
+        case bj::Relic::Alchemist: active = result.alteredThisHand; multiplier = .8f; coins = 2; break;
+        case bj::Relic::Phoenix: active = result.rescuedThisHand; multiplier = 2.0f; coins = 2; break;
+        case bj::Relic::RoyalDecree: active = true; multiplier = .8f; break;
+        case bj::Relic::GrandFinale: active = result.handsLeft <= 1; multiplier = 1.5f; break;
         }
         const auto index = static_cast<std::size_t>(relic);
         ++(active ? coverage.active[index] : coverage.inactive[index]);
@@ -684,7 +709,7 @@ void checkRewards(const bj::Snapshot& before, const bj::Snapshot& result, Covera
         "winning points add flat relic bonuses before applying one plus the sum of multiplier bonuses");
     check(sameEffects(result.score.appliedEffects, expectedEffects), "applied effects list exactly the owned relics whose conditions actually triggered");
     check(result.score.coins == expectedCoins && result.coins == before.coins + expectedCoins,
-        "win income is three base coins plus the actual relic income");
+        "win income is four base coins plus the actual relic income");
     check(result.totalScore == before.totalScore + result.score.total && result.roundScore == before.roundScore + result.score.total
         && result.wins == before.wins + 1, "winning points accumulate once in the round and complete run");
     check(result.streak == before.streak + 1, "win increments streak exactly once");
@@ -716,7 +741,7 @@ void probeShield(bj::Game game, Coverage& coverage) {
 void testSeededRunsAndShop() {
     Coverage coverage;
     const auto& catalog = bj::relicCatalog();
-    check(catalog.size() == 24, "catalogue has twenty-four choices");
+    check(catalog.size() == 40, "catalogue has forty choices");
     for (const auto& item : catalog) {
         check((item.cost == 3 || item.cost == 6 || item.cost == 10)
             && item.name[0] != '\0' && item.description[0] != '\0', "tier prices and descriptive text");
@@ -769,7 +794,7 @@ void testSeededRunsAndShop() {
             coverage.losses += result.outcome == bj::Outcome::Loss ? 1 : 0;
             coverage.longRuns += result.round > 5 ? 1 : 0;
             coverage.maxRound = std::max(coverage.maxRound, result.round);
-            coverage.cappedGoals += result.round >= 8 && result.goal == 100 ? 1 : 0;
+            coverage.cappedGoals += result.round >= 8 && result.goal == 86 ? 1 : 0;
             checkBlockedActions(game);
             if (result.roundScore < result.goal && result.handsLeft == 0) {
                 ++coverage.failedRounds;
@@ -821,7 +846,7 @@ void testSeededRunsAndShop() {
             for (const auto& item : catalog) {
                 const auto before = game.state();
                 const bool expected = contains(offers, item.id) && !game.hasRelic(item.id)
-                    && before.owned.size() < 4 && before.coins >= item.cost;
+                    && before.owned.size() < bj::maxEquipmentSlots && before.coins >= item.cost;
                 check(game.buy(item.id) == expected, "buy enforces offers, inventory, funds and ownership");
                 if (expected) {
                     ++coverage.purchases;
@@ -835,10 +860,10 @@ void testSeededRunsAndShop() {
                 }
                 check(game.state().offers == offers, "transactions do not change current shop offers");
             }
-            if (game.state().owned.size() == 4) {
+            if (game.state().owned.size() == bj::maxEquipmentSlots) {
                 ++coverage.fullBuilds;
                 const auto full = game.state();
-                for (auto relic : offers) check(!game.buy(relic) && sameState(full, game.state()), "four active upgrades is a hard limit");
+                for (auto relic : offers) check(!game.buy(relic) && sameState(full, game.state()), "eight active upgrades is a hard limit");
             }
             if (seed % 5 == 0 && !game.state().owned.empty()) {
                 const auto relic = game.state().owned.front();
@@ -879,9 +904,9 @@ void testSeededRunsAndShop() {
                 && afterLeave.dealerStand == 17 && afterLeave.player.empty() && afterLeave.dealer.empty()
                 && afterLeave.outcome == bj::Outcome::None && afterLeave.score.total == 0
                 && afterLeave.score.coins == 0 && afterLeave.offers.empty(), "next round resets all five hands, progress and display");
-            const std::array<int, 8> goals{30, 40, 50, 60, 70, 80, 90, 100};
+            const std::array<int, 8> goals{30, 38, 46, 54, 62, 70, 78, 86};
             check(afterLeave.goal == goals[static_cast<std::size_t>(std::min(afterLeave.round, 8) - 1)],
-                "round goals rise by ten and remain capped at one hundred");
+                "round goals rise by eight and remain capped at eighty-six");
             check(afterLeave.coins == beforeLeave.coins && afterLeave.totalScore == beforeLeave.totalScore
                 && afterLeave.wins == beforeLeave.wins && afterLeave.owned == beforeLeave.owned
                 && afterLeave.streak == beforeLeave.streak && !afterLeave.usedSecondChance,
@@ -899,19 +924,21 @@ void testSeededRunsAndShop() {
         "simulation clears goals early and on the final hand, and fails an insufficient final-hand win");
     check(coverage.longRuns > 0, "runs continue beyond five rounds and old three-stage structure");
     check(coverage.soft17 > 0, "soft-17 dealer stands exercised");
-    check(coverage.cappedGoals > 0, "longer runs exercise the one-hundred-point target cap");
+    check(coverage.cappedGoals > 0, "longer runs exercise the eighty-six-point target cap");
     check(coverage.streakBoosts > 0 && coverage.streakCaps > 0, "Rare Streak adds its capped multiplier after earlier wins");
     check(coverage.additiveStacks > 0 && coverage.legendaryWins > 0, "simulation exercises additive multiplier stacks and triggered Legendary effects");
     check(coverage.naturalPrecisionStacks > 0 && coverage.naturalStreakStacks > 0,
         "Blackjack Bonus stacks with Precision and is included before a Streak multiplier");
     check(coverage.purchases > 0 && coverage.sales > 0 && coverage.reoffers > 0 && coverage.fullBuilds > 0,
-        "simulation buys, sells, reoffers sold upgrades and reaches four active upgrades");
+        "simulation buys, sells, reoffers sold upgrades and reaches eight active upgrades");
     check(coverage.cardStreams > 0, "transactions compared against no-shopping runs");
     check(coverage.shields > 0 && coverage.spentShields > 0 && coverage.persistentShields > 0 && coverage.shieldResets > 0,
         "shield rescues one bust, stays spent within a round and recharges at the next round");
     for (const auto& item : catalog) {
         const auto index = static_cast<std::size_t>(item.id);
-        check(coverage.active[index] > 0 && coverage.inactive[index] > 0, std::string(item.name) + " condition checked both met and unmet");
+        if (bj::isActiveRelic(item.id) || item.id == bj::Relic::Alchemist) continue; // Exercised by the active-command tests.
+        const bool unconditional = item.id == bj::Relic::VelvetDividend || item.id == bj::Relic::SilverLining || item.id == bj::Relic::RoyalDecree;
+        check(coverage.active[index] > 0 && (unconditional || coverage.inactive[index] > 0), std::string(item.name) + " reward condition covered");
     }
     std::cout << "Seeded runs: 3000; wins " << coverage.wins << ", pushes " << coverage.pushes
               << ", lost hands " << coverage.losses << "; cleared rounds " << coverage.clearedRounds
@@ -922,6 +949,252 @@ void testSeededRunsAndShop() {
               << "; additive stacks " << coverage.additiveStacks << ", horizon survivors " << coverage.ongoingRuns << '\n';
 }
 
+// Acquire through real seeded shops; never mutate Game's const snapshot to arrange tests.
+bj::Game findAbilityHand(bj::Relic relic, const std::function<bool(const bj::Snapshot&)>& matches) {
+    for (std::uint32_t seed = 0; seed < 2000; ++seed) {
+        bj::Game game(seed, bj::StartDeck::Rich);
+        for (int step = 0; step < 160; ++step) {
+            if (game.state().phase == bj::Phase::Ready) game.deal();
+            else if (game.state().phase == bj::Phase::PlayerTurn) {
+                if (game.hasRelic(relic)) {
+                    auto candidate = game;
+                    for (int hit = 0; hit < 20 && candidate.state().phase == bj::Phase::PlayerTurn; ++hit) {
+                        if (matches(candidate.state())) return candidate;
+                        if (!candidate.hit()) break;
+                    }
+                }
+                game = finishBest(game);
+            } else if (game.state().phase == bj::Phase::RoundOver) game.advance();
+            else if (game.state().phase == bj::Phase::Shop) {
+                game.buy(relic);
+                game.leaveShop();
+            } else break;
+        }
+    }
+    throw std::runtime_error("Ability test could not acquire a matching legal hand");
+}
+
+void testBoundedActiveAbilities() {
+    const auto pending = [](const bj::Snapshot& state) { return state.pendingRescue && state.handsLeft > 0; };
+    for (auto relic : {bj::Relic::Rewind, bj::Relic::Redraw, bj::Relic::Lifeline}) {
+        auto game = findAbilityHand(relic, pending);
+        const auto before = game.state();
+        check(before.outcome == bj::Outcome::None && before.score.total == 0 && before.dealer.size() == 2,
+            "rescue window precedes settlement and does not draw/reveal dealer cards");
+        check(bj::abilityStatus(before, relic).usable && bj::abilityStatus(before, relic).remaining == 1,
+            "an owned usable rescue exposes exactly one charge");
+        check(!game.hit() && !game.chooseCard(0) && sameState(before, game.state()),
+            "a pending bust blocks extra hits and nonexistent choices without mutation");
+        auto decline = game;
+        check(decline.stand() && decline.state().outcome == bj::Outcome::Loss && !decline.state().pendingRescue,
+            "Stand explicitly accepts a pending bust loss");
+        const auto settled = decline.state();
+        check(!decline.activate(relic) && !decline.stand() && sameState(settled, decline.state()),
+            "settled loss cannot be reopened or paid twice");
+        auto deterministic = game;
+        check(game.activate(relic) && deterministic.activate(relic) && sameState(game.state(), deterministic.state()),
+            "active rescue is deterministic on identical seeded states");
+        const auto after = game.state();
+        check(bj::abilityStatus(after, relic).remaining == 0 && !game.activate(relic) && sameState(after, game.state()),
+            "activation consumes its charge once and repeated clicks are harmless");
+        check(sameCards(before.dealer, after.dealer) || after.outcome != bj::Outcome::None,
+            "rescue keeps dealer cards hidden until a real settlement");
+        if (relic != bj::Relic::Redraw) {
+            auto expected = before.player;
+            expected.pop_back();
+            check(sameCards(after.player, expected) && after.phase == bj::Phase::PlayerTurn
+                && !after.pendingRescue && after.rescuedThisHand && after.alteredThisHand,
+                "discard rescue removes exactly the last hit and resumes the same hand");
+            check(after.coins == before.coins && after.totalScore == before.totalScore
+                && after.roundScore == before.roundScore && after.handsLeft == before.handsLeft,
+                "rescue neither awards rewards nor refunds a hand");
+        } else {
+            check(after.player.size() == before.player.size()
+                && !sameCards({after.player.back()}, {before.player.back()}),
+                "Redraw replaces exactly one card with a fresh deck card");
+        }
+        if (relic == bj::Relic::Lifeline) {
+            check(after.usedHandAbilities.empty() && contains(after.usedRoundAbilities, relic),
+                "Lifeline uses its independent once-per-round budget");
+            auto continuation = finishBest(game);
+            if (continuation.state().phase == bj::Phase::RoundOver) {
+                continuation.advance();
+                if (continuation.state().phase == bj::Phase::Ready) {
+                    continuation.deal();
+                    check(bj::abilityStatus(continuation.state(), relic).remaining == 0,
+                        "dealing again in the same round does not recharge Lifeline");
+                } else if (continuation.state().phase == bj::Phase::Shop) {
+                    continuation.leaveShop();
+                    check(bj::abilityStatus(continuation.state(), relic).remaining == 1,
+                        "entering the next round recharges Lifeline");
+                }
+            }
+        }
+        game.restart(before.seed);
+        check(game.state().owned.empty() && game.state().usedHandAbilities.empty()
+            && game.state().usedRoundAbilities.empty() && game.state().cardChoices.empty()
+            && !game.state().pendingRescue && !game.state().alteredThisHand && !game.state().rescuedThisHand,
+            "restart clears equipment and all ability, choice and rescue state");
+    }
+    for (auto relic : {bj::Relic::Rewind, bj::Relic::Redraw, bj::Relic::ForkedPath}) {
+        auto game = findAbilityHand(relic, [=](const bj::Snapshot& state) {
+            return !state.pendingRescue && state.handsLeft > 0
+                && (relic == bj::Relic::ForkedPath || state.player.size() > 2);
+        });
+        check(game.activate(relic), "per-hand charge is usable before recharge test");
+        if (!game.state().cardChoices.empty()) game.chooseCard(0);
+        game = finishBest(game);
+        check(game.advance(), "ability hand can advance without replaying activation");
+        if (game.state().phase == bj::Phase::Shop) game.leaveShop();
+        check(game.deal() && bj::abilityStatus(game.state(), relic).remaining == 1
+            && game.state().usedHandAbilities.empty() && !game.state().alteredThisHand,
+            "dealing a new hand clears per-hand usage and synergy flags exactly once");
+    }
+    auto rewind = findAbilityHand(bj::Relic::Rewind, [](const bj::Snapshot& state) {
+        return state.player.size() == 2 && !state.pendingRescue;
+    });
+    const auto opening = rewind.state();
+    check(!rewind.activate(bj::Relic::Rewind) && sameState(opening, rewind.state()),
+        "Rewind cannot remove an opening card");
+    auto redraw = findAbilityHand(bj::Relic::Redraw, [](const bj::Snapshot& state) {
+        return state.player.size() == 2 && !state.pendingRescue;
+    });
+    check(!redraw.activate(bj::Relic::Redraw), "Redraw cannot manufacture a natural from an opening pair");
+
+    auto fork = findAbilityHand(bj::Relic::ForkedPath, [](const bj::Snapshot& state) { return !state.pendingRescue; });
+    const auto beforeFork = fork.state();
+    check(fork.activate(bj::Relic::ForkedPath), "Forked Path activates on a live nonbusting hand");
+    const auto choosing = fork.state();
+    check(choosing.cardChoices.size() == 2 && sameCards(choosing.player, beforeFork.player)
+        && sameCards(choosing.dealer, beforeFork.dealer) && bj::abilityStatus(choosing, bj::Relic::ForkedPath).remaining == 0,
+        "choice reveals exactly two fresh cards and consumes its charge before selection");
+    check(!fork.hit() && !fork.stand() && !fork.activate(bj::Relic::ForkedPath)
+        && !fork.chooseCard(2) && sameState(choosing, fork.state()),
+        "a pending choice blocks all competing moves and rejects out-of-range selection atomically");
+    for (std::size_t index = 0; index < 2; ++index) {
+        auto choice = fork;
+        check(choice.chooseCard(index), "either offered choice is selectable");
+        const auto& selected = choice.state();
+        check(selected.cardChoices.empty() && selected.player.size() == beforeFork.player.size() + 1
+            && sameCards({selected.player.back()}, {choosing.cardChoices[index]}),
+            "selection adds exactly the chosen card and clears both options");
+        const auto settledChoice = selected;
+        check(!choice.chooseCard(index) && !choice.activate(bj::Relic::ForkedPath) && sameState(settledChoice, choice.state()),
+            "a selected choice cannot be replayed or replenished in the same hand");
+    }
+    fork.restart(beforeFork.seed);
+    check(fork.state().cardChoices.empty(), "restart during a choice discards the pending UI decision");
+    bj::Game bare(1);
+    for (auto relic : {bj::Relic::Rewind, bj::Relic::Redraw, bj::Relic::ForkedPath, bj::Relic::Lifeline}) {
+        check(!bj::abilityStatus(bare.state(), relic).usable && bj::abilityStatus(bare.state(), relic).remaining == 0
+            && !bare.activate(relic), "unowned abilities cannot be used");
+    }
+}
+
+void testActiveSynergySettlement() {
+    bool covered = false;
+    for (std::uint32_t seed = 0; seed < 1500 && !covered; ++seed) {
+        bj::Game game(seed, bj::StartDeck::Rich);
+        for (int step = 0; step < 220 && !covered; ++step) {
+            if (game.state().phase == bj::Phase::Ready) game.deal();
+            else if (game.state().phase == bj::Phase::PlayerTurn) {
+                if (game.hasRelic(bj::Relic::Rewind) && game.hasRelic(bj::Relic::Alchemist)) {
+                    auto attempt = game;
+                    for (int hit = 0; hit < 20 && attempt.state().phase == bj::Phase::PlayerTurn; ++hit) {
+                        if (bj::abilityStatus(attempt.state(), bj::Relic::Rewind).usable) {
+                            auto activated = attempt;
+                            activated.activate(bj::Relic::Rewind);
+                            const auto beforeSettlement = activated.state();
+                            activated = finishBest(activated);
+                            if (activated.state().outcome == bj::Outcome::Win) {
+                                const auto& effects = activated.state().score.appliedEffects;
+                                auto effect = std::find_if(effects.begin(), effects.end(), [](const bj::AppliedEffect& e) {
+                                    return e.relic == bj::Relic::Alchemist;
+                                });
+                                check(effect != effects.end() && effect->coins == 2 && std::abs(effect->multiplierBonus - .8f) < .00001f,
+                                    "Alchemist grants its actual active-use synergy on a real winning hand");
+                                check(activated.state().coins == beforeSettlement.coins + activated.state().score.coins
+                                    && activated.state().totalScore == beforeSettlement.totalScore + activated.state().score.total,
+                                    "active synergy rewards settle exactly once");
+                                const auto paid = activated.state();
+                                check(!activated.activate(bj::Relic::Rewind) && !activated.chooseCard(0) && sameState(paid, activated.state()),
+                                    "post-win ability clicks cannot duplicate synergy payouts");
+                                covered = true;
+                                break;
+                            }
+                        }
+                        if (!attempt.hit()) break;
+                    }
+                }
+                game = finishBest(game);
+            } else if (game.state().phase == bj::Phase::RoundOver) game.advance();
+            else if (game.state().phase == bj::Phase::Shop) {
+                game.buy(bj::Relic::Rewind);
+                game.buy(bj::Relic::Alchemist);
+                game.leaveShop();
+            } else break;
+        }
+    }
+    check(covered, "bounded legal-shop search reaches and verifies active synergy payout");
+}
+
+void testEquipmentExchange() {
+    std::array<bool, 9> seen{};
+    bool exchanged = false;
+    bool rejectedInsufficient = false;
+    for (std::uint32_t seed = 0; seed < 300 && (!exchanged || !rejectedInsufficient); ++seed) {
+        bj::Game game(seed, bj::StartDeck::Rich);
+        for (int step = 0; step < 800; ++step) {
+            seen[game.state().owned.size()] = true;
+            if (game.state().phase == bj::Phase::Ready) game.deal();
+            else if (game.state().phase == bj::Phase::PlayerTurn) game = finishBest(game);
+            else if (game.state().phase == bj::Phase::RoundOver) game.advance();
+            else if (game.state().phase == bj::Phase::RunLost) break;
+            else {
+                const auto offers = game.state().offers;
+                if (!game.state().owned.empty()) {
+                    for (auto offered : offers) {
+                        if (game.hasRelic(offered)) continue;
+                        const auto equipped = game.state().owned.front();
+                        const auto& catalog = bj::relicCatalog();
+                        const int oldCost = std::find_if(catalog.begin(), catalog.end(), [&](const bj::RelicInfo& i) { return i.id == equipped; })->cost;
+                        const int newCost = std::find_if(catalog.begin(), catalog.end(), [&](const bj::RelicInfo& i) { return i.id == offered; })->cost;
+                        const auto before = game.state();
+                        if (before.coins + oldCost / 2 < newCost) {
+                            check(!game.replace(equipped, offered) && sameState(before, game.state()),
+                                "insufficient-funds replacement leaves ownership, coins and charges unchanged");
+                            rejectedInsufficient = true;
+                        } else if (before.owned.size() == bj::maxEquipmentSlots) {
+                            check(!game.buy(offered) && sameState(before, game.state()), "a ninth purchase cannot create a ninth equipped chip");
+                            check(game.replace(equipped, offered), "full equipment can atomically trade a slot for an offered upgrade");
+                            check(game.state().owned.size() == 8 && game.state().owned.front() == offered
+                                && !game.hasRelic(equipped) && game.state().coins == before.coins + oldCost / 2 - newCost,
+                                "replacement keeps slot order and counts with exact sale credit and purchase debit");
+                            const auto after = game.state();
+                            check(!game.replace(offered, offered) && sameState(after, game.state()), "duplicate replacement cannot pay a second refund");
+                            check(game.sell(offered) && game.state().owned.size() == 7, "sale removes exactly one equipped slot");
+                            check(!game.buy(offered), "selling a newly exchanged relic does not allow same-shop rebuy");
+                            game.restart(seed);
+                            check(game.state().owned.empty(), "new run has exactly zero equipped chips");
+                            exchanged = true;
+                            break;
+                        }
+                    }
+                }
+                if (game.state().phase != bj::Phase::Shop) break;
+                for (auto offered : offers) {
+                    game.buy(offered);
+                    seen[game.state().owned.size()] = true;
+                }
+                game.leaveShop();
+            }
+        }
+    }
+    check(exchanged && rejectedInsufficient, "legal play covers full-capacity and rejected exchanges");
+    for (std::size_t count = 0; count < seen.size(); ++count)
+        check(seen[count], "legal acquisition visits each equipment count from zero through eight");
+}
+
 } // namespace
 
 int main() {
@@ -929,6 +1202,9 @@ int main() {
         testHands();
         testExpandedCatalogueContract();
         testDeterminismAndBlockedRandomness();
+        testBoundedActiveAbilities();
+        testEquipmentExchange();
+        testActiveSynergySettlement();
         testNaturalBaseAndActualBust();
         testBlackjackBonusCounterfactual();
         testStartingDecks();

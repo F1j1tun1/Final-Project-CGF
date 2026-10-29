@@ -9,13 +9,12 @@
 namespace bj {
 namespace {
 
-constexpr int kWinCoins = 3;
+constexpr int kWinCoins = 4;
 constexpr int kHandsPerRound = 5;
-constexpr std::size_t kMaxRelics = 4;
 
 int goalForRound(int round) {
     // Evaluate the multiplication only while the result remains below the cap.
-    return round >= 8 ? 100 : 30 + 10 * (round - 1);
+    return round >= 8 ? 86 : 30 + 8 * (round - 1);
 }
 
 // Rejection sampling keeps seeded shuffles identical across standard libraries.
@@ -74,9 +73,9 @@ const char* rarityName(Rarity rarity) {
 
 int rarityWeight(Rarity rarity) {
     switch (rarity) {
-    case Rarity::Common: return 55;
-    case Rarity::Rare: return 35;
-    case Rarity::Legendary: return 10;
+    case Rarity::Common: return 50;
+    case Rarity::Rare: return 36;
+    case Rarity::Legendary: return 14;
     }
     return 0;
 }
@@ -106,9 +105,49 @@ const std::vector<RelicInfo>& relicCatalog() {
         {Relic::FiveCardParade, "Five Card Parade", "Win with 5+ cards: +1.5 multiplier.", 10, Rarity::Legendary},
         {Relic::FinalAct, "Final Act", "Win on the round's last available hand: +1.0 multiplier.", 10, Rarity::Legendary},
         {Relic::Underdog, "Underdog", "Win with 16 or less when the dealer busts: +1.5 multiplier.", 10, Rarity::Legendary},
-        {Relic::Encore, "Encore", "Win after 3+ earlier consecutive wins: +1.0 multiplier.", 10, Rarity::Legendary}
+        {Relic::Encore, "Encore", "Win after 3+ earlier consecutive wins: +1.0 multiplier.", 10, Rarity::Legendary},
+        {Relic::Rewind, "Rewind", "ACTIVE: discard your last hit, including a bust card. Once per hand; opening cards cannot be removed.", 6, Rarity::Rare},
+        {Relic::Redraw, "Redraw", "ACTIVE: replace your last hit with the next card. Once per hand; the replacement can still bust.", 6, Rarity::Rare},
+        {Relic::ForkedPath, "Forked Path", "ACTIVE: draw two cards and choose one as your next hit. The other is discarded. Once per hand.", 10, Rarity::Legendary},
+        {Relic::Lifeline, "Lifeline", "ACTIVE: discard a bust card before the hand settles. Once per round; recharges next round.", 10, Rarity::Legendary},
+        {Relic::VelvetDividend, "Velvet Dividend", "Every win earns +2 coins.", 3, Rarity::Common},
+        {Relic::LuckySeven, "Lucky Seven", "Win with at least one seven: +7 points.", 3, Rarity::Common},
+        {Relic::TwinSigil, "Twin Sigil", "Win with a matching opening pair: +10 points.", 3, Rarity::Common},
+        {Relic::MixedCompany, "Mixed Company", "Win with both red and black cards: +5 points.", 3, Rarity::Common},
+        {Relic::Crescendo, "Crescendo", "Win with 3+ cards: +0.75 multiplier.", 6, Rarity::Rare},
+        {Relic::AceHigh, "Ace High", "Win with any ace: +0.75 multiplier and +1 coin.", 6, Rarity::Rare},
+        {Relic::SilverLining, "Silver Lining", "Every win adds +0.35 multiplier.", 6, Rarity::Rare},
+        {Relic::LoadedDice, "Loaded Dice", "Win with 18 or more: +8 points.", 6, Rarity::Rare},
+        {Relic::Alchemist, "Alchemist", "Win after using an active ability: +0.8 multiplier and +2 coins.", 6, Rarity::Rare},
+        {Relic::Phoenix, "Phoenix", "Win after escaping a bust with any rescue: +2.0 multiplier and +2 coins.", 10, Rarity::Legendary},
+        {Relic::RoyalDecree, "Royal Decree", "Every win adds +0.8 multiplier.", 10, Rarity::Legendary},
+        {Relic::GrandFinale, "Grand Finale", "Win with at most one hand remaining: +1.5 multiplier.", 10, Rarity::Legendary}
     };
     return catalog;
+}
+
+bool isActiveRelic(Relic relic) {
+    return relic == Relic::Rewind || relic == Relic::Redraw
+        || relic == Relic::ForkedPath || relic == Relic::Lifeline;
+}
+
+AbilityStatus abilityStatus(const Snapshot& state, Relic relic) {
+    if (!isActiveRelic(relic)) return {};
+    if (std::find(state.owned.begin(), state.owned.end(), relic) == state.owned.end())
+        return {0, 1, false, "Not equipped"};
+    const bool roundCharge = relic == Relic::Lifeline;
+    const auto& used = roundCharge ? state.usedRoundAbilities : state.usedHandAbilities;
+    if (std::find(used.begin(), used.end(), relic) != used.end())
+        return {0, 1, false, roundCharge ? "Spent - recharges next round" : "Spent - recharges next hand"};
+    if (state.phase != Phase::PlayerTurn)
+        return {1, 1, false, "Available during your turn"};
+    if (!state.cardChoices.empty()) return {1, 1, false, "Choose a card first"};
+    if (relic == Relic::Lifeline)
+        return {1, 1, state.pendingRescue, state.pendingRescue ? "Ready - once per round" : "Use after a bust"};
+    if (relic == Relic::ForkedPath)
+        return {1, 1, !state.pendingRescue, state.pendingRescue ? "Resolve the bust first" : "Ready - once per hand"};
+    if (state.player.size() <= 2) return {1, 1, false, "Hit once before using"};
+    return {1, 1, true, "Ready - once per hand"};
 }
 
 Game::Game(std::uint32_t seed, StartDeck deck) {
@@ -135,7 +174,7 @@ void Game::restart(std::uint32_t seed, StartDeck deck) {
     state_.handsLeft = state_.maxHands;
     state_.coins = deck == StartDeck::Rich ? 10 : 0;
     state_.revivesLeft = deck == StartDeck::SecondLife ? 1 : 0;
-    state_.message = "Reach the round goal in " + std::to_string(state_.maxHands) + " hands. A win earns points and 3 coins.";
+    state_.message = "Reach the round goal in " + std::to_string(state_.maxHands) + " hands. A win earns points and 4 coins.";
     cardRandom_.seed(seed);
     shopRandom_.seed(seed ^ 0x9e3779b9u);
     deck_.clear();
@@ -196,6 +235,11 @@ bool Game::deal() {
     state_.dealer.clear();
     state_.score = ScoreBreakdown{};
     rescuedThisHand_ = false;
+    state_.usedHandAbilities.clear();
+    state_.cardChoices.clear();
+    state_.pendingRescue = false;
+    state_.alteredThisHand = false;
+    state_.rescuedThisHand = false;
     state_.outcome = Outcome::None;
     --state_.handsLeft;
     state_.phase = Phase::PlayerTurn;
@@ -211,18 +255,33 @@ bool Game::deal() {
 }
 
 bool Game::hit() {
-    if (state_.phase != Phase::PlayerTurn) {
+    if (state_.phase != Phase::PlayerTurn || state_.pendingRescue || !state_.cardChoices.empty()) {
         return false;
     }
     state_.player.push_back(draw());
+    resolvePlayerCard();
+    return true;
+}
+
+void Game::resolvePlayerCard() {
+    state_.pendingRescue = false;
     const auto value = evaluateHand(state_.player);
     if (value.bust) {
         if (hasRelic(Relic::SecondChance) && !state_.usedSecondChance) {
             state_.player.pop_back();
             state_.usedSecondChance = true;
             rescuedThisHand_ = true;
+            state_.rescuedThisHand = true;
             state_.message = "Second Chance saved you! The bust card was discarded.";
+            return;
+        }
+        // Keep the hole card hidden and defer settlement while a real rescue is possible.
+        state_.pendingRescue = true;
+        if (abilityStatus(state_, Relic::Rewind).usable || abilityStatus(state_, Relic::Redraw).usable
+            || abilityStatus(state_, Relic::Lifeline).usable) {
+            state_.message = "Bust! Use an available rescue chip, or Stand to accept the loss.";
         } else {
+            state_.pendingRescue = false;
             finishRound();
         }
     } else if (value.total == 21) {
@@ -230,12 +289,50 @@ bool Game::hit() {
     } else {
         state_.message = "Draw again, or stand with your current hand.";
     }
+}
+
+bool Game::activate(Relic relic) {
+    if (!abilityStatus(state_, relic).usable) return false;
+    auto& used = relic == Relic::Lifeline ? state_.usedRoundAbilities : state_.usedHandAbilities;
+    used.push_back(relic);
+    state_.alteredThisHand = true;
+    if (relic == Relic::ForkedPath) {
+        state_.cardChoices = {draw(), draw()};
+        state_.message = "Forked Path: choose one card to add to your hand. The other is discarded.";
+        return true;
+    }
+    const bool wasBust = state_.pendingRescue;
+    state_.pendingRescue = false;
+    state_.player.pop_back();
+    if (relic == Relic::Redraw) {
+        state_.player.push_back(draw());
+        if (wasBust && !evaluateHand(state_.player).bust) state_.rescuedThisHand = true;
+        resolvePlayerCard();
+    } else {
+        state_.rescuedThisHand = state_.rescuedThisHand || wasBust;
+        state_.message = relic == Relic::Rewind ? "Rewind discarded your last hit. Choose your next move."
+            : "Lifeline saved this hand. Your round charge is spent.";
+    }
+    return true;
+}
+
+bool Game::chooseCard(std::size_t index) {
+    if (state_.phase != Phase::PlayerTurn || index >= state_.cardChoices.size()) return false;
+    const Card selected = state_.cardChoices[index];
+    state_.cardChoices.clear();
+    state_.player.push_back(selected);
+    resolvePlayerCard();
     return true;
 }
 
 bool Game::stand() {
-    if (state_.phase != Phase::PlayerTurn) {
+    if (state_.phase != Phase::PlayerTurn || !state_.cardChoices.empty()) {
         return false;
+    }
+    if (state_.pendingRescue) {
+        state_.pendingRescue = false;
+        finishRound();
+        return true;
     }
     while (evaluateHand(state_.dealer).total < state_.dealerStand) {
         state_.dealer.push_back(draw());
@@ -299,6 +396,20 @@ void Game::finishRound() {
         apply(Relic::FinalAct, state_.handsLeft == 0, 0, 0, 1.0f);
         apply(Relic::Underdog, player.total <= 16 && dealer.bust, 0, 0, 1.5f);
         apply(Relic::Encore, state_.streak >= 3, 0, 0, 1.0f);
+        apply(Relic::VelvetDividend, true, 0, 2, 0);
+        apply(Relic::LuckySeven, std::any_of(state_.player.begin(), state_.player.end(), [](const Card& c) { return c.rank == 7; }), 7, 0, 0);
+        apply(Relic::TwinSigil, state_.player[0].rank == state_.player[1].rank, 10, 0, 0);
+        const bool anyRed = std::any_of(state_.player.begin(), state_.player.end(), isRed);
+        const bool anyBlack = std::any_of(state_.player.begin(), state_.player.end(), [](const Card& c) { return !isRed(c); });
+        apply(Relic::MixedCompany, anyRed && anyBlack, 5, 0, 0);
+        apply(Relic::Crescendo, state_.player.size() >= 3, 0, 0, .75f);
+        apply(Relic::AceHigh, std::any_of(state_.player.begin(), state_.player.end(), [](const Card& c) { return c.rank == 1; }), 0, 1, .75f);
+        apply(Relic::SilverLining, true, 0, 0, .35f);
+        apply(Relic::LoadedDice, player.total >= 18, 8, 0, 0);
+        apply(Relic::Alchemist, state_.alteredThisHand, 0, 2, .8f);
+        apply(Relic::Phoenix, state_.rescuedThisHand, 0, 2, 2.0f);
+        apply(Relic::RoyalDecree, true, 0, 0, .8f);
+        apply(Relic::GrandFinale, state_.handsLeft <= 1, 0, 0, 1.5f);
         state_.score.total = static_cast<int>(std::lround(
             static_cast<float>(state_.score.base + state_.score.bonus) * state_.score.multiplier));
         state_.roundScore += state_.score.total;
@@ -336,7 +447,7 @@ bool Game::advance() {
 }
 
 bool Game::buy(Relic relic) {
-    if (state_.phase != Phase::Shop || hasRelic(relic) || state_.owned.size() >= kMaxRelics
+    if (state_.phase != Phase::Shop || hasRelic(relic) || state_.owned.size() >= maxEquipmentSlots
         || std::find(state_.offers.begin(), state_.offers.end(), relic) == state_.offers.end()
         || boughtThisShop(relic)) {
         return false;
@@ -363,6 +474,21 @@ bool Game::sell(Relic relic) {
     state_.owned.erase(std::find(state_.owned.begin(), state_.owned.end(), relic));
     state_.coins += item->cost / 2;
     state_.message = std::string(item->name) + " sold for " + std::to_string(item->cost / 2) + " coins.";
+    return true;
+}
+
+bool Game::replace(Relic equipped, Relic offered) {
+    if (state_.phase != Phase::Shop || !hasRelic(equipped) || hasRelic(offered)
+        || boughtThisShop(offered)
+        || std::find(state_.offers.begin(), state_.offers.end(), offered) == state_.offers.end()) return false;
+    const auto* oldItem = relicInfo(equipped);
+    const auto* newItem = relicInfo(offered);
+    if (!oldItem || !newItem || state_.coins + oldItem->cost / 2 < newItem->cost) return false;
+    // Validate the whole exchange before changing ownership or money.
+    state_.coins += oldItem->cost / 2 - newItem->cost;
+    *std::find(state_.owned.begin(), state_.owned.end(), equipped) = offered;
+    boughtThisShop_.push_back(offered);
+    state_.message = std::string(oldItem->name) + " replaced with " + newItem->name + ".";
     return true;
 }
 
@@ -433,6 +559,12 @@ void Game::resetRoundAttempt() {
     state_.handsLeft = state_.maxHands;
     state_.roundScore = 0;
     state_.usedSecondChance = false;
+    state_.usedHandAbilities.clear();
+    state_.usedRoundAbilities.clear();
+    state_.cardChoices.clear();
+    state_.pendingRescue = false;
+    state_.alteredThisHand = false;
+    state_.rescuedThisHand = false;
     state_.player.clear();
     state_.dealer.clear();
     state_.score = ScoreBreakdown{};

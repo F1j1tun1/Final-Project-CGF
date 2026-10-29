@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <random>
 #include <string>
@@ -29,8 +30,14 @@ enum class Relic {
     Precision, LongHand, SecondChance, Streak, RoyalPurse, SoftTouch,
     NarrowEscape, RedRibbon, BlackVelvet, EvenOdds, CourtFavor, HumbleCrown,
     BlackjackBonus, CopperBell, SeventeenCharm, ScarletMask, MidnightMask,
-    RoyalCourt, SoftCrown, JesterCrown, FiveCardParade, FinalAct, Underdog, Encore
+    RoyalCourt, SoftCrown, JesterCrown, FiveCardParade, FinalAct, Underdog, Encore,
+    Rewind, Redraw, ForkedPath, Lifeline, VelvetDividend, LuckySeven, TwinSigil,
+    MixedCompany, Crescendo, AceHigh, SilverLining, LoadedDice, Alchemist,
+    Phoenix, RoyalDecree, GrandFinale
 };
+
+inline constexpr std::size_t maxEquipmentSlots = 8;
+bool isActiveRelic(Relic relic);
 
 enum class Rarity { Common, Rare, Legendary };
 const char* rarityName(Rarity rarity);
@@ -87,9 +94,26 @@ struct Snapshot {
     bool usedSecondChance = false;
     std::vector<Relic> owned;
     std::vector<Relic> offers;
+    // Charges belong to equipped relics; no parallel equipment inventory exists.
+    std::vector<Relic> usedHandAbilities;
+    std::vector<Relic> usedRoundAbilities;
+    std::vector<Card> cardChoices;
+    bool pendingRescue = false;
+    bool alteredThisHand = false;
+    bool rescuedThisHand = false;
     ScoreBreakdown score;
     std::string message;
 };
+
+struct AbilityStatus {
+    int remaining = 0;
+    int maximum = 0;
+    bool usable = false;
+    const char* reason = "Passive effect";
+};
+
+// Safe to query both the authoritative state and a paced presentation snapshot.
+AbilityStatus abilityStatus(const Snapshot& state, Relic relic);
 
 class Game {
 public:
@@ -105,6 +129,9 @@ public:
     bool advance();
     bool buy(Relic relic);
     bool sell(Relic relic);
+    bool replace(Relic equipped, Relic offered);
+    bool activate(Relic relic);
+    bool chooseCard(std::size_t index);
     bool leaveShop();
     bool hasRelic(Relic relic) const;
     bool boughtThisShop(Relic relic) const;
@@ -121,6 +148,7 @@ private:
     void shuffleDeck();
     Card draw();
     void finishRound();
+    void resolvePlayerCard();
     void openShop();
     void resetRoundAttempt();
 };
