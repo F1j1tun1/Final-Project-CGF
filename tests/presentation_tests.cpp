@@ -1,4 +1,5 @@
 #include "presentation/Presentation.hpp"
+#include "presentation/ScoreHistory.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -31,12 +32,13 @@ std::string fingerprint(const bj::Snapshot& snapshot) {
         << ':' << snapshot.goal << ':' << static_cast<int>(snapshot.startDeck) << ':' << snapshot.maxHands
         << ':' << snapshot.revivesLeft << ':' << snapshot.revivalsUsed << ':' << snapshot.wins << ':' << snapshot.totalScore
         << ':' << snapshot.coins << ':' << snapshot.streak << ':' << snapshot.dealerStand
-        << ':' << snapshot.seed << ':' << snapshot.usedSecondChance << ':' << snapshot.message;
-    for (const auto& hand : {snapshot.player, snapshot.dealer}) {
+        << ':' << snapshot.seed << ':' << snapshot.usedSecondChance << ':' << snapshot.message
+        << ':' << snapshot.pendingRescue << ':' << snapshot.alteredThisHand << ':' << snapshot.rescuedThisHand;
+    for (const auto& hand : {snapshot.player, snapshot.dealer, snapshot.cardChoices}) {
         out << '|';
         for (const auto& card : hand) out << card.rank << ',' << static_cast<int>(card.suit) << ';';
     }
-    for (const auto& relics : {snapshot.owned, snapshot.offers}) {
+    for (const auto& relics : {snapshot.owned, snapshot.offers, snapshot.usedHandAbilities, snapshot.usedRoundAbilities}) {
         out << '|';
         for (const auto relic : relics) out << static_cast<int>(relic) << ',';
     }
@@ -294,6 +296,122 @@ void legendaryEffects() {
     check(timeline.legendPulse() == 0.0f,
           "A common purchase cannot replay an old legendary activation");
 }
+
+void activeCardAlterations() {
+    auto before = playing();
+    before.player = cards({10, 4, 9});
+    before.owned = {bj::Relic::Rewind, bj::Relic::Redraw, bj::Relic::ForkedPath, bj::Relic::Lifeline};
+    before.pendingRescue = true;
+    auto after = before;
+    after.player.pop_back();
+    after.pendingRescue = false;
+    after.alteredThisHand = after.rescuedThisHand = true;
+    after.usedHandAbilities = {bj::Relic::Rewind};
+    after.message = "Last hit undone";
+    presentation::Presentation timeline;
+    presentation::ScoreHistory history;
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(timeline.busy() && timeline.visible().player.size() == 2 && !timeline.dealerRevealed(),
+          "Rewind removes the actual last card while keeping the dealer hidden");
+    check(!timeline.visible().pendingRescue && timeline.visible().usedHandAbilities == after.usedHandAbilities
+          && timeline.visible().rescuedThisHand && timeline.visible().alteredThisHand,
+          "Rescue state and spent charges update as soon as the ability starts");
+    history.observe(timeline.visible(), timeline.busy());
+    settle(timeline);
+    history.observe(timeline.visible(), timeline.busy());
+    check(fingerprint(timeline.visible()) == fingerprint(after) && history.records().empty(),
+          "A rewind changes no settled score and creates no journal entry");
+
+    before = after;
+    before.player.push_back({5, bj::Suit::Hearts});
+    after = before;
+    after.player.back() = {6, bj::Suit::Spades};
+    after.usedHandAbilities.push_back(bj::Relic::Redraw);
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(timeline.busy() && timeline.visible().player.size() == 3
+          && timeline.visible().player.back().rank == 6 && timeline.visible().player.back().suit == bj::Suit::Spades
+          && timeline.playerArrival() == 0 && !timeline.dealerRevealed(),
+          "Redraw animates the replacement card even when hand size is unchanged");
+    check(timeline.visible().usedHandAbilities == after.usedHandAbilities,
+          "Redraw charge cannot appear available while its replacement card arrives");
+    settle(timeline);
+    check(fingerprint(timeline.visible()) == fingerprint(after), "Redraw settles to exactly the authoritative hand");
+    before = after;
+    after.player.back().suit = bj::Suit::Diamonds;
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(timeline.busy() && timeline.playerArrival() == 0
+          && timeline.visible().player.back().suit == bj::Suit::Diamonds,
+          "A same-rank redraw still notices the changed suit");
+    settle(timeline);
+
+    before = playing();
+    before.player = cards({10, 3});
+    before.owned = {bj::Relic::ForkedPath};
+    after = before;
+    after.cardChoices = cards({4, 8});
+    after.usedHandAbilities = {bj::Relic::ForkedPath};
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(!timeline.busy() && !timeline.dealerRevealed() && fingerprint(timeline.visible()) == fingerprint(after),
+          "Opening a choice exposes its candidates immediately without inventing a draw or dealer reveal");
+    history.observe(timeline.visible(), timeline.busy());
+    before = after;
+    after.cardChoices.clear();
+    after.player.push_back({4, bj::Suit::Hearts});
+    after.alteredThisHand = true;
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(timeline.busy() && timeline.playerArrival() == 0 && timeline.visible().cardChoices.empty()
+          && !timeline.dealerRevealed(), "The chosen card arrives once and closes the choice immediately");
+    settle(timeline);
+    history.observe(timeline.visible(), timeline.busy());
+    check(history.records().empty(), "Unsettled choices never enter the score journal");
+
+    before = after;
+    after = winFrom(before);
+    timeline.begin(before, after, presentation::Action::Stand);
+    while (timeline.busy()) {
+        history.observe(timeline.visible(), true);
+        timeline.accelerate();
+    }
+    history.observe(timeline.visible(), false);
+    history.observe(timeline.visible(), false);
+    check(history.records().size() == 1 && history.records().front().score.total == after.score.total,
+          "An altered hand enters the journal exactly once at its real settlement");
+
+    before = playing();
+    before.player = cards({10, 3, 9});
+    before.pendingRescue = true;
+    before.owned = {bj::Relic::Lifeline};
+    after = before;
+    after.player.pop_back();
+    after.pendingRescue = false;
+    after.alteredThisHand = after.rescuedThisHand = true;
+    after.usedRoundAbilities = {bj::Relic::Lifeline};
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(timeline.visible().usedRoundAbilities == after.usedRoundAbilities
+          && timeline.visible().outcome == bj::Outcome::None && !timeline.dealerRevealed(),
+          "Lifeline spends its round charge without settling or revealing the dealer");
+    settle(timeline);
+    check(fingerprint(timeline.visible()) == fingerprint(after), "Lifeline keeps all final snapshot metadata exact");
+
+    before = playing();
+    before.player = cards({10, 5, 9});
+    before.pendingRescue = true;
+    after = before;
+    after.player.back() = {6, bj::Suit::Clubs};
+    after.pendingRescue = false;
+    after.alteredThisHand = after.rescuedThisHand = true;
+    after.usedHandAbilities = {bj::Relic::Redraw};
+    after = winFrom(after);
+    timeline.begin(before, after, presentation::Action::Ability);
+    check(timeline.visible().player.back().rank == 6 && timeline.visible().score.total == 0
+          && timeline.visible().coins == before.coins && !timeline.dealerRevealed(),
+          "A redraw reaching 21 cannot leak payout or dealer cards before replacement arrival");
+    timeline.accelerate();
+    check(timeline.dealerFlipping(), "A settled ability reveals the hole card only after its replacement arrives");
+    settle(timeline);
+    check(fingerprint(timeline.visible()) == fingerprint(after), "A winning redraw settles to its sole authoritative payout");
+}
+
 } // namespace
 
 int main() {
@@ -303,6 +421,7 @@ int main() {
     hitRescueAndSkip();
     timingResetAndDeterminism();
     legendaryEffects();
+    activeCardAlterations();
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

@@ -52,6 +52,14 @@ void Presentation::begin(const bj::Snapshot& before, const bj::Snapshot& after, 
     visible_.outcome = bj::Outcome::None;
     visible_.score = bj::ScoreBreakdown{};
     visible_.handsLeft = after.handsLeft;
+    // Charge consumption and rescue/choice state are authoritative immediately.
+    // Cards and rewards below remain paced; no ability can reveal a settlement.
+    visible_.usedHandAbilities = after.usedHandAbilities;
+    visible_.usedRoundAbilities = after.usedRoundAbilities;
+    visible_.cardChoices = after.cardChoices;
+    visible_.pendingRescue = after.pendingRescue;
+    visible_.alteredThisHand = after.alteredThisHand;
+    visible_.rescuedThisHand = after.rescuedThisHand;
     visible_.message = action == Action::Deal ? "Dealing the cards..." : "The cards are settling...";
     dealerRevealed_ = before.phase != bj::Phase::PlayerTurn && action != Action::Deal;
 
@@ -64,8 +72,17 @@ void Presentation::begin(const bj::Snapshot& before, const bj::Snapshot& after, 
             if (i < after.dealer.size()) stages_.push_back({Kind::DealerCard, i});
         }
     } else {
-        for (std::size_t i = before.player.size(); i < after.player.size(); ++i)
+        // A redraw can replace a suffix without changing hand size, and rewind
+        // removes it. Only append-only handling would leave stale cards visible.
+        std::size_t common = 0;
+        while (common < before.player.size() && common < after.player.size() &&
+               before.player[common].rank == after.player[common].rank &&
+               before.player[common].suit == after.player[common].suit) ++common;
+        visible_.player.resize(common);
+        for (std::size_t i = common; i < after.player.size(); ++i)
             stages_.push_back({Kind::PlayerCard, i});
+        if (action == Action::Ability && common < before.player.size() && stages_.empty())
+            stages_.push_back({Kind::Alteration, 0});
     }
 
     if (rescued) stages_.push_back({Kind::Rescue, 0});
@@ -105,6 +122,8 @@ void Presentation::enterStage() {
     case Kind::Rescue:
         legendPulse_ = 1.0f;
         break;
+    case Kind::Alteration:
+        break;
     case Kind::RewardBase:
         visible_ = final_;
         dealerRevealed_ = true;
@@ -140,7 +159,8 @@ void Presentation::finishStage() {
 
 float Presentation::duration(float speed) const {
     float natural = 0.55f;
-    if (is(Kind::Flip) || is(Kind::RewardBase)) natural = 0.4f;
+    if (is(Kind::Alteration)) natural = 0.3f;
+    else if (is(Kind::Flip) || is(Kind::RewardBase)) natural = 0.4f;
     else if (is(Kind::Rescue) || is(Kind::RewardEffect)) natural = 0.5f;
     else if (is(Kind::RewardTotal)) natural = 0.6f;
     return natural + (0.07f - natural) * speed;

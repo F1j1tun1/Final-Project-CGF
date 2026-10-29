@@ -7,7 +7,7 @@
 
 namespace presentation {
 
-enum class Action { Deal, Hit, Stand, Other };
+enum class Action { Deal, Hit, Stand, Ability, Other };
 
 // Owns only a paced view of snapshots; game commands and randomness stay in Game.
 class Presentation {
@@ -35,7 +35,7 @@ public:
     std::size_t rewardVisibleEffects() const;
 
 private:
-    enum class Kind { PlayerCard, DealerCard, Flip, Rescue, RewardBase, RewardEffect, RewardTotal };
+    enum class Kind { PlayerCard, DealerCard, Flip, Rescue, Alteration, RewardBase, RewardEffect, RewardTotal };
     struct Stage {
         Kind kind;
         std::size_t index = 0;
