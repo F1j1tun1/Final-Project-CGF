@@ -186,24 +186,37 @@
     }
 
     void drawRoomDust(float time, bool animate) {
-        const float t=animate?time:0;
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
-        glDepthMask(GL_FALSE);
-        // Fixed world-space populations behind the card area and inside the stage lights.
-        // No spawning/wrapping discontinuities: slow bounded drift, 112 grains total.
-        for(int i=0;i<112;++i) {
-            const float phase=i*2.399963f;
-            const bool stage=i>=64;
-            const float x=std::sin(phase)*(stage?9.0f:4.0f)+std::sin(t*.11f+phase)*.18f;
-            const float y=(stage?2.0f:1.4f)+(.5f+.5f*std::sin(phase*3.71f))*(stage?4.5f:2.6f)+std::sin(t*.09f+phase)*.16f;
-            const float z=(stage?-42.0f:-4.4f)+std::cos(phase*1.7f)*(stage?3.4f:1.4f)
-                +std::sin(t*.07f+phase)*.12f;
-            const float radius=(stage?.035f:.013f)+(i%3)*(stage?.009f:.004f);
-            const float opacity=.28f+(i%4)*.045f;
-            draw(sphere,transform({x,y,z},{radius,radius,radius}),{.72f,.60f,.39f},
-                 0,glm::vec2(1),0,8,.55f,opacity);
+        const float t = animate ? time : 0;
+        struct Grain { glm::vec3 position; float radius, opacity, distance; };
+        std::vector<Grain> grains;
+        grains.reserve(300);
+        // Independent integer hashes fill a volume, without correlated sine shells or depth bands.
+        const auto hash = [](std::uint32_t n) {
+            n ^= n >> 16; n *= 0x7feb352du; n ^= n >> 15; n *= 0x846ca68bu; n ^= n >> 16;
+            return static_cast<float>(n & 0x00ffffffu) / 16777216.0f;
+        };
+        for (int i = 0; i < 300; ++i) {
+            const auto index = static_cast<std::uint32_t>(i + 1);
+            const bool stage = i >= 236;
+            const float a = hash(index * 17u), b = hash(index * 43u), c = hash(index * 97u);
+            const float phase = hash(index * 151u) * 2 * pi;
+            const glm::vec3 base = stage ? glm::vec3((a - .5f) * 23, .7f + b * 10, -51 + c * 18)
+                : glm::vec3((a - .5f) * 21, .35f + b * 8.8f, -31 + c * 38);
+            const glm::vec3 drift(std::sin(t * .12f + phase) * .30f + std::cos(t * .047f + phase) * .12f,
+                std::sin(t * .085f + phase * 1.7f) * .23f,
+                std::cos(t * .095f + phase * .73f) * .27f);
+            const auto p = base + drift;
+            const float radius = (stage ? .028f : .012f) + hash(index * 211u) * (stage ? .028f : .012f);
+            const auto delta = p - activeCamera;
+            grains.push_back({p, radius, .24f + hash(index * 283u) * .24f, glm::dot(delta, delta)});
         }
+        std::sort(grains.begin(), grains.end(), [](const Grain& a, const Grain& b) { return a.distance > b.distance; });
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
+        for (const auto& grain : grains)
+            draw(dustGrain, transform(grain.position, glm::vec3(grain.radius)), {.88f, .77f, .53f},
+                 0, glm::vec2(1), 0, 8, 0, grain.opacity, 0, 15);
         glDepthMask(GL_TRUE);
         glDisable(GL_BLEND);
     }

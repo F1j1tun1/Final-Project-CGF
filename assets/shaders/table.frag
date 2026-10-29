@@ -137,6 +137,24 @@ void main() {
         float seam = smoothstep(0.0,.018,plank)*(1.0-smoothstep(.982,1.0,plank));
         surface *= mix(.58,1.0,seam) * (.94+.06*sin(p.y*1.7+sin(p.x*7.0)));
     }
+    if (uMaterial == 15) {
+        // Real tiny 3D grains scatter the local pendant and stage lights. Their locations
+        // do not depend on the camera; soft silhouettes avoid hard pinprick sprites.
+        vec3 toPendant = uLightPosition - vWorldPosition;
+        float pendantCone = smoothstep(.22, .84, dot(normalize(-toPendant), vec3(0,-1,0)));
+        float illumination = .035 + pendantCone * uLightIntensity * 1.8 / (1.0 + dot(toPendant,toPendant) * .045);
+        for (int i = 0; i < 2; ++i) {
+            vec3 lamp = vec3(i == 0 ? -8.7 : 8.7, 11.089, -39.475);
+            vec3 aim = normalize(vec3(i == 0 ? 2.9 : -2.9, 1.534, -45.5) - lamp);
+            vec3 delta = vWorldPosition - lamp;
+            float cone = smoothstep(.65, .91, dot(normalize(delta), aim));
+            illumination += cone * 1.4 / (1.0 + dot(delta,delta) * .012);
+        }
+        float silhouette = pow(max(0.0, dot(normalize(vNormal), normalize(uCameraPosition-vWorldPosition))), .7);
+        fragColor = vec4(surface * (.50 + min(illumination, 1.25)),
+            uOpacity * silhouette * clamp((illumination - .035) * 1.5, 0.0, 1.0));
+        return;
+    }
     if (!uLighting) {
         fragColor = finishSurface(surface);
         return;
@@ -197,7 +215,7 @@ void main() {
         result = surface * .012 + (surface * diffuse + vec3(specular))
             * warmLight * uLightIntensity * attenuation;
         // Soft analytic table shadow projected from the pendant onto the floor.
-        vec2 footprint=(vWorldPosition.xz-vec2(0,.231))/vec2(4.81,3.43);
+        vec2 footprint=(vWorldPosition.xz-vec2(0,.231))/vec2(5.27,3.78);
         result *= mix(.22,1.0,smoothstep(.92,1.20,length(footprint)));
     }
     // Thin paper edges scatter light; retain a readable neutral body even on vertical sides.
@@ -213,7 +231,7 @@ void main() {
     float viewDistance = length(uCameraPosition - vWorldPosition);
     float fog = uRoomLight > 0.0 ? smoothstep(30.0, 90.0, viewDistance)
                                 : smoothstep(9.0, 20.0, viewDistance);
-    result = mix(result, uFogColor, fog * (uRoomLight > 0.0 ? 0.20 : 0.45));
+    result = mix(result, uFogColor, fog * (uRoomLight > 0.0 ? 0.20 : 0.30));
     if (uMaterial == 3)
         result *= exp(-max(length(uCameraPosition - vWorldPosition) - 7.0, 0.0) * 0.14);
     fragColor = finishSurface(result);

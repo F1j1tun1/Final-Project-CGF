@@ -22,12 +22,31 @@ struct Viewport {
     float height = 1.0f;
 };
 
+// Presentation data only: inventory ownership and ability rules remain in Game.
+struct EquipmentChip {
+    int id = 0;
+    int rarity = 0; // Common = 0 (ivory), Rare = 1 (blue), Legendary = 2 (gold).
+    bool active = false;
+    bool available = false;
+    int charges = 0;
+    float highlight = 0.0f;
+};
+
+struct ChipProjection {
+    float x = 0, y = 0, radiusX = 0, radiusY = 0;
+    bool visible = false;
+};
+
 struct Scene {
     std::vector<VisualCard> player;
     std::vector<VisualCard> dealer;
     int coins = 0;
+    std::vector<EquipmentChip> equipment;
     float time = 0.0f;
     bool menu = false;
+    float menuApproach = 0.0f; // Eased progress from establishing view to the threshold.
+    float doorOpen = 0.0f; // Hinged leaves, 0 = closed, 1 = open inward.
+    float menuPush = 0.0f; // Short final movement through the open doorway.
     Viewport tableViewport;
     float dealerReach = 0.0f;
     bool dealingToPlayer = true;
@@ -60,6 +79,11 @@ public:
 
     void render(const Scene& scene, const RenderSettings& settings,
                 int framebufferWidth, int framebufferHeight);
+
+    // Uses the exact render camera and physical chip positions; no GL context required.
+    // All bounds are normalized to the complete framebuffer, with a top-left origin.
+    static std::vector<ChipProjection> projectEquipment(const Scene& scene,
+        const RenderSettings& settings, int framebufferWidth, int framebufferHeight);
 
 private:
     struct Impl;

@@ -365,7 +365,7 @@ glm::vec3 leadPorcelainShape(float s, float t) {
     const float jaw = .87f + .13f * glm::smoothstep(-.8f, -.05f, v);
     // A thin, elongated shell: no modeled nose or rounded toy cranium.
     const float curve = std::sqrt(std::max(.001f, 1 - u * u));
-    return {u * .192f * outline * jaw, v * .280f,
+    return {u * .218f * outline * jaw, v * .290f,
             .103f * curve * std::sqrt(std::max(.01f, 1 - v * v * .25f))};
 }
 
@@ -417,7 +417,7 @@ SurfaceData gloveSurface() {
 
 float leadCoatRadius(float t) {
     const float shoulder = .10f * std::exp(-std::pow((t - .83f) / .12f, 2.0f));
-    return (.255f + .18f * glm::smoothstep(.15f, .65f, t) + shoulder)
+    return (.325f + .18f * glm::smoothstep(.15f, .65f, t) + shoulder)
         * (1 - glm::smoothstep(.84f, 1.0f, t) * .78f);
 }
 
@@ -425,7 +425,7 @@ float leadCoatFront(float x, float y) {
     const float t = (y + .14f) / 1.65f;
     const float chest = std::exp(-std::pow((t - .73f) / .23f, 2.0f));
     const float fraction = x / std::max(leadCoatRadius(t), .01f);
-    return std::sqrt(std::max(.025f, 1 - fraction * fraction)) * (.23f + .085f * chest)
+    return std::sqrt(std::max(.025f, 1 - fraction * fraction)) * (.29f + .10f * chest)
         - .025f * std::sin(t * pi);
 }
 
@@ -435,7 +435,7 @@ glm::vec3 leadCoatShape(float u, float t) {
     const float fold = .011f * std::sin(a * 12 + t * 6) * (1 - t)
         + .005f * std::sin(a * 21 - t * 8);
     return {std::cos(a) * (leadCoatRadius(t) + fold), -.14f + t * 1.65f,
-            std::sin(a) * (.23f + .085f * chest + fold) - .025f * std::sin(t * pi)};
+            std::sin(a) * (.29f + .10f * chest + fold) - .025f * std::sin(t * pi)};
 }
 
 glm::vec3 leadHatCenter(float t) {
@@ -482,10 +482,10 @@ glm::vec3 leadSleeveShape(glm::vec3 shoulder, glm::vec3 elbow, glm::vec3 wrist, 
     const glm::vec3 tangent = glm::normalize(center(t + .0005f) - center(t - .0005f));
     const glm::vec3 across = glm::normalize(glm::cross(tangent, glm::vec3(0, 0, 1)));
     const glm::vec3 around = glm::cross(tangent, across);
-    const float puff = .030f * std::exp(-std::pow((t - .17f) / .15f, 2.0f));
+    const float puff = .040f * std::exp(-std::pow((t - .17f) / .15f, 2.0f));
     const float folds = .008f * std::sin(a * 10) * std::exp(-std::pow((t - .18f) / .22f, 2.0f))
         + .003f * std::sin(t * 24 + a * 3);
-    const float radius = glm::mix(.106f, .064f, t) + puff + folds;
+    const float radius = glm::mix(.155f, .082f, t) + puff + folds;
     return p + (across * std::cos(a) + around * std::sin(a)) * radius;
 }
 
@@ -755,6 +755,66 @@ glm::mat4 transform(glm::vec3 position, glm::vec3 scale, float rotation = 0.0f) 
     return glm::scale(model, scale);
 }
 
+glm::mat4 palaceTransform() {
+    return transform({3.7f, 0, -5.4f}, {1.10f, 1.10f, 1.10f}, -.24f);
+}
+
+glm::vec3 equipmentPosition(std::size_t slot) {
+    // Two shallow arcs leave the cards, the deck, and the centre of the felt clear.
+    constexpr std::array<float, 4> x{{3.00f, 2.40f, 1.78f, 1.14f}};
+    constexpr std::array<float, 4> z{{1.70f, 2.05f, 2.30f, 2.43f}};
+    const std::size_t i = slot % 4;
+    return {(slot < 4 ? -1.0f : 1.0f) * x[i], .039f, z[i]};
+}
+
+struct SceneCamera { glm::mat4 view, projection; glm::vec3 eye; };
+
+SceneCamera sceneCamera(const Scene& scene, const RenderSettings& settings, int width, int height) {
+    int renderWidth = width, renderHeight = height, renderLeft = 0, renderBottom = 0;
+    if (!scene.menu) {
+        const auto& area = scene.tableViewport;
+        const int left = std::clamp(static_cast<int>(area.left * width), 0, width - 1);
+        const int top = std::clamp(static_cast<int>(area.top * height), 0, height - 1);
+        const int right = std::clamp(static_cast<int>((area.left + area.width) * width), left + 1, width);
+        const int bottom = std::clamp(static_cast<int>((area.top + area.height) * height), top + 1, height);
+        renderWidth = right - left; renderHeight = bottom - top;
+        renderLeft = left; renderBottom = height - bottom;
+    }
+    const float yaw = glm::radians(settings.yaw);
+    const float pitch = glm::radians(std::clamp(settings.pitch, 20.0f, 85.0f));
+    const float distance = std::clamp(settings.distance, minZoom, maxZoom);
+    const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
+    glm::vec3 eye(distance * std::cos(pitch) * std::sin(yaw), distance * std::sin(pitch),
+                  distance * std::cos(pitch) * std::cos(yaw));
+    const float closeView = 1 - glm::smoothstep(minZoom, 8.0f, distance);
+    glm::vec3 target = glm::mix(glm::vec3(0, .60f, -.50f), glm::vec3(0, .10f, .55f), closeView);
+    if (scene.menu) {
+        const auto palace = palaceTransform();
+        const auto world = [&](glm::vec3 p) { return glm::vec3(palace * glm::vec4(p, 1)); };
+        const float approach = std::clamp(scene.menuApproach, 0.0f, 1.0f);
+        const float push = std::clamp(scene.menuPush, 0.0f, 1.0f);
+        const float menuDistance = 17.5f * std::max(1.0f, 1.45f / aspect);
+        eye = glm::mix(glm::vec3(0, 5.3f, menuDistance), world({0, 1.36f, 4.5f}), approach);
+        eye = glm::mix(eye, world({0, 1.36f, .35f}), push);
+        target = glm::mix(glm::vec3(0, 2.15f, 0), world({0, 1.36f, -1.5f}), approach);
+    }
+    const float viewportRatio = static_cast<float>(renderHeight) / static_cast<float>(height);
+    const float fov = scene.menu ? glm::radians(43.0f)
+        : 2 * std::atan(std::tan(glm::radians(21.5f)) * viewportRatio / .53f);
+    glm::mat4 projection = glm::perspective(fov, aspect, .1f, 100.0f);
+    if (!scene.menu) {
+        const float sx = static_cast<float>(renderWidth) / width;
+        const float sy = static_cast<float>(renderHeight) / height;
+        const float ox = static_cast<float>(2 * renderLeft + renderWidth) / width - 1;
+        const float oy = static_cast<float>(2 * renderBottom + renderHeight) / height - 1;
+        for (int column = 0; column < 4; ++column) {
+            projection[column][0] = sx * projection[column][0] + ox * projection[column][3];
+            projection[column][1] = sy * projection[column][1] + oy * projection[column][3];
+        }
+    }
+    return {glm::lookAt(eye, target, glm::vec3(0, 1, 0)), projection, eye};
+}
+
 } // namespace
 
 struct Renderer::Impl {
@@ -764,6 +824,7 @@ struct Renderer::Impl {
     Mesh plane;
     Mesh cylinder;
     Mesh sphere;
+    Mesh dustGrain;
     Mesh horn;
     Mesh ring;
     Mesh arch;
@@ -808,6 +869,8 @@ struct Renderer::Impl {
     } u{};
     GLint skyResolution = -1;
     bool texturesEnabled = true;
+    glm::mat4 modelRoot{1};
+    glm::vec3 activeCamera{0};
 
     explicit Impl(const std::filesystem::path& root) {
         program.load(root / "shaders" / "table.vert", root / "shaders" / "table.frag");
@@ -816,6 +879,7 @@ struct Renderer::Impl {
         plane = makeTopPlane();
         cylinder = makeCylinder(80);
         sphere = makeSphere(24, 16);
+        dustGrain = makeSphere(8, 5);
         horn = makeHorn();
         ring = makeRing(64, false);
         arch = makeRing(48, true);
@@ -1028,8 +1092,9 @@ struct Renderer::Impl {
               GLuint texture = 0, glm::vec2 uvScale = glm::vec2(1.0f),
               float specular = .08f, float shininess = 32.0f, float emission = 0.0f,
               float opacity = 1.0f, float velvet = 0.0f, int material = 0) {
-        const glm::mat3 normal = glm::transpose(glm::inverse(glm::mat3(model)));
-        glUniformMatrix4fv(u.model, 1, GL_FALSE, glm::value_ptr(model));
+        const glm::mat4 world = modelRoot * model;
+        const glm::mat3 normal = glm::transpose(glm::inverse(glm::mat3(world)));
+        glUniformMatrix4fv(u.model, 1, GL_FALSE, glm::value_ptr(world));
         glUniformMatrix3fv(u.normal, 1, GL_FALSE, glm::value_ptr(normal));
         glUniform3fv(u.color, 1, glm::value_ptr(color));
         glUniform2fv(u.uvScale, 1, glm::value_ptr(uvScale));
@@ -1151,133 +1216,132 @@ struct Renderer::Impl {
         if (!blend) glDisable(GL_BLEND);
     }
 
-    void drawCasino(float time, bool animate) {
-        const glm::vec3 stone{.24f, .16f, .23f};
-        const glm::vec3 plum{.17f, .075f, .23f};
-        const glm::vec3 gold{.50f, .36f, .18f};
-        const glm::vec3 crimson{.32f, .075f, .13f};
-        const glm::vec3 trim{.35f, .28f, .26f};
-        const glm::vec3 window{.82f, .52f, .25f};
-        constexpr float streetAngle = -.70f;
-        glm::mat4 building = glm::translate(glm::mat4(1), {2.2f, 0, -3.0f});
-        building = glm::rotate(building, streetAngle, glm::vec3(0, 1, 0));
-        building = glm::scale(building, {1.35f, 1.12f, 1.12f});
-        const auto block = [&](glm::vec3 position, glm::vec3 size, glm::vec3 color,
-                               float emission = 0.0f) {
-            draw(cube, building * transform(position, size), color, 0,
-                 glm::vec2(1), .08f, 32, emission);
+    void drawCasino(const Scene& scene, bool animate) {
+        const glm::vec3 stone{.45f, .37f, .44f}, ivory{.73f, .62f, .49f};
+        const glm::vec3 plum{.22f, .065f, .31f}, crimson{.47f, .055f, .12f};
+        const glm::vec3 gold{.76f, .54f, .24f}, warm{1.0f, .66f, .30f};
+        const auto building = palaceTransform();
+        const auto block = [&](glm::vec3 p, glm::vec3 scale, glm::vec3 color, float glow = 0.0f) {
+            draw(cube, building * transform(p, scale), color, 0, glm::vec2(1), .12f, 48, glow + .06f);
         };
-
-        // A diagonal street and shallow forecourt connect the facade to the evening scene.
-        draw(cube, transform({0, -.18f, -8}, {90, .30f, 100}), {.085f, .075f, .095f});
-        // The road, curb and forecourt share a basis: their edges meet and stay parallel.
-        constexpr float streetCenter = 5.55f;
-        constexpr float streetWidth = 3.25f;
-        block({.6f, -.006f, streetCenter}, {60, .035f, streetWidth}, {.035f, .033f, .045f});
-        for (const float side : {-1.0f, 1.0f})
-            block({.6f, .037f, streetCenter + side * streetWidth * .5f},
-                  {60, .055f, .15f}, {.19f, .16f, .18f});
-        for (int i = -18; i < 19; ++i)
-            block({static_cast<float>(i) * 1.65f, .016f, streetCenter},
-                  {.83f, .015f, .055f}, {.32f, .26f, .17f});
-        block({.6f, .025f, 2.55f}, {9.2f, .08f, 2.6f}, {.18f, .155f, .18f});
-        for (int i = -4; i <= 5; ++i)
-            block({static_cast<float>(i) * .92f, .07f, 2.55f}, {.016f, .012f, 2.55f}, {.20f, .16f, .20f});
-
-        // A modest two-storey casino, with a lower annex and flat cornices.
-        block({0, .15f, 0}, {5.65f, .30f, 3.70f}, {.23f, .205f, .21f});
-        block({0, 1.98f, 0}, {5.25f, 3.60f, 3.20f}, stone);
-        block({0, .54f, 1.63f}, {5.30f, .65f, .10f}, plum);
-        block({0, 2.05f, 1.66f}, {5.40f, .12f, .13f}, trim);
-        block({0, 3.52f, 1.65f}, {5.38f, .40f, .14f}, plum);
-        block({0, 3.86f, 0}, {5.65f, .20f, 3.65f}, crimson);
-        block({0, 3.99f, 0}, {5.72f, .065f, 3.71f}, gold);
-        block({0, 4.08f, -.1f}, {5.34f, .14f, 3.25f}, plum);
-        for (const float x : {-2.48f, 2.48f})
-            block({x, 1.96f, 1.69f}, {.17f, 3.43f, .19f}, trim);
-
-        block({3.65f, .13f, -.22f}, {2.55f, .26f, 3.33f}, {.21f, .18f, .20f});
-        block({3.65f, 1.40f, -.22f}, {2.35f, 2.55f, 3.08f}, {.23f, .14f, .22f});
-        block({3.65f, 2.73f, -.22f}, {2.61f, .16f, 3.36f}, plum);
-        block({3.65f, 2.84f, -.22f}, {2.66f, .055f, 3.42f}, gold);
-        block({3.65f, .56f, 1.35f}, {2.40f, .59f, .10f}, plum);
-        block({3.65f, 1.92f, 1.35f}, {2.45f, .085f, .13f}, trim);
-
-        // Recessed windows are lit from within; no street or interior characters.
-        const auto frontWindow = [&](float x, float y, float z, float width, float height) {
-            block({x,y,z+.025f},{width+.18f,height+.18f,.12f},plum*.55f);
-            block({x,y,z+.092f},{width,height,.025f},window,.40f);
-            for (const float side : {-1.0f,1.0f}) {
-                block({x+side*(width*.5f+.055f),y,z+.16f},{.10f,height+.22f,.25f},trim);
-                block({x,y+side*(height*.5f+.055f),z+.16f},{width+.22f,.10f,.25f},trim);
-                block({x+side*(width*.5f-.05f),y,z+.12f},{.075f,height,.035f},crimson*.65f);
-            }
-            block({x,y-height*.5f-.10f,z+.21f},{width+.32f,.065f,.38f},gold*.70f);
-            block({x,y,z+.14f},{.026f,height+.01f,.025f},plum);
-            block({x,y,z+.14f},{width+.01f,.025f,.025f},plum);
+        const auto ball = [&](glm::vec3 p, glm::vec3 scale, glm::vec3 color, float glow = 0.0f) {
+            draw(sphere, building * transform(p, scale), color, 0, glm::vec2(1), .40f, 76, glow + .07f);
         };
-        for (const float x : {-1.63f, 1.63f}) {
-            frontWindow(x, 1.23f, 1.67f, .63f, 1.02f);
-            frontWindow(x, 2.73f, 1.67f, .63f, .90f);
-        }
-        for (const float x : {3.08f, 4.20f}) frontWindow(x, 1.25f, 1.36f, .56f, .95f);
-        for (const float z : {-.94f, .38f}) {
-            block({4.88f,1.25f,z},{.12f,1.12f,.74f},plum*.55f);
-            block({4.95f,1.25f,z},{.025f,.95f,.57f},window,.35f);
-            for(const float side : {-1.0f,1.0f}) {
-                block({5.02f,1.25f,z+side*.34f},{.25f,1.13f,.10f},trim);
-                block({5.02f,1.25f+side*.525f,z},{.25f,.10f,.78f},trim);
+        // A palace forecourt: a continuous paved approach, inlaid carpet and broad steps.
+        draw(cube, transform({0, -.21f, -10}, {90, .30f, 100}), {.055f, .043f, .070f});
+        block({0, -.045f, 3.6f}, {14, .16f, 11}, {.18f, .135f, .19f});
+        for (int row = 0; row < 10; ++row)
+            for (int col = -6; col <= 6; ++col) {
+                const float x = static_cast<float>(col), z = 1.0f + row * .82f;
+                block({x, .042f, z}, {.97f, .012f, .79f}, (row + col) % 2 == 0
+                    ? glm::vec3(.235f, .19f, .24f) : glm::vec3(.13f, .095f, .15f));
             }
-            block({5.06f,.665f,z},{.36f,.065f,.88f},gold*.7f);
-            block({4.99f,1.25f,z},{.025f,.98f,.026f},plum);
-            block({4.99f,1.25f,z},{.025f,.026f,.60f},plum);
-        }
+        block({0, .056f, 5.0f}, {1.66f, .018f, 7.9f}, crimson * .54f);
+        for (float side : {-1.0f, 1.0f}) block({side * .79f, .069f, 5.0f}, {.035f, .012f, 7.9f}, gold);
+        for (int step = 0; step < 3; ++step)
+            block({0, .08f + step * .08f, 2.61f - step * .27f}, {3.2f - step * .25f, .16f, .75f}, ivory * .65f);
 
-        // A red double door and restrained three-bell emblem carry the jester theme.
-        block({0, 1.10f, 1.69f}, {1.43f, 1.83f, .15f}, trim);
-        block({0, 1.10f, 1.79f}, {1.23f, 1.66f, .085f}, plum);
-        for (const float side : {-1.0f, 1.0f}) {
-            block({side * .30f, 1.08f, 1.85f}, {.55f, 1.56f, .075f}, crimson);
-            block({side * .30f, 1.40f, 1.90f}, {.40f, .63f, .035f}, {.45f, .29f, .17f}, .18f);
-            draw(sphere, building * transform({side * .09f, .98f, 1.94f}, {.035f, .035f, .025f}), gold);
+        // The split central masonry makes a real entrance cavity. No facade crosses the doorway.
+        for (float side : {-1.0f, 1.0f}) {
+            block({side * 2.55f, 2.45f, -.05f}, {3.25f, 4.6f, 3.8f}, stone);
+            block({side * 2.55f, .43f, 1.90f}, {3.35f, .55f, .20f}, plum);
+            block({side * 2.55f, 4.66f, -.05f}, {3.55f, .25f, 4.0f}, plum);
+            block({side * 2.55f, 4.82f, -.05f}, {3.62f, .07f, 4.06f}, gold);
         }
-        block({0, .22f, 2.02f}, {1.90f, .16f, .76f}, trim);
-        block({0, .11f, 2.36f}, {2.17f, .12f, .68f}, {.40f, .33f, .31f});
-        draw(casinoCanopy,building*transform({0,2.06f,1.82f},{1.04f,1,.95f}),plum,
-             0,glm::vec2(1),.16f,48);
-        draw(arch,building*transform({0,2.06f,2.77f},{1.04f,.20f,1}),gold,
-             0,glm::vec2(1),.45f,72);
-        for (const float side : {-1.0f,1.0f}) {
-            beam({side*.94f,.31f,2.68f},{side*.94f,2.07f,2.68f},.025f,gold,building);
-            diamond({side*2.48f,3.22f,1.81f},.15f,gold,building);
+        block({0, 3.88f, -.05f}, {2.0f, 2.2f, 3.8f}, stone);
+        block({0, .25f, -.15f}, {1.82f, .16f, 4.1f}, {.21f, .11f, .14f});
+        block({0, 1.45f, -2.12f}, {1.84f, 2.44f, .18f}, {.012f, .007f, .020f});
+        for (float side : {-1.0f, 1.0f}) {
+            block({side * .95f, 1.49f, -.10f}, {.15f, 2.5f, 3.9f}, plum * .45f);
+            block({side * .94f, 1.49f, 1.98f}, {.18f, 2.55f, .30f}, gold);
+            block({side * 1.10f, 1.50f, 1.92f}, {.13f, 2.65f, .35f}, ivory);
         }
-        glm::mat4 plaque=building*glm::translate(glm::mat4(1),{0,2.98f,1.79f});
-        plaque=glm::rotate(plaque,pi*.5f,glm::vec3(1,0,0));
-        draw(cylinder,glm::scale(plaque,{.50f,.075f,.50f}),gold,0,glm::vec2(1),.48f,84);
-        glm::mat4 inset=building*glm::translate(glm::mat4(1),{0,2.98f,1.84f});
-        inset=glm::rotate(inset,pi*.5f,glm::vec3(1,0,0));
-        draw(cylinder,glm::scale(inset,{.435f,.025f,.435f}),plum,0,glm::vec2(1),.20f,48);
-        for (const float x : {-.16f,.13f}) {
-            const glm::vec3 origin(x,2.98f,1.865f);
-            const std::array<glm::vec2,6> points{{{-.10f,.19f},{.085f,.19f},{.055f,.19f},
-                                                {.055f,-.105f},{.015f,-.18f},{-.075f,-.18f}}};
-            beam(origin+glm::vec3(points[0],0),origin+glm::vec3(points[1],0),.012f,gold,building);
-            for (std::size_t i=2;i+1<points.size();++i)
-                beam(origin+glm::vec3(points[i],0),origin+glm::vec3(points[i+1],0),.012f,gold,building);
-            beam(origin+glm::vec3(-.075f,-.18f,0),origin+glm::vec3(-.11f,-.115f,0),.012f,gold,building);
+        draw(arch, building * transform({0, 2.70f, 1.99f}, {1.08f, .48f, .55f}), gold,
+             0, glm::vec2(1), .48f, 84);
+        // Both leaves hinge inward while the camera decelerates at the threshold.
+        for (float side : {-1.0f, 1.0f}) {
+            auto leaf = building * glm::translate(glm::mat4(1), {side * .87f, 1.47f, 1.96f});
+            leaf = glm::rotate(leaf, -side * std::clamp(scene.doorOpen, 0.0f, 1.0f) * 1.48f, glm::vec3(0, 1, 0));
+            const auto doorBlock = [&](glm::vec3 p, glm::vec3 scale, glm::vec3 color) {
+                draw(cube, leaf * transform(p, scale), color, 0, glm::vec2(1), .25f, 72);
+            };
+            doorBlock({-side * .43f, 0, 0}, {.86f, 2.30f, .10f}, crimson);
+            doorBlock({-side * .43f, 0, .065f}, {.69f, 2.12f, .035f}, gold);
+            doorBlock({-side * .43f, 0, .09f}, {.62f, 2.04f, .03f}, plum);
+            for (float y : {-.60f, .0f, .60f}) diamond({-side * .43f, y, .115f}, .29f, gold, leaf);
+            draw(sphere, leaf * transform({-side * .73f, -.05f, .17f}, {.045f, .075f, .045f}), gold,
+                 0, glm::vec2(1), .65f, 96);
         }
-        for (const float x : {-3.10f, 5.28f}) {
-            const float pulse = animate ? .025f * std::sin(time * 1.4f + x) : 0.0f;
-            draw(cylinder, building * transform({x, 1.0f, 2.1f}, {.042f, 2.0f, .042f}), {.30f, .23f, .24f});
-            block({x, 2.05f, 2.1f}, {.25f, .39f, .25f}, window, .55f + pulse);
-            block({x, 2.29f, 2.1f}, {.34f, .08f, .34f}, plum);
+        // Tall, warm windows with gilded arches and slim mullions.
+        for (float x : {-3.35f, -1.85f, 1.85f, 3.35f}) {
+            for (float y : {1.42f, 3.39f}) {
+                block({x, y, 1.90f}, {.75f, 1.25f, .13f}, plum);
+                block({x, y, 1.98f}, {.57f, 1.08f, .025f}, warm, .48f);
+                draw(arch, building * transform({x, y + .49f, 2.04f}, {.37f, .31f, .25f}), gold,
+                     0, glm::vec2(1), .40f, 64);
+                for (float side : {-1.0f, 1.0f}) block({x + side * .35f, y - .04f, 2.03f}, {.055f, 1.13f, .10f}, gold);
+                block({x, y, 2.04f}, {.033f, 1.10f, .04f}, plum);
+                block({x, y - .12f, 2.04f}, {.60f, .035f, .04f}, plum);
+                block({x, y - .63f, 2.06f}, {.92f, .09f, .36f}, ivory);
+            }
         }
-        drawMenuSedan(building,time,animate);
+        // Corner turrets carry theatrical, curling jester points with actual gold bells.
+        for (float side : {-1.0f, 1.0f}) {
+            const float x = side * 4.20f;
+            draw(cylinder, building * transform({x, 2.57f, .18f}, {.68f, 4.85f, .70f}), stone * .85f);
+            for (float y : {.35f, 1.0f, 4.56f, 4.92f})
+                draw(cylinder, building * transform({x, y, .18f}, {.76f, .12f, .78f}), gold,
+                     0, glm::vec2(1), .38f, 72);
+            ball({x, 5.04f, .18f}, {.79f, .46f, .81f}, side < 0 ? plum : crimson);
+            auto point = building * transform({x, 5.20f, .18f}, {side * 1.20f, 1.72f, 1.20f});
+            draw(horn, point, side < 0 ? crimson : plum, felt, {3, 4}, .15f, 48, .10f, 1, .35f, 5);
+            const glm::vec3 tip(.92f, .72f * std::sin(pi * .88f), 0);
+            draw(sphere, point * transform(tip, {.14f, .10f, .14f}), gold,
+                 0, glm::vec2(1), .70f, 96, .12f);
+            for (float y : {1.7f, 2.7f, 3.7f}) diamond({x, y, .91f}, .23f, gold, building);
+        }
+        // A domed central crown and oversized porcelain jester seal, framed by three bells.
+        block({0, 4.87f, -.05f}, {3.20f, .18f, 3.8f}, gold);
+        ball({0, 4.95f, -.05f}, {1.57f, .86f, 1.80f}, plum);
+        for (float side : {-1.0f, 1.0f}) {
+            auto crown = building * transform({side * .12f, 5.62f, .0f}, {side * 1.30f, 1.14f, .90f});
+            draw(horn, crown, side < 0 ? crimson : plum, felt, {3, 3}, .15f, 48, .10f, 1, .30f, 5);
+            draw(sphere, crown * transform({.92f, .72f * std::sin(pi * .88f), 0}, {.105f, .13f, .15f}),
+                 gold, 0, glm::vec2(1), .7f, 96);
+        }
+        ball({0, 6.0f, -.12f}, {.18f, .24f, .18f}, gold, .13f);
+        auto seal = building * transform({0, 3.93f, 2.09f}, {2.30f, 2.30f, 1.10f});
+        draw(leadMask, seal, {.92f, .85f, .70f}, 0, glm::vec2(1), .32f, 84, .09f, 1, 0, 8);
+        draw(leadMaskTrim, seal, gold, 0, glm::vec2(1), .65f, 96);
+        for (float x : {-.59f, 0.0f, .59f}) {
+            const float y = 4.48f + (x == 0 ? .18f : 0);
+            beam({x * .65f, 4.32f, 2.13f}, {x, y, 2.13f}, .028f, gold, building);
+            ball({x, y, 2.13f}, {.075f, .09f, .075f}, gold, .12f);
+        }
+        // Brocade banners and harlequin stone inlays tie the facade together.
+        for (float side : {-1.0f, 1.0f}) {
+            draw(cube, building * transform({side * 2.60f, 2.38f, 2.055f}, {.48f, .77f, .035f}),
+                 crimson, felt, {2, 3}, .04f, 24, 0, 1, .50f, 4);
+            for (int i = 0; i < 9; ++i) diamond({-3.8f + i * .95f, 4.62f, 2.01f}, .115f, gold, building);
+        }
+        for (float side : {-1.0f, 1.0f}) {
+            for (float z : {3.6f, 6.0f}) {
+                const float x = side * 2.6f;
+                beam({x, .10f, z}, {x, 1.85f, z}, .045f, gold, building);
+                block({x, 1.93f, z}, {.27f, .39f, .27f}, warm, .65f);
+                ball({x, 2.17f, z}, {.22f, .09f, .22f}, plum);
+                const float flutter = animate ? std::sin(scene.time * .65f + z) * .015f : 0;
+                ball({x, 2.29f + flutter, z}, {.055f, .07f, .055f}, gold);
+            }
+        }
     }
 
 #include "RendererRoom.inl"
 
     void drawDealer(const Scene& scene, bool animate) {
+        modelRoot = glm::translate(glm::mat4(1), {0, -.78f, -4.16f})
+            * glm::scale(glm::mat4(1), glm::vec3(1.34f))
+            * glm::translate(glm::mat4(1), {0, .78f, 3.68f});
         const glm::vec3 black{.027f, .018f, .047f}, violet{.18f, .055f, .31f}, burgundy{.30f, .022f, .067f};
         const glm::vec3 gold{.55f, .39f, .17f}, ivory{.88f, .855f, .80f};
         const float breath = animate ? std::sin(scene.time * .65f) * .005f : 0;
@@ -1309,7 +1373,7 @@ struct Renderer::Impl {
         const float bust = animate ? std::sin(pi * std::clamp(scene.bustReaction, 0.0f, 1.0f)) : 0;
         const float winGesture = animate && activeReach < .001f
             ? std::sin(pi * std::clamp(scene.celebration, 0.0f, 1.0f)) : 0;
-        const glm::mat4 body = transform({0, -.32f + breath, z}, {.86f, 1.02f, .92f});
+        const glm::mat4 body = transform({0, -.32f + breath, z}, {.98f, 1.02f, .98f});
         // The waist is near the tabletop; the hips, knees and planted boots
         // continue all the way to the room floor behind its far edge.
         for (const float side : {-1.0f, 1.0f}) {
@@ -1355,10 +1419,10 @@ struct Renderer::Impl {
         for (const float side : {-1.0f, 1.0f}) {
             const float reach = ((side > 0) == scene.dealingToPlayer) ? activeReach : 0;
             const float greeting = side < 0 ? winGesture : 0;
-            const glm::vec3 shoulder(side * .29f, 1.05f + breath, z + .015f);
+            const glm::vec3 shoulder(side * .42f, 1.05f + breath, z + .015f);
             const glm::vec3 elbow = glm::mix(glm::vec3(side * .62f, .50f, -3.41f),
                                             glm::vec3(side * .63f, .65f, -3.24f), reach) + glm::vec3(0, greeting * .025f, 0);
-            const glm::vec3 wrist = glm::mix(glm::vec3(side * .83f, .082f, -2.89f),
+            const glm::vec3 wrist = glm::mix(glm::vec3(side * .83f, -.1367f, -2.89f),
                                             glm::vec3(side * .75f, .33f, -2.49f), reach) + glm::vec3(0, greeting * .055f, greeting * .035f);
             updateLeadSleeve(leadSleeveVertices, shoulder, elbow, wrist);
             leadSleeve.update(leadSleeveVertices);
@@ -1369,23 +1433,24 @@ struct Renderer::Impl {
             glm::mat4 cuff = glm::translate(glm::mat4(1), wrist);
             if (glm::length(rotationAxis) > .0001f)
                 cuff = glm::rotate(cuff, std::acos(std::clamp(axis.y, -1.0f, 1.0f)), glm::normalize(rotationAxis));
-            draw(cylinder, glm::scale(cuff, {.082f, .080f, .082f}), cloth,
+            draw(cylinder, glm::scale(cuff, {.098f, .088f, .098f}), cloth,
                  0, glm::vec2(1), .12f, 32, 0, 1, .4f, 6);
-            draw(leadLace, glm::scale(cuff, {.21f, .35f, .21f}), {.78f, .725f, .63f},
+            draw(leadLace, glm::scale(cuff, {.25f, .38f, .25f}), {.78f, .725f, .63f},
                  0, glm::vec2(1), .08f, 24, 0, 1, .5f, 7);
             glm::mat4 hand = glm::translate(glm::mat4(1), wrist + glm::vec3(0, 0, .015f));
             hand = glm::rotate(hand, side * .11f, glm::vec3(0, 1, 0));
             hand = glm::rotate(hand, -reach * .17f - greeting * .04f, glm::vec3(1, 0, 0));
             hand = glm::rotate(hand, side * reach * .10f - greeting * .055f, glm::vec3(0, 0, 1));
-            draw(glove, glm::scale(hand, {side * .72f, .72f, .72f}), {.66f, .605f, .51f},
+            draw(glove, glm::scale(hand, {side * .82f, .82f, .82f}), {.66f, .605f, .51f},
                  felt, {5, 6}, .08f, 28, 0, 1, .28f);
         }
+        modelRoot = glm::mat4(1);
     }
     glm::vec3 cardPosition(const VisualCard& card, glm::vec3 target, bool dealer) const {
         const float a = std::clamp(card.arrival, 0.0f, 1.0f);
         const float flight = std::min(1.0f, a / .78f);
         const float eased = flight * flight * (3.0f - 2.0f * flight);
-        const glm::vec3 source(dealer ? -.83f : .83f, .12f, -2.55f);
+        const glm::vec3 source(dealer ? -1.11f : 1.11f, .18f, -2.79f);
         glm::vec3 p = glm::mix(source, target, eased);
         p.y += std::sin(flight * pi) * .72f;
         if (a > .78f && a < 1) p.y += std::sin((a - .78f) / .22f * pi) * .045f;
@@ -1500,12 +1565,35 @@ struct Renderer::Impl {
         glDisable(GL_BLEND);
     }
 
-    void drawChipStack(float x, float z, int height, glm::vec3 color, float phase) {
-        for (int i = 0; i < height; ++i) {
-            const float y = .035f + static_cast<float>(i) * .065f;
-            const float offset = i > 0 ? std::sin(static_cast<float>(i) * 1.7f + phase) * .012f : 0.0f;
-            draw(cylinder, transform({x + offset, y, z}, {.22f, .058f, .22f}),
-                 color, chip, glm::vec2(1), .18f, 48.0f);
+    void drawEquipment(const Scene& scene, bool animate) {
+        const std::size_t count = std::min<std::size_t>(8, scene.equipment.size());
+        for (std::size_t i = 0; i < count; ++i) {
+            const auto& item = scene.equipment[i];
+            const float highlight = std::clamp(item.highlight, 0.0f, 1.0f);
+            const auto pos = equipmentPosition(i) + glm::vec3(0, highlight * .055f, 0);
+            const auto color = item.rarity >= 2 ? glm::vec3(.86f, .59f, .17f)
+                : item.rarity == 1 ? glm::vec3(.15f, .46f, .86f) : glm::vec3(.87f, .85f, .77f);
+            const float available = item.active && item.available ? 1.0f : 0.0f;
+            const float pulse = animate ? .5f + .5f * std::sin(scene.time * 2.2f + static_cast<float>(i)) : .5f;
+            // One cylinder is one equipped relic. Thin face inlays belong to that same chip.
+            draw(cylinder, transform(pos, {.265f, .085f, .265f}, .13f * static_cast<float>(i)),
+                 color, chip, glm::vec2(1), .24f, 64, .07f * highlight);
+            draw(ring, transform(pos + glm::vec3(0, .045f, 0), {.205f, .004f, .205f}),
+                 color * .65f, 0, glm::vec2(1), .35f, 76, available * (.12f + .14f * pulse));
+            draw(cylinder, transform(pos + glm::vec3(0, .046f, 0), {.155f, .003f, .155f}),
+                 color * .27f, 0, glm::vec2(1), .14f, 48);
+            // Identity is stable across inventory shifts; varied engraved glyphs remain legible.
+            const int marks = 1 + (std::max(0, item.id) % 4);
+            for (int mark = 0; mark < marks; ++mark) {
+                const float x = (static_cast<float>(mark) - static_cast<float>(marks - 1) * .5f) * .055f;
+                draw(cube, transform(pos + glm::vec3(x, .049f, 0), {.026f, .003f, .075f}, .35f),
+                     color, 0, glm::vec2(1), .20f, 48, .08f);
+            }
+            if (item.active) {
+                const auto chargeColor = item.available ? glm::vec3(.73f, 1.0f, .77f) : glm::vec3(.20f, .20f, .20f);
+                draw(sphere, transform(pos + glm::vec3(0, .052f, .105f), {.025f, .012f, .025f}),
+                     chargeColor, 0, glm::vec2(1), .20f, 32, available * .35f);
+            }
         }
     }
 
@@ -1524,55 +1612,11 @@ struct Renderer::Impl {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         if (scene.menu) drawSky(width, height);
 
-        int renderWidth = width;
-        int renderHeight = height;
-        int renderLeft = 0, renderBottom = 0;
-        if (!scene.menu) {
-            const auto& area = scene.tableViewport;
-            const int left = std::clamp(static_cast<int>(area.left * static_cast<float>(width)), 0, width - 1);
-            const int top = std::clamp(static_cast<int>(area.top * static_cast<float>(height)), 0, height - 1);
-            const int right = std::clamp(static_cast<int>((area.left + area.width) * static_cast<float>(width)),
-                                         left + 1, width);
-            const int bottom = std::clamp(static_cast<int>((area.top + area.height) * static_cast<float>(height)),
-                                          top + 1, height);
-            renderWidth = right - left;
-            renderHeight = bottom - top;
-            renderLeft = left;
-            renderBottom = height - bottom;
-            // The UI rectangle controls framing; the room itself extends
-            // across the framebuffer, including beneath transparent UI.
-        }
-
-        const float yaw = glm::radians(settings.yaw);
-        const float pitch = glm::radians(std::clamp(settings.pitch, 20.0f, 85.0f));
-        const float distance = std::clamp(settings.distance, minZoom, maxZoom);
-        const float aspect = static_cast<float>(renderWidth) / static_cast<float>(renderHeight);
-        const float menuDistance = 15.5f * std::max(1.0f, 1.45f / aspect);
-        const glm::vec3 eye = scene.menu ? glm::vec3(0, 4.8f, menuDistance)
-            : glm::vec3(distance * std::cos(pitch) * std::sin(yaw),
-                        distance * std::sin(pitch),
-                        distance * std::cos(pitch) * std::cos(yaw));
-        const float closeView=1.0f-glm::smoothstep(minZoom,8.0f,distance);
-        const glm::vec3 tableTarget=glm::mix(glm::vec3(0,.60f,-.50f),glm::vec3(0,.10f,.55f),closeView);
-        const glm::mat4 view = glm::lookAt(eye, scene.menu ? glm::vec3(0, 1.55f, 0)
-                                                                         : tableTarget,
-                                         glm::vec3(0, 1, 0));
-        const float viewportRatio=static_cast<float>(renderHeight)/static_cast<float>(height);
-        // Keep the full-frame vertical field of view stable as fixed-pixel HUD bands change.
-        const float fieldOfView=scene.menu?glm::radians(43.0f)
-            :2.0f*std::atan(std::tan(glm::radians(21.5f))*viewportRatio/.53f);
-        glm::mat4 projection = glm::perspective(fieldOfView,
-            aspect, .1f, 100.0f);
-        if (!scene.menu) {
-            const float sx = static_cast<float>(renderWidth) / static_cast<float>(width);
-            const float sy = static_cast<float>(renderHeight) / static_cast<float>(height);
-            const float ox = static_cast<float>(2 * renderLeft + renderWidth) / static_cast<float>(width) - 1;
-            const float oy = static_cast<float>(2 * renderBottom + renderHeight) / static_cast<float>(height) - 1;
-            for (int column = 0; column < 4; ++column) {
-                projection[column][0] = sx * projection[column][0] + ox * projection[column][3];
-                projection[column][1] = sy * projection[column][1] + oy * projection[column][3];
-            }
-        }
+        const auto camera = sceneCamera(scene, settings, width, height);
+        const auto& view = camera.view;
+        const auto& projection = camera.projection;
+        const auto& eye = camera.eye;
+        activeCamera = eye;
         glViewport(0, 0, width, height);
         glUseProgram(program.id);
         glActiveTexture(GL_TEXTURE0);
@@ -1589,7 +1633,7 @@ struct Renderer::Impl {
         texturesEnabled = settings.textures;
 
         if (scene.menu) {
-            drawCasino(scene.time, settings.animate);
+            drawCasino(scene, settings.animate);
             glBindVertexArray(0);
             glBindTexture(GL_TEXTURE_2D, 0);
             glUseProgram(0);
@@ -1600,13 +1644,13 @@ struct Renderer::Impl {
         drawDealer(scene, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.
-        draw(cylinder, transform({0, -.16f, 0}, {4.2f, .18f, 3.0f}),
+        draw(cylinder, transform({0, -.16f, 0}, {4.60f, .18f, 3.30f}),
              {.10f, .038f, .055f}, 0, glm::vec2(1), .22f, 48.0f);
-        draw(cylinder, transform({0, -.085f, 0}, {4.05f, .06f, 2.85f}),
+        draw(cylinder, transform({0, -.085f, 0}, {4.45f, .06f, 3.15f}),
              {.78f, .52f, .18f}, 0, glm::vec2(1), .5f, 72.0f);
-        draw(cylinder, transform({0, -.045f, 0}, {3.95f, .04f, 2.75f}),
+        draw(cylinder, transform({0, -.045f, 0}, {4.35f, .04f, 3.05f}),
              {.028f, .060f, .043f}, 0, glm::vec2(1), .1f);
-        draw(cylinder, transform({0, -.025f, 0}, {3.83f, .04f, 2.62f}),
+        draw(cylinder, transform({0, -.025f, 0}, {4.23f, .04f, 2.92f}),
              {.034f, .28f, .155f}, felt, {14, 11}, .025f, 10.0f, 0, 1, 1);
 
         // Quiet gold geometry marks the middle of the playing field.
@@ -1631,10 +1675,7 @@ struct Renderer::Impl {
         draw(plane, transform({2.98f, .272f, -.04f}, {.74f, .019f, 1.08f}, -.08f),
              glm::vec3(1), cardBack());
 
-        const int available = std::clamp(scene.coins, 0, 1000);
-        drawChipStack(-3.0f, -.12f, 2 + std::min(available / 10, 5), {.66f, .17f, .14f}, .3f);
-        drawChipStack(-2.56f, -.40f, 2 + std::min(available / 20, 4), {.37f, .15f, .58f}, 1.0f);
-        drawChipStack(-2.53f, .24f, 1 + std::min(available / 30, 3), {.67f, .49f, .19f}, 2.0f);
+        drawEquipment(scene, settings.animate);
 
         drawHand(scene.dealer, -1.12f, scene.time, settings.animate, true);
         drawHand(scene.player, 1.12f, scene.time + .7f, settings.animate, false);
@@ -1655,6 +1696,33 @@ Renderer::~Renderer() = default;
 void Renderer::render(const Scene& scene, const RenderSettings& settings,
                       int framebufferWidth, int framebufferHeight) {
     impl_->render(scene, settings, framebufferWidth, framebufferHeight);
+}
+
+std::vector<ChipProjection> Renderer::projectEquipment(const Scene& scene,
+        const RenderSettings& settings, int width, int height) {
+    std::vector<ChipProjection> result;
+    if (width <= 0 || height <= 0 || scene.menu) return result;
+    const auto camera = sceneCamera(scene, settings, width, height);
+    const auto vp = camera.projection * camera.view;
+    const auto project = [&](glm::vec3 p) {
+        const auto clip = vp * glm::vec4(p, 1);
+        const auto ndc = glm::vec3(clip) / clip.w;
+        return glm::vec3(.5f + .5f * ndc.x, .5f - .5f * ndc.y, clip.w);
+    };
+    for (std::size_t i = 0; i < std::min<std::size_t>(8, scene.equipment.size()); ++i) {
+        const auto pos = equipmentPosition(i) + glm::vec3(0, .05f + .055f * std::clamp(scene.equipment[i].highlight, 0.0f, 1.0f), 0);
+        const auto center = project(pos);
+        float rx = 0, ry = 0;
+        for (int edge = 0; edge < 16; ++edge) {
+            const float a = edge * 2 * pi / 16;
+            const auto rim = project(pos + glm::vec3(.28f * std::cos(a), 0, .28f * std::sin(a)));
+            rx = std::max(rx, std::abs(rim.x - center.x));
+            ry = std::max(ry, std::abs(rim.y - center.y));
+        }
+        result.push_back({center.x, center.y, rx, std::max(ry, 5.0f / height),
+            center.z > .1f && center.x + rx > 0 && center.x - rx < 1 && center.y + ry > 0 && center.y - ry < 1});
+    }
+    return result;
 }
 
 } // namespace gfx
