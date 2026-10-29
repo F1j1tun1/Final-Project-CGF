@@ -21,6 +21,8 @@
 
 namespace {
 bool traceCommands = false;
+bool traceNextShop = false;
+bool traceTargetReached = false;
 
 struct Result {
     std::uint32_t seed;
@@ -176,7 +178,10 @@ Result simulate(std::uint32_t seed, bj::StartDeck deck, int capacity, int limit,
         result.wins = state.wins;
         result.totalScore = state.totalScore;
         result.maxOwned = std::max(result.maxOwned, static_cast<int>(state.owned.size()));
-        if (traceCommands && result.maxOwned >= 8) return result;
+        if (traceCommands && result.maxOwned >= 8 && !traceNextShop) {
+            traceTargetReached = true;
+            return result;
+        }
         if (state.phase == bj::Phase::Ready) {
             if (!game.deal()) throw std::logic_error("Expected deal rejected");
             if (traceCommands) std::cout << "deal\n";
@@ -192,6 +197,14 @@ Result simulate(std::uint32_t seed, bj::StartDeck deck, int capacity, int limit,
             if (traceCommands) std::cout << "advance\n";
         } else if (state.phase == bj::Phase::Shop) {
             result.cleared = state.round;
+            if (traceCommands && traceNextShop && state.owned.size() >= 8) {
+                traceTargetReached = true;
+                std::cerr << "Trace reached shop after round " << state.round
+                          << "; equipped " << state.owned.size() << "; coins " << state.coins << "; offers";
+                for (auto offered : state.offers) std::cerr << ' ' << static_cast<int>(offered);
+                std::cerr << '\n';
+                return result;
+            }
             if (result.cleared >= limit) { result.capped = true; return result; }
             if (purchaseItems) shop(game, capacity);
             if (!game.leaveShop()) throw std::logic_error("Expected shop leave rejected");
@@ -233,9 +246,14 @@ int main(int argc, char** argv) {
             if (deckName != "Life" && deckName != "Hands" && deckName != "Coins")
                 throw std::invalid_argument("Trace deck must be Life, Hands or Coins");
             const auto deck = deckName == "Hands" ? bj::StartDeck::ExtraHand : deckName == "Coins" ? bj::StartDeck::Rich : bj::StartDeck::SecondLife;
+            if (argc > 4 && std::string(argv[4]) != "next-shop")
+                throw std::invalid_argument("Optional trace target must be next-shop");
+            traceNextShop = argc > 4;
             traceCommands = true;
             const auto result = simulate(seed, deck, 8, 30, true, true);
-            if (result.maxOwned < 8) throw std::runtime_error("Trace seed did not acquire eight equipment items");
+            if (!traceTargetReached || result.maxOwned < 8)
+                throw std::runtime_error(traceNextShop ? "Trace seed did not reach a new shop with eight equipped items"
+                                                      : "Trace seed did not acquire eight equipment items");
             return 0;
         }
         const int runs = argc > 1 ? std::stoi(argv[1]) : 5000;
