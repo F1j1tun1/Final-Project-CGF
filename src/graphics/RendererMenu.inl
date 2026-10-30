@@ -13,18 +13,13 @@
         // All paving, curbs and traffic share the palace basis. The paving material
         // dissolves at distance, rather than revealing the edge of a rectangular mesh.
         block({0,-.14f,0},{180,.20f,180},{.058f,.067f,.075f},16);
-        draw(cylinder,building*transform({0,-.009f,4.2f},{8.2f,.06f,5.0f}),
-             {.24f,.23f,.25f},0,glm::vec2(1),.30f,76,0,1,0,17);
-        constexpr float streetCenter=10.55f, streetWidth=3.25f;
-        block({0,-.005f,streetCenter},{100,.035f,streetWidth},{.054f,.060f,.075f},19);
+        draw(arrivalCourt,building,{.24f,.23f,.25f},0,glm::vec2(1),.30f,76,0,1,0,17);
+        draw(arrivalDrive,building,{.054f,.060f,.075f},0,glm::vec2(1),.30f,48,0,1,0,19);
+        draw(arrivalCurbs,building,{.32f,.30f,.29f},0,glm::vec2(1),.22f,64,0,1,0,16);
+        // The carpet ends at the near edge of the arrival lane, not across traffic.
+        block({0,.041f,4.46f},{1.65f,.025f,4.42f},crimson*.62f);
         for(float side:{-1.0f,1.0f})
-            block({0,.035f,streetCenter+side*streetWidth*.5f},{100,.07f,.14f},{.28f,.27f,.28f},16);
-        for(int i=-28;i<=28;++i)
-            block({i*1.65f,.018f,streetCenter},{.83f,.008f,.055f},{.42f,.34f,.20f},16);
-        // Red arrival carpet and shallow, broad steps sit on a rounded drop-off court.
-        block({0,.037f,5.40f},{1.65f,.025f,6.8f},crimson*.62f);
-        for(float side:{-1.0f,1.0f})
-            block({side*.79f,.054f,5.40f},{.027f,.008f,6.8f},gold);
+            block({side*.79f,.057f,4.46f},{.027f,.008f,4.42f},gold);
         for(int step=0;step<3;++step)
             block({0,.08f+step*.08f,2.70f-step*.28f},{3.45f-step*.23f,.16f,.78f},ivory*.72f);
 
@@ -138,7 +133,7 @@
 
         // Four freestanding lanterns: visible luminous glass, dark corner bars,
         // brass shoulders and a down-facing cap match the shader's point lights.
-        for(float side:{-1.0f,1.0f}) for(float z:{4.3f,7.65f}) {
+        for(float side:{-1.0f,1.0f}) for(float z:{4.3f,5.95f}) {
             const float x=side*3.1f;
             draw(cylinder,building*transform({x,.10f,z},{.18f,.18f,.18f}),plum);
             beam({x,.16f,z},{x,2.03f,z},.047f,gold*.6f,building);
@@ -149,28 +144,50 @@
             ball({x,2.48f,z},{.25f,.12f,.25f},plum);
             ball({x,2.63f,z},{.045f,.075f,.045f},gold);
         }
-        // Trimmed planting islands and layered trees frame an actual hotel drive.
-        // Their low silhouettes fade separately from the brightly lit palace.
+        // Two softly edged planting beds per side keep the arrival court legible.
+        // Their interlocking hedge masses vary in height and width; staggered tree
+        // crowns behind them provide depth instead of repeated ornamental capsules.
         for(float side:{-1.0f,1.0f}) {
-            for(float z:{1.0f,4.5f,7.5f}) {
-                draw(cylinder,building*transform({side*6.5f,.08f,z},{1.22f,.18f,.85f}),stone*.7f,
+            for(int bed=0;bed<2;++bed) {
+                const float x=side*(6.35f+bed*.30f), z=1.45f+bed*4.60f;
+                draw(cylinder,building*transform({x,.065f,z},{1.35f,.15f,1.45f},side*.15f),stone*.63f,
                      0,glm::vec2(1),.12f,32,0,1,0,16);
-                for(int bush=0;bush<4;++bush)
-                    draw(sphere,building*transform({side*6.5f+(bush-1.5f)*.45f,.39f,z},
-                         {.40f,.38f,.61f}),{.055f,.13f,.105f},0,glm::vec2(1),.03f,16,0,1,0,16);
+                for(int bush=0;bush<3;++bush) {
+                    const float shift=std::sin(bush*2.0f+bed+side)*.34f;
+                    const float height=.34f+.11f*std::cos(bush*1.7f+bed);
+                    draw(hedgeMass,building*transform({x+shift,height+.12f,z+(bush-1)*.70f},
+                         {.78f+.10f*std::sin(bush+bed),height,.62f},shift*.8f),
+                         {.060f+.008f*bush,.135f+.008f*bed,.105f},0,glm::vec2(1),.03f,16,0,1,0,22);
+                }
             }
-            for(int tree=0;tree<7;++tree) {
-                const float x=side*(7.9f+tree*1.42f), z=1.5f-tree*1.8f;
-                const float h=2.5f+.30f*std::sin(tree*2.1f);
-                beam({x,.02f,z},{x,h,z},.07f,{.08f,.065f,.073f},building);
-                for(int crown=0;crown<5;++crown) {
-                    const float a=crown*2*pi/5;
-                    draw(treeCrown,building*transform({x+std::cos(a)*.42f,h+std::sin(a*2)*.25f,z+std::sin(a)*.35f},
-                         {.78f,.84f,.73f}),{.075f+.003f*crown,.14f+.004f*crown,.12f},
-                         0,glm::vec2(1),.025f,16,0,1,0,22);
+            for(int tree=0;tree<6;++tree) {
+                const float x=side*(8.3f+tree*1.17f+std::sin(tree*2.5f)*.6f);
+                const float z=1.8f-tree*2.1f+std::cos(tree*1.7f)*.7f;
+                const float h=2.40f+.45f*std::sin(tree*1.3f+side);
+                beam({x,.02f,z},{x,h,z},.065f,{.08f,.065f,.073f},building);
+                for(int crown=0;crown<3;++crown) {
+                    const float a=crown*2*pi/3+tree*.6f;
+                    const glm::vec3 p{x+std::cos(a)*.42f,h+std::sin(a*2)*.25f,z+std::sin(a)*.35f};
+                    beam({x,h*.62f,z},p,.030f,{.08f,.065f,.073f},building);
+                    const float size=.75f+.16f*std::sin(tree*2.1f+crown);
+                    draw(treeCrown,building*transform(p,{size,size*1.15f,size*.94f},a),
+                         {.075f+.003f*crown,.14f+.004f*crown,.12f},0,glm::vec2(1),.025f,16,0,1,0,22);
                 }
             }
         }
-        // Original sedan, wheels and headlight pools restored, on the outer lane.
-        drawMenuSedan(building*glm::translate(glm::mat4(1),{0,0,5.0f}),scene.time,animate);
+        // Original sedan, wheels and headlight pools follow the same curved drive.
+        drawMenuSedan(building,scene.time,animate);
+
+        // Small emitter halos are actual depth-tested geometry at the glass.
+        // Posts, caps, mullions and passing objects occlude them normally.
+        glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE);glDepthMask(GL_FALSE);
+        for(float side:{-1.0f,1.0f}) for(float z:{4.3f,5.95f}) {
+            const auto p=glm::vec3(building*glm::vec4(side*3.1f,2.22f,z,1));
+            const auto face=glm::inverse(glm::lookAt(p,activeCamera,glm::vec3(0,1,0)));
+            draw(lightHalo,glm::scale(face,{.96f,1.08f,1}),warm,0,glm::vec2(1),0,8,0,.22f,0,23);
+        }
+        for(float x:{-3.45f,-1.80f,1.80f,3.45f}) for(float y:{1.44f,3.52f})
+            draw(lightHalo,building*transform({x,y+.06f,2.11f},{1.10f,1.80f,1}),warm,
+                 0,glm::vec2(1),0,8,0,.12f,0,23);
+        glDepthMask(GL_TRUE);glDisable(GL_BLEND);
     }

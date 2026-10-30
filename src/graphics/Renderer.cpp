@@ -759,6 +759,13 @@ glm::mat4 palaceTransform() {
     return transform({3.7f, 0, -5.4f}, {1.10f, 1.10f, 1.10f}, -.24f);
 }
 
+// One swept centreline defines the hotel drive, curbs and sedan trajectory.
+float driveSlope(float x) { return .104f*x*std::exp(-x*x/100.0f); }
+glm::vec3 drivePoint(float x, float across=0.0f) {
+    const float z=8.65f+5.2f*(1-std::exp(-x*x/100.0f));
+    const auto normal=glm::normalize(glm::vec3(-driveSlope(x),0,1));
+    return glm::vec3(x,0,z)+normal*across;
+}
 constexpr float equipmentRadius = .212f; // 20% smaller; rendering and picking share this size.
 
 glm::vec3 equipmentPosition(std::size_t slot) {
@@ -855,6 +862,11 @@ struct Renderer::Impl {
     Mesh casinoCanopy;
     Mesh palaceRoof;
     Mesh treeCrown;
+    Mesh hedgeMass;
+    Mesh arrivalDrive;
+    Mesh arrivalCurbs;
+    Mesh arrivalCourt;
+    Mesh lightHalo;
     Mesh leadSleeve;
     std::vector<float> leadSleeveVertices;
     Mesh sky;
@@ -1051,6 +1063,32 @@ struct Renderer::Impl {
             const float x = u * 2 - 1;
             return glm::vec3(x, .20f * std::sqrt(std::max(0.0f, 1 - x*x)), v);
         }, true));
+        hedgeMass = surfaceMesh(surfaceData(40, 24, [](float u, float v) {
+            const float a=u*2*pi, b=v*pi;
+            auto d=glm::vec3(std::sin(b)*std::cos(a),std::cos(b),std::sin(b)*std::sin(a));
+            for(int i=0;i<3;++i) d[i]=std::copysign(std::pow(std::abs(d[i]),.72f),d[i]);
+            return d*(1+.023f*std::sin(a*9+b*4)*std::sin(b*8)+.015f*std::cos(a*15-b*11)*std::sin(b));
+        }));
+        arrivalDrive = surfaceMesh(surfaceData(160, 12, [](float u, float v) {
+            auto p=drivePoint((u*2-1)*50,(v-.5f)*3.25f);p.y=.012f;return p;
+        }, true));
+        SurfaceData curbData;
+        for(float side:{-1.0f,1.0f})
+            appendSurface(curbData,surfaceData(160, 16, [=](float u, float v) {
+                const float x=(u*2-1)*50, a=v*2*pi;
+                const float c=std::cos(a), sn=std::sin(a);
+                const float square=1/std::max(std::abs(c),std::abs(sn));
+                auto p=drivePoint(x,side*1.625f+c*square*.075f);
+                p.y=.045f+sn*square*.060f;return p;
+            }));
+        arrivalCurbs=surfaceMesh(curbData);
+        arrivalCourt=surfaceMesh(surfaceData(64, 32, [](float u, float v) {
+            const float x=(u*2-1)*8.1f;
+            auto p=glm::mix(glm::vec3(x,0,-.75f),drivePoint(x,-1.70f),v);
+            p.y=.024f;return p;
+        },true));
+        lightHalo=makeMesh({-.5f,-.5f,0, 0,0,1, 0,0, .5f,-.5f,0, 0,0,1, 1,0,
+                            .5f,.5f,0, 0,0,1, 1,1, -.5f,.5f,0, 0,0,1, 0,1},{0,1,2,0,2,3});
         treeCrown = surfaceMesh(surfaceData(48, 32, [](float u, float v) {
             const float a=u*2*pi, b=v*pi;
             const float lobes=1+.10f*std::sin(a*7+b*4)*std::sin(b*6)+.055f*std::cos(a*11-b*9)*std::sin(b);
@@ -1172,7 +1210,8 @@ struct Renderer::Impl {
         const float phase = std::fmod(std::max(time, 0.0f), 32.0f);
         if (phase > 9.4f) return;
         const float distance = -18.0f + phase / 9.4f * 36.0f;
-        const glm::mat4 car = street * glm::translate(glm::mat4(1), {distance, 0, 6.13f});
+        const glm::mat4 car = street * glm::translate(glm::mat4(1), drivePoint(distance,.58f))
+            * glm::rotate(glm::mat4(1),-std::atan(driveSlope(distance)),glm::vec3(0,1,0));
         const glm::vec3 paint{.033f, .031f, .050f}, rubber{.009f, .010f, .012f};
         const glm::vec3 chrome{.20f, .20f, .19f};
         draw(sedanBody, car, paint, 0, glm::vec2(1), .48f, 96);

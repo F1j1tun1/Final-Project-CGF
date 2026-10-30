@@ -75,7 +75,7 @@ float exteriorVisibility(vec3 p, vec3 source) {
     }
     // Ray/cylinder distance gives soft pole shadows which follow each light.
     for(int i=0;i<4;++i) {
-        vec2 pole=vec2(i<2?-3.1:3.1,mod(float(i),2.0)<.5?4.3:7.65);
+        vec2 pole=vec2(i<2?-3.1:3.1,mod(float(i),2.0)<.5?4.3:5.95);
         float t=clamp(dot(pole-p.xz,ray.xz)/max(dot(ray.xz,ray.xz),.0001),.0,1.0);
         vec3 q=p+ray*t;
         float shade=(1.0-smoothstep(.043,.085+.08*t,length(q.xz-pole)))
@@ -105,7 +105,21 @@ vec3 exteriorPoint(vec3 p, vec3 n, vec3 v, vec3 source, vec3 surface,
     }
     if(falloff<.0001) return vec3(0);
     float shadow=exteriorVisibility(p+n*.012,source);
-    return (surface*diffuse+vec3(shine))*vec3(1.0,.81,.57)*falloff*shadow;
+    vec3 radiance=(surface*diffuse+vec3(shine))*vec3(1.0,.81,.57)*falloff*shadow;
+    if(uMaterial==19 && !windowLight) {
+        // Rough wet asphalt stretches the mirrored physical lantern along the
+        // view direction. The reflection moves with the camera and is depth-tested.
+        vec3 eye=(uPalaceInverse*vec4(uCameraPosition,1)).xyz;
+        float t=eye.y/max(eye.y+source.y,.01);
+        vec2 reflection=mix(eye.xz,source.xz,t);
+        vec2 axis=normalize(eye.xz-source.xz);
+        vec2 delta=p.xz-reflection;
+        vec2 stretch=vec2(dot(delta,vec2(-axis.y,axis.x))/.19,dot(delta,axis)/2.5);
+        float streak=exp(-dot(stretch,stretch)*1.6);
+        float ripples=.75+.25*noise(p.xz*vec2(13.0,61.0));
+        radiance+=vec3(1.0,.73,.40)*streak*ripples*.27*shadow;
+    }
+    return radiance;
 }
 
 vec4 exteriorSurface(vec3 surface) {
@@ -117,6 +131,11 @@ vec4 exteriorSurface(vec3 surface) {
     if(uMaterial==18) {
         float visibility=pow(clamp((p.z-1.10)/.95,0.0,1.0),3.0);
         return vec4(surface*visibility*.12,uOpacity);
+    }
+    if(uMaterial==23) {
+        vec2 q=(vTexCoord-.5)*2.0;
+        float halo=exp(-dot(q,q)*5.0)*(1.0-smoothstep(.8,1.0,max(abs(q.x),abs(q.y))));
+        return vec4(vec3(1.0,.61,.22),halo*uOpacity*(uLighting?1.0:0.0));
     }
     if(uMaterial==20) {
         float grain=.94+.045*vTexCoord.y+.004*sin(vTexCoord.x*79.0)*sin(vTexCoord.y*93.0);
@@ -147,7 +166,7 @@ vec4 exteriorSurface(vec3 surface) {
         result=surface*(vec3(.19,.22,.29)+vec3(.24,.28,.38)*max(dot(n,moon),0.0));
         result+=surface*uEmission;
         for(int i=0;i<4;++i) {
-            vec3 lamp=vec3(i<2?-3.1:3.1,2.22,mod(float(i),2.0)<.5?4.3:7.65);
+            vec3 lamp=vec3(i<2?-3.1:3.1,2.22,mod(float(i),2.0)<.5?4.3:5.95);
             result+=exteriorPoint(p,n,v,lamp,surface,4.9, uMaterial==19?40.0:uShininess,false)*uLightIntensity;
         }
         for(int i=0;i<8;++i) {
