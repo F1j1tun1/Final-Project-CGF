@@ -1,4 +1,5 @@
 #include "presentation/ScoreHistory.hpp"
+#include "presentation/CollectionOrder.hpp"
 #include "presentation/EntranceTransition.hpp"
 #include "presentation/PalaceStyle.hpp"
 #ifdef _WIN32
@@ -101,6 +102,7 @@ struct Options {
     std::filesystem::path replay;
     std::filesystem::path animationFrames;
     std::string previewScreen;
+    int previewRelic=-1;
     float cameraYaw=0, cameraPitch=32, cameraDistance=9.1f;
     int width = 1440;
     int height = 900;
@@ -168,6 +170,11 @@ Options parseOptions(int argc, char** argv) {
         else if(arg=="--replay") options.replay=value();
         else if(arg=="--capture-animation") options.animationFrames=value();
         else if(arg=="--preview-screen") options.previewScreen=value();
+        else if(arg=="--preview-relic") {
+            options.previewRelic=std::stoi(value());
+            if(options.previewRelic<0 || options.previewRelic>=static_cast<int>(bj::relicCatalog().size()))
+                throw std::runtime_error("Preview relic must be a valid catalog ID");
+        }
         else if(arg=="--stop-owned") {
             options.stopOwned=std::stoi(value());
             if(options.stopOwned<0||options.stopOwned>bj::maxEquipmentSlots) throw std::runtime_error("--stop-owned must be 0..8");
@@ -352,12 +359,26 @@ struct Interface {
 
 struct ArtAssets {
     gfx::ArtTexture relics;
+    gfx::ArtTexture expansion;
     gfx::ArtTexture hands;
     gfx::ArtTexture life;
     gfx::ArtTexture coins;
     explicit ArtAssets(const std::filesystem::path& assets)
         : relics(assets / "art/relics.tga"), hands(assets / "art/deck-hands.tga"),
-          life(assets / "art/deck-life.tga"), coins(assets / "art/deck-coins.tga") {}
+          life(assets / "art/deck-life.tga"), coins(assets / "art/deck-coins.tga") {
+        // Keep the original twenty-four illustrations in their untouched atlas.
+        const auto extra=assets / "art/relics-expansion.tga";
+        if(std::filesystem::exists(extra)) {
+            try {
+                expansion.load(extra);
+                if(expansion.width()!=1254 || expansion.height()!=1254)
+                    throw std::runtime_error("Expansion artwork must retain its native 1254x1254 dimensions");
+            } catch(const std::exception& error) {
+                expansion=gfx::ArtTexture{};
+                std::cerr<<"Expansion artwork fallback: "<<error.what()<<'\n';
+            }
+        }
+    }
     const gfx::ArtTexture& deck(bj::StartDeck choice) const {
         return choice == bj::StartDeck::SecondLife ? life : choice == bj::StartDeck::Rich ? coins : hands;
     }
@@ -588,6 +609,29 @@ MenuLayout menuLayout(ImVec2 display) {
     return {{display.x * 0.075f, display.y * 0.39f}, 350, display.y < 800 ? 64.0f : 76.0f, display.y < 800 ? 76.0f : 88.0f};
 }
 
+struct TextInkBounds { ImVec2 min, max; };
+
+// The menu wordmark is ASCII. Glyph quads include Cormorant's ascenders and J
+// descenders, unlike CalcTextSizeA's line box; use the actual rendered bounds.
+TextInkBounds menuTitleInk(ImFont* font,float size,ImVec2 origin) {
+    TextInkBounds bounds{{std::numeric_limits<float>::max(),std::numeric_limits<float>::max()},
+                         {std::numeric_limits<float>::lowest(),std::numeric_limits<float>::lowest()}};
+    const float scale=size/font->FontSize;
+    float pen=std::floor(origin.x);
+    const float y=std::floor(origin.y);
+    for(const char letter:std::string("Jester Jack")) {
+        const auto* glyph=font->FindGlyph(static_cast<ImWchar>(letter));
+        if(glyph->Visible) {
+            bounds.min.x=std::min(bounds.min.x,pen+glyph->X0*scale);
+            bounds.min.y=std::min(bounds.min.y,y+glyph->Y0*scale);
+            bounds.max.x=std::max(bounds.max.x,pen+glyph->X1*scale);
+            bounds.max.y=std::max(bounds.max.y,y+glyph->Y1*scale);
+        }
+        pen+=glyph->AdvanceX*scale;
+    }
+    return bounds;
+}
+
 void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* window) {
     const auto display = ImGui::GetIO().DisplaySize;
     const float alpha=session.entrance.menuAlpha();
@@ -599,22 +643,22 @@ void drawMenu(bj::Game&, Session& session, const Interface& ui, GLFWwindow* wind
     const ImVec2 p{display.x*.07f,display.y*.045f};
     const float titleSize=std::min(208.0f*scale,display.x*.15f);
     const char* name="Jester Jack";
-    const float textWidth=ui.title->CalcTextSizeA(titleSize,10000,0,name).x;
-    // A three-point motley crown, bell tips and a gilded offset make the wordmark
-    // feel part of the palace instead of a generic UI heading.
-    const float cx=p.x+textWidth*.50f,cy=p.y+8*scale;
-    backdrop->AddTriangleFilled({cx-48*scale,cy+18*scale},{cx-66*scale,cy-14*scale},{cx-12*scale,cy+8*scale},ink(154,54,88));
-    backdrop->AddTriangleFilled({cx-20*scale,cy+18*scale},{cx,cy-28*scale},{cx+20*scale,cy+18*scale},ink(212,170,82));
-    backdrop->AddTriangleFilled({cx+12*scale,cy+8*scale},{cx+66*scale,cy-14*scale},{cx+48*scale,cy+18*scale},ink(75,136,143));
-    for(const ImVec2 bell: {ImVec2{cx-66*scale,cy-14*scale},ImVec2{cx,cy-28*scale},ImVec2{cx+66*scale,cy-14*scale}})
-        backdrop->AddCircleFilled(bell,4*scale,ink(244,208,120),20);
+    const auto bounds=menuTitleInk(ui.title,titleSize,p);
+    // A compact motley cap belongs to the wordmark, with its lower edge just
+    // above the visible ascenders. Every layer shares the entrance fade.
+    const float cx=(bounds.min.x+bounds.max.x)*.5f,cy=bounds.min.y-5*scale;
+    backdrop->AddTriangleFilled({cx-29*scale,cy},{cx-45*scale,cy-24*scale},{cx-8*scale,cy-7*scale},ink(154,54,88));
+    backdrop->AddTriangleFilled({cx-16*scale,cy},{cx,cy-33*scale},{cx+16*scale,cy},ink(212,170,82));
+    backdrop->AddTriangleFilled({cx+8*scale,cy-7*scale},{cx+45*scale,cy-24*scale},{cx+29*scale,cy},ink(75,136,143));
+    for(const ImVec2 bell: {ImVec2{cx-45*scale,cy-24*scale},ImVec2{cx,cy-33*scale},ImVec2{cx+45*scale,cy-24*scale}})
+        backdrop->AddCircleFilled(bell,3*scale,ink(244,208,120),20);
     backdrop->AddText(ui.title,titleSize,{p.x+5*scale,p.y+6*scale},ink(18,7,24,220),name);
     backdrop->AddText(ui.title,titleSize,{p.x+1*scale,p.y+2*scale},ink(156,101,45),name);
     backdrop->AddText(ui.title,titleSize,p,ink(255,232,181),name);
-    const float lineY=p.y+titleSize*.93f;
-    backdrop->AddLine({p.x,lineY},{p.x+textWidth,lineY},ink(211,164,78,180),1.5f);
+    const float lineY=bounds.max.y+12*scale; // Below the descender AND its shadow.
+    backdrop->AddLine({bounds.min.x,lineY},{bounds.max.x,lineY},ink(211,164,78,180),1.5f);
     const char* subtitle="THE HOUSE OF BEAUTIFUL MISFORTUNE";
-    backdrop->AddText(ui.small,18*scale,{p.x+6*scale,lineY+11*scale},ink(228,196,144),subtitle);
+    backdrop->AddText(ui.small,18*scale,{bounds.min.x+6*scale,lineY+10*scale},ink(228,196,144),subtitle);
     if(session.collection || session.deckSelection) return;
     const auto layout=menuLayout(display);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha,alpha);
@@ -675,13 +719,31 @@ void drawChip(ImDrawList* draw, ImVec2 c, float r, const bj::RelicInfo& item,
     const float cs=std::cos(tilt),sn=std::sin(tilt);
     const auto corner=[&](float x,float y) {return ImVec2{c.x+x*cs-y*sn,c.y+x*sn+y*cs};};
     const int id=static_cast<int>(item.id);
-    if(id>=24) {palace::relicSigil(draw,c,r,id,accent);return;}
-    const int col=id%6,row=id/6;
-    // The illustrations are packed slightly tighter vertically than the nominal grid.
-    constexpr int rowTop[]={8,252,500,748};
-    const ImVec2 a{(col*256+4.5f)/art.relics.width(),(rowTop[row]+.5f)/art.relics.height()};
-    const ImVec2 b{(col*256+251.5f)/art.relics.width(),(rowTop[row]+247.5f)/art.relics.height()};
-    const auto texture=static_cast<ImTextureID>(art.relics.id());
+    if(id>=24 && !art.expansion) {palace::relicSigil(draw,c,r,id,accent);return;}
+    const auto& atlas=id>=24?art.expansion:art.relics;
+    ImVec2 a,b;
+    if(id>=24) {
+        // Native painterly atlas: its medallions are packed in uneven rows.
+        // These are real image bounds in ID order (24..39), not a nominal grid.
+        // Sampling the outer pixel centers keeps complete rims without pulling
+        // pixels from the adjacent medallion at these tightly packed boundaries.
+        constexpr int bounds[16][4]={
+            {15,6,318,303}, {323,6,622,302}, {630,5,932,303}, {941,6,1243,302},
+            {10,305,316,604}, {322,305,623,604}, {628,305,933,604}, {940,306,1243,604},
+            {11,604,316,905}, {321,606,621,905}, {628,604,934,905}, {940,606,1244,905},
+            {11,906,319,1210}, {320,905,623,1210}, {627,905,933,1212}, {939,909,1245,1212}
+        };
+        const auto& rect=bounds[id-24];
+        a={(rect[0]+.5f)/atlas.width(),(rect[1]+.5f)/atlas.height()};
+        b={(rect[2]-.5f)/atlas.width(),(rect[3]-.5f)/atlas.height()};
+    } else {
+        const int col=id%6,row=id/6;
+        // Preserve the original atlas's slightly irregular vertical packing.
+        constexpr int rowTop[]={8,252,500,748};
+        a={(col*256+4.5f)/atlas.width(),(rowTop[row]+.5f)/atlas.height()};
+        b={(col*256+251.5f)/atlas.width(),(rowTop[row]+247.5f)/atlas.height()};
+    }
+    const auto texture=static_cast<ImTextureID>(atlas.id());
     const float image=r*.96f;
     draw->AddImageQuad(texture,corner(-image,-image),corner(image,-image),corner(image,image),corner(-image,image),
         a,{b.x,a.y},b,{a.x,b.y});
@@ -707,21 +769,6 @@ struct TableLayout {
     float boardHeight;
     float actionY;
 };
-
-struct RelicRowStyle {
-    float radius;
-    float nameSize;
-    float bodySize;
-    float raritySize;
-    float height;
-};
-
-RelicRowStyle relicRowStyle(float contentWidth) {
-    const float column=contentWidth/4;
-    if(column<235) return {38,22,18,16,208};
-    if(column<320) return {44,26,20,18,208};
-    return {44,28,22,18,192};
-}
 
 TableLayout tableLayout(ImVec2 display) {
     const float sidebar = std::clamp(display.x * .24f, 280.0f, 340.0f);
@@ -774,7 +821,7 @@ void verifyRelicTextLayout(const Interface& ui, const TableLayout& layout, ImVec
     float maxBottom=0;
     for(const auto& item:bj::relicCatalog()) {
         const auto wrapped=wrapRelicWords(ui.small,18,width,item.description);
-        const float bottom=91+ui.small->CalcTextSizeA(18,10000,0,wrapped.text.c_str()).y;
+        const float bottom=105+ui.small->CalcTextSizeA(18,10000,0,wrapped.text.c_str()).y;
         if(wrapped.longestWord>width || bottom>layout.boardY-4)
             throw std::runtime_error(std::string("Equipment detail overflows: ")+item.name);
         maxBottom=std::max(maxBottom,bottom);
@@ -806,7 +853,7 @@ void relicTooltip(const bj::RelicInfo& item, const Interface& ui) {
 
 void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation& timeline,
                     const TableLayout& layout, Session& session, const Interface& ui,
-                    bj::Game& game, Commands& commands) {
+                    bj::Game& game, Commands& commands, const ArtAssets& art) {
     if(session.selectedEquipment>=static_cast<int>(state.owned.size())) session.selectedEquipment=-1;
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{4,4});
     beginPanel("##equipment",{layout.contentX,0},{layout.contentWidth,layout.boardY},true,
@@ -820,51 +867,75 @@ void drawRelicStrip(const bj::Snapshot& state, const presentation::Presentation&
         ImGui::SameLine();ImGui::TextColored(muted,"1-8 inspect  /  A activate  /  Esc close");
     }
     const float cell=layout.contentWidth/8;
+    bool pointerOnOccupiedSlot=false;
     for(int slot=0;slot<static_cast<int>(bj::maxEquipmentSlots);++slot) {
-        ImGui::PushID(slot);const float x=4+slot*cell,y=29;
+        ImGui::PushID(slot);const float x=4+slot*cell,y=26;
         const bool filled=slot<static_cast<int>(state.owned.size());
         const ImVec4 accent=filled?rarityColor(relicInfo(state.owned[static_cast<std::size_t>(slot)]).rarity):ImVec4(.35f,.31f,.29f,1);
-        const ImVec2 a{origin.x+x,origin.y+y},b{origin.x+x+cell-9,origin.y+y+31};
+        const ImVec2 a{origin.x+x,origin.y+y},b{origin.x+x+cell-9,origin.y+y+47};
+        const ImVec2 center{(a.x+b.x)*.5f,a.y+23};
         draw->AddRectFilled(a,b,IM_COL32(24,17,29,205),4);
         draw->AddRect(a,b,ImGui::ColorConvertFloat4ToU32({accent.x,accent.y,accent.z,filled?.50f:.16f}),4);
         if(!filled) {
             const std::string number=std::to_string(slot+1)+"  --";
-            draw->AddText(ui.small,16,{a.x+8,a.y+6},IM_COL32(142,128,116,115),number.c_str());
+            draw->AddCircle(center,21,IM_COL32(142,128,116,45),32,1);
+            draw->AddText(ui.small,16,{a.x+8,a.y+15},IM_COL32(142,128,116,115),number.c_str());
             ImGui::PopID();continue;
         }
         const auto id=state.owned[static_cast<std::size_t>(slot)];const auto status=bj::abilityStatus(game.state(),id);
         ImGui::SetCursorPos({x,y});
-        if(ImGui::Selectable("##slot",session.selectedEquipment==slot,0,{cell-9,31})) {
-            session.selectedEquipment=session.selectedEquipment==slot?-1:slot;session.inspectedRelic=id;
+        if(ImGui::Selectable("##slot",session.selectedEquipment==slot,0,{cell-9,47})) {
+            if(session.selectedEquipment==slot) session.clearEquipmentContext();
+            else {session.selectedEquipment=slot;session.inspectedRelic=id;}
         }
+        pointerOnOccupiedSlot=pointerOnOccupiedSlot||ImGui::IsItemHovered();
         const bool hovered=!session.suppressEquipmentHover&&!session.settings&&!session.rules&&!session.transitioning()&&ImGui::IsItemHovered();
         session.relicHover[slot]=approach(session.relicHover[slot],hovered||session.hoveredRelic==slot);
         if(hovered) {session.inspectedRelic=id;session.hoveredRelic=slot;}
         const bool reacting=session.relicReactionStep>0&&static_cast<std::size_t>(session.relicReactionStep)<=state.score.appliedEffects.size()&&state.score.appliedEffects[session.relicReactionStep-1].relic==id;
         if(reacting) draw->AddRect(a,b,IM_COL32(245,207,120,220),4,0,2);
-        const std::string label=std::to_string(slot+1)+(bj::isActiveRelic(id)?"   "+std::to_string(status.remaining)+"/"+std::to_string(status.maximum):"   +");
-        draw->AddText(ui.small,18,{a.x+10,a.y+4},ImGui::ColorConvertFloat4ToU32(accent),label.c_str());
-        if(status.usable) draw->AddCircleFilled({b.x-8,a.y+15},3,ImGui::ColorConvertFloat4ToU32(green),12);
+        const bool focused=session.selectedEquipment==slot;
+        if(focused || hovered) draw->AddRect(a,b,ImGui::ColorConvertFloat4ToU32(accent),4,0,focused?1.5f:1.0f);
+        drawChip(draw,center,22,relicInfo(id),art);
+        const std::string number=std::to_string(slot+1);
+        draw->AddText(ui.small,16,{a.x+7,a.y+15},ImGui::ColorConvertFloat4ToU32(accent),number.c_str());
+        if(bj::isActiveRelic(id)) {
+            const std::string charge=std::to_string(status.remaining)+"/"+std::to_string(status.maximum);
+            const auto color=ImGui::ColorConvertFloat4ToU32(status.usable?green:muted);
+            const ImVec2 badge{b.x-29,b.y-18};
+            draw->AddRectFilled(badge,{b.x-3,b.y-1},IM_COL32(24,17,29,245),4);
+            draw->AddRect(badge,{b.x-3,b.y-1},color,4);
+            draw->AddText(ui.small,14,{badge.x+4,badge.y},color,charge.c_str());
+        }
         ImGui::PopID();
     }
+    // Preserve a click on an occupied icon, its context card or a physical chip.
+    // Empty slots, header space, the sidebar and the rest of the table dismiss it.
+    const bool hasDetail=session.hoveredRelic>=0||session.selectedEquipment>=0;
+    const bool pointerOnDetail=hasDetail && state.cardChoices.empty() &&
+        ImGui::IsMouseHoveringRect({origin.x+4,origin.y+78},{origin.x+layout.contentWidth-5,origin.y+145});
+    if(ImGui::IsMouseClicked(0) && !pointerOnOccupiedSlot && !pointerOnDetail && !session.physicalChipHovered)
+        session.clearEquipmentContext();
     const int selected=session.hoveredRelic>=0?session.hoveredRelic:session.selectedEquipment;
     if(state.cardChoices.empty()&&selected>=0&&selected<static_cast<int>(state.owned.size())) {
         const auto& item=relicInfo(state.owned[static_cast<std::size_t>(selected)]);
         const auto status=bj::abilityStatus(game.state(),item.id);
-        draw->AddRectFilled({origin.x+4,origin.y+66},{origin.x+layout.contentWidth-5,origin.y+145},IM_COL32(26,19,31,242),5);
-        palace::panelFrame(draw,{origin.x+4,origin.y+66},{layout.contentWidth-9,79},false);
-        ImGui::SetCursorPos({14,69});ImGui::TextColored(rarityColor(item.rarity),"%s / %s",item.name,bj::rarityName(item.rarity));
+        draw->AddRectFilled({origin.x+4,origin.y+78},{origin.x+layout.contentWidth-5,origin.y+145},IM_COL32(26,19,31,242),5);
+        palace::panelFrame(draw,{origin.x+4,origin.y+78},{layout.contentWidth-9,67},false);
+        ImGui::SetCursorPos({14,80});ImGui::TextColored(rarityColor(item.rarity),"%s / %s",item.name,bj::rarityName(item.rarity));
         const auto wrapped=wrapRelicWords(ui.small,18,layout.contentWidth-210,item.description);
-        ImGui::SetCursorPos({14,94});ImGui::TextUnformatted(wrapped.text.c_str());
+        draw->AddText(ui.small,18,{origin.x+14,origin.y+105},ImGui::GetColorU32(ImGuiCol_Text),wrapped.text.c_str());
         if(bj::isActiveRelic(item.id)) {
-            ImGui::SetCursorPos({layout.contentWidth-184,71});
+            ImGui::SetCursorPos({layout.contentWidth-184,80});
             ImGui::BeginDisabled(commands.blocked||commands.used||!status.usable);
-            if(theatreButton("ACTIVATE / A",{170,32},{.19f,.28f,.24f,1})) {
+            if(theatreButton("ACTIVATE / A",{170,28},{.19f,.28f,.24f,1})) {
                 session.selectedEquipment=selected;
                 commands.apply([&]{return game.activate(item.id);},true);
             }
-            ImGui::EndDisabled();ImGui::SetCursorPos({layout.contentWidth-184,108});
-            ImGui::PushTextWrapPos(layout.contentWidth-9);ImGui::TextColored(status.usable?green:muted,"%s",status.reason);ImGui::PopTextWrapPos();
+            ImGui::EndDisabled();
+            const auto reason=wrapRelicWords(ui.small,16,170,status.reason);
+            draw->AddText(ui.small,16,{origin.x+layout.contentWidth-184,origin.y+111},
+                ImGui::GetColorU32(status.usable?green:muted),reason.text.c_str());
         } else {
             ImGui::SetCursorPos({layout.contentWidth-160,91});ImGui::TextColored(muted,"PASSIVE EFFECT");
         }
@@ -1240,7 +1311,7 @@ void drawTable(bj::Game& game, Commands& commands, Session& session, HandFeedbac
         return;
     }
     drawSidebar(state, layout, session, commands, ui, display.y);
-    drawRelicStrip(state, timeline, layout, session, ui, game, commands);
+    drawRelicStrip(state, timeline, layout, session, ui, game, commands, art);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
     beginPanel("##actions", {controlsLeft(layout), layout.actionY + 42}, {460, 104}, true);
     ImGui::PushFont(ui.menuButton);
@@ -1477,7 +1548,7 @@ void drawCardChoices(bj::Game& game,Commands& commands,const Interface& ui,const
     if(session.menu||session.settings||session.rules||session.transitioning()||state.cardChoices.empty()) return;
     const auto display=ImGui::GetIO().DisplaySize;const auto layout=tableLayout(display);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,{12,6});
-    beginPanel("##card-choice",{layout.contentX+4,66},{layout.contentWidth-9,79});
+    beginPanel("##card-choice",{layout.contentX+4,78},{layout.contentWidth-9,67});
     ImGui::PushFont(ui.small);ImGui::TextColored(gold,"FORKED PATH / CHOOSE ONE CARD");
     const char* suits[]={"Clubs","Diamonds","Hearts","Spades"};
     for(std::size_t i=0;i<state.cardChoices.size();++i) {
@@ -1485,7 +1556,7 @@ void drawCardChoices(bj::Game& game,Commands& commands,const Interface& ui,const
         const std::string rank=card.rank==1?"Ace":card.rank==11?"Jack":card.rank==12?"Queen":card.rank==13?"King":std::to_string(card.rank);
         const std::string label=rank+" of "+suits[static_cast<int>(card.suit)]+(i==0?" / Q":" / E");
         ImGui::BeginDisabled(commands.blocked||commands.used);
-        if(theatreButton(label.c_str(),{(layout.contentWidth-42)*.5f,36},{.19f,.26f,.24f,1})) commands.apply([&]{return game.chooseCard(i);},true);
+        if(theatreButton(label.c_str(),{(layout.contentWidth-42)*.5f,28},{.19f,.26f,.24f,1})) commands.apply([&]{return game.chooseCard(i);},true);
         ImGui::EndDisabled();
     }
     ImGui::PopFont();ImGui::End();ImGui::PopStyleVar();
@@ -1520,7 +1591,9 @@ void drawCollection(Session& session, const Interface& ui, const ArtAssets& art)
     const float radius=std::min(57.0f,w*.34f);
     const float cellHeight=radius*2+70;
     int shown=0;
-    for(const auto& item:bj::relicCatalog()) {
+    // Display positions are independent of catalog/enum order and selection IDs.
+    for(const auto id:presentation::collectionOrder()) {
+        const auto& item=relicInfo(id);
         if(session.collectionFilter && static_cast<int>(item.rarity)!=session.collectionFilter-1) continue;
         if(shown%4) ImGui::SameLine();
         ImGui::PushID(static_cast<int>(item.id));
@@ -1783,7 +1856,13 @@ int main(int argc, char** argv) {
             const auto& preview=options.previewScreen;
             if(preview=="settings") session.settings=true;
             else if(preview=="rules") {session.menu=false;session.rules=true;}
-            else if(preview=="collection") session.collection=true;
+            else if(preview=="collection") {
+                session.collection=true;
+                if(options.previewRelic>=0) {
+                    session.selectedRelic=static_cast<bj::Relic>(options.previewRelic);
+                    session.collectionFilter=static_cast<int>(relicInfo(session.selectedRelic).rarity)+1;
+                }
+            }
             else if(preview=="decks") session.deckSelection=true;
             else if(preview=="end") {
                 for(int guard=0;guard<1000&&game.state().phase!=bj::Phase::RunLost;++guard) {
@@ -1804,7 +1883,7 @@ int main(int argc, char** argv) {
                 session.menu=false;session.shopReplacement=preview=="trade"?0:-1;timeline.reset(game.state());
             } else throw std::runtime_error("Unknown preview screen");
         }
-        int equipmentClicks=0,abilityKeys=0,abilityActivations=0,choiceSelections=0;
+        int equipmentClicks=0,equipmentIconClicks=0,abilityKeys=0,abilityActivations=0,choiceSelections=0;
         ImGuiKey smokeKey=ImGuiKey_None;
         bool smokeMouseDown=false;
         int frame = 0;
@@ -1920,8 +1999,7 @@ int main(int argc, char** argv) {
                     if(frame==146) io.AddMouseButtonEvent(0,false);
                 }
                 if(frame>340&&!session.menu&&!game.state().owned.empty()&&game.state().phase!=bj::Phase::Shop&&game.state().phase!=bj::Phase::RunLost) {
-                    const auto relicStyle=relicRowStyle(table.contentWidth);
-                    io.AddMousePosEvent(table.contentX+relicStyle.radius+5,relicStyle.radius+30);
+                    io.AddMousePosEvent(table.contentX+table.contentWidth/16,49);
                 }
                 if(frame>=160 && frame%20==0 && !session.menu && !timeline.busy() &&
                     game.state().phase!=bj::Phase::Shop && game.state().phase!=bj::Phase::RunLost)
@@ -1963,6 +2041,12 @@ int main(int argc, char** argv) {
                     if(frame==clickFrame||frame==clickFrame+1) {
                         io.AddMousePosEvent(projected[i].x*io.DisplaySize.x,projected[i].y*io.DisplaySize.y);
                         io.AddMouseButtonEvent(0,frame==clickFrame);
+                    }
+                    const int iconFrame=190+static_cast<int>(i)*6;
+                    if(frame==iconFrame||frame==iconFrame+1) {
+                        const auto layout=tableLayout(io.DisplaySize);
+                        io.AddMousePosEvent(layout.contentX+4+(static_cast<float>(i)+.5f)*layout.contentWidth/8-4.5f,49);
+                        io.AddMouseButtonEvent(0,frame==iconFrame);
                     }
                     const int keyFrame=90+static_cast<int>(i)*8;
                     if(frame==keyFrame||frame==keyFrame+1) io.AddKeyEvent(static_cast<ImGuiKey>(ImGuiKey_1+static_cast<int>(i)),frame==keyFrame);
@@ -2058,6 +2142,10 @@ int main(int argc, char** argv) {
                     if(frame==12+static_cast<int>(i)*6) {
                         if(session.selectedEquipment!=static_cast<int>(i)) throw std::runtime_error("Physical equipment click failed slot="+std::to_string(i)+" selected="+std::to_string(session.selectedEquipment)+" hover="+std::to_string(session.hoveredRelic));
                         ++equipmentClicks;
+                    }
+                    if(frame==192+static_cast<int>(i)*6) {
+                        if(session.selectedEquipment!=static_cast<int>(i)) throw std::runtime_error("Illustrated equipment icon selected the wrong relic");
+                        ++equipmentIconClicks;
                     }
                     if(frame==92+static_cast<int>(i)*8 && !wasBusy) {
                         if(session.selectedEquipment!=static_cast<int>(i)) throw std::runtime_error("Equipment key selection failed");
@@ -2232,7 +2320,7 @@ int main(int argc, char** argv) {
             if(abilityActivations==0) throw std::runtime_error("No ability activated through actual key input");
             std::cout<<"Ability input: activations="<<abilityActivations<<" choices="<<choiceSelections<<'\n';
         }
-        if(options.equipmentSmoke) std::cout<<"Equipment input: projected clicks="<<equipmentClicks<<" key selections="<<abilityKeys<<'\n';
+        if(options.equipmentSmoke) std::cout<<"Equipment input: projected clicks="<<equipmentClicks<<" icon clicks="<<equipmentIconClicks<<" key selections="<<abilityKeys<<'\n';
         return 0;
     } catch (const std::exception& error) {
         std::cerr << "Jester Jack: " << error.what() << '\n';

@@ -1,5 +1,7 @@
 #include "presentation/Presentation.hpp"
 #include "presentation/ScoreHistory.hpp"
+#include "presentation/CollectionOrder.hpp"
+#include <algorithm>
 
 #include <cmath>
 #include <iostream>
@@ -412,9 +414,36 @@ void activeCardAlterations() {
     check(fingerprint(timeline.visible()) == fingerprint(after), "A winning redraw settles to its sole authoritative payout");
 }
 
+void collectionDisplayIdentity() {
+    const auto& catalog=bj::relicCatalog();
+    std::vector<bj::Relic> original;
+    for(const auto& item:catalog) original.push_back(item.id);
+    const auto& display=presentation::collectionOrder();
+    check(display.size()==catalog.size(),"Collection displays every relic exactly once");
+    check(display.front()==bj::Relic::RoyalPurse,"All collection opens with Common Royal Purse");
+    std::size_t position=0;
+    for(const auto rarity:{bj::Rarity::Common,bj::Rarity::Rare,bj::Rarity::Legendary}) {
+        for(const auto& item:catalog) if(item.rarity==rarity) {
+            check(position<display.size() && display[position++]==item.id,
+                  "Rarity groups preserve real relic IDs and stable catalog order");
+        }
+    }
+    const auto precision=std::find(display.begin(),display.end(),bj::Relic::Precision);
+    const auto chance=std::find(display.begin(),display.end(),bj::Relic::SecondChance);
+    check(precision<chance,"Rare Precision appears before Legendary Second Chance");
+    check(std::count(display.begin(),display.end(),bj::Relic::Rewind)==1 &&
+          std::count(display.begin(),display.end(),bj::Relic::GrandFinale)==1,
+          "New Rare and Legendary relics retain distinct selectable identities");
+    std::vector<bj::Relic> unchanged;
+    for(const auto& item:bj::relicCatalog()) unchanged.push_back(item.id);
+    check(unchanged==original && unchanged.front()==bj::Relic::Precision,
+          "Gallery sorting does not mutate the game catalog");
+}
+
 } // namespace
 
 int main() {
+    collectionDisplayIdentity();
     initialDeal();
     naturalRevealAndRewards();
     dealerTurn();
