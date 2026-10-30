@@ -22,6 +22,159 @@ uniform vec3 uFogColor;
 uniform bool uUseTexture;
 uniform bool uLighting;
 
+uniform mat4 uPalaceInverse;
+uniform vec2 uResolution;
+float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float noise(vec2 p) {
+    vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+    return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+               mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
+}
+vec3 nightSky(vec2 uv) {
+
+    vec3 ground=vec3(.012,.016,.027);
+    vec3 sky=mix(vec3(.060,.075,.112),vec3(.014,.020,.047),smoothstep(.4,1.0,uv.y));
+    float cloud=noise(vec2(uv.x*4.0,uv.y*9.0));
+    cloud+=noise(vec2(uv.x*9.0,uv.y*19.0))*.35;
+    sky+=vec3(.012,.014,.021)*smoothstep(.5,.95,cloud)*smoothstep(.5,.8,uv.y);
+    // Fine, sparse stars stay behind the architecture; no large screen glow.
+    vec2 cells=uv*vec2(uResolution.x/uResolution.y,1)*250.0;
+    vec2 star=fract(cells)-.5;
+    float point=(1.0-smoothstep(.025,.12,length(star)))*step(.996,hash(floor(cells)));
+    sky+=vec3(.20,.22,.27)*point*smoothstep(.60,.85,uv.y);
+    // Quiet layered hills create depth without a cut-off polygon horizon.
+    for(int layer=0;layer<3;++layer) {
+        float l=float(layer);
+        float ridge=.615+l*.025+noise(vec2(uv.x*(4.0+l*2.0),l*3.0))*(.035+l*.010);
+        float mountain=1.0-smoothstep(ridge-.012,ridge+.018,uv.y);
+        sky=mix(sky,mix(ground,vec3(.049,.062,.090),l*.20),mountain*.62);
+    }
+    sky=mix(ground,sky,smoothstep(.40,.70,uv.y));
+    return sky;
+}
+
+
+
+// Bounded analytic soft shadows. These use the dimensions of the visible portal
+// columns and lantern posts; the theatre's lighting path below is unaffected.
+float exteriorVisibility(vec3 p, vec3 source) {
+    vec3 ray=source-p;
+    float visibility=1.0;
+    if(abs(ray.z)>.0001) {
+        float t=(2.11-p.z)/ray.z;
+        if(t>.005 && t<.995) {
+            vec3 q=p+ray*t;
+            float penumbra=.025+.09*t;
+            float portal=1.0-smoothstep(.12,.12+penumbra,abs(abs(q.x)-1.05));
+            portal *= smoothstep(.20,.35,q.y)*(1.0-smoothstep(2.82,2.96,q.y));
+            float pilaster=1.0-smoothstep(.08,.08+penumbra,
+                min(abs(abs(q.x)-2.60),abs(abs(q.x)-4.34)));
+            pilaster *= smoothstep(.2,.4,q.y)*(1.0-smoothstep(4.43,4.53,q.y));
+            visibility*=1.0-.84*max(portal,pilaster);
+        }
+    }
+    // Ray/cylinder distance gives soft pole shadows which follow each light.
+    for(int i=0;i<4;++i) {
+        vec2 pole=vec2(i<2?-3.1:3.1,mod(float(i),2.0)<.5?4.3:7.65);
+        float t=clamp(dot(pole-p.xz,ray.xz)/max(dot(ray.xz,ray.xz),.0001),.0,1.0);
+        vec3 q=p+ray*t;
+        float shade=(1.0-smoothstep(.043,.085+.08*t,length(q.xz-pole)))
+            *smoothstep(.10,.18,q.y)*(1.0-smoothstep(1.95,2.02,q.y));
+        if(t>.005 && t<.995) visibility*=1.0-.72*shade;
+    }
+    return visibility;
+}
+
+vec3 exteriorPoint(vec3 p, vec3 n, vec3 v, vec3 source, vec3 surface,
+                   float power, float roughness, bool windowLight) {
+    vec3 delta=source-p;
+    float d2=dot(delta,delta);
+    if(d2>100.0) return vec3(0);
+    vec3 l=normalize(delta), h=normalize(l+v);
+    float diffuse=max(dot(n,l),0.0);
+    float shine=pow(max(dot(n,h),0.0),roughness)*uSpecular;
+    float falloff=power/(1.0+d2*.72);
+    falloff*=1.0-smoothstep(60.0,100.0,d2);
+    if(windowLight) {
+        // Window apertures illuminate the forecourt and their own stone reveals.
+        falloff*=mix(.28,1.0,smoothstep(-.38,.10,p.z-source.z));
+        shine*=.55;
+    } else {
+        // The opaque shade blocks light above the lantern; glass lights below it.
+        falloff*=1.0-smoothstep(.03,.55,p.y-source.y);
+    }
+    if(falloff<.0001) return vec3(0);
+    float shadow=exteriorVisibility(p+n*.012,source);
+    return (surface*diffuse+vec3(shine))*vec3(1.0,.81,.57)*falloff*shadow;
+}
+
+vec4 exteriorSurface(vec3 surface) {
+    vec3 p=(uPalaceInverse*vec4(vWorldPosition,1)).xyz;
+    vec3 n=normalize(mat3(uPalaceInverse)*vNormal);
+    vec3 eye=(uPalaceInverse*vec4(uCameraPosition,1)).xyz;
+    vec3 v=normalize(eye-p);
+    // The entrance throat is intentionally outside every ambient/fog calculation.
+    if(uMaterial==18) {
+        float visibility=pow(clamp((p.z-1.10)/.95,0.0,1.0),3.0);
+        return vec4(surface*visibility*.12,uOpacity);
+    }
+    if(uMaterial==20) {
+        float grain=.94+.045*vTexCoord.y+.004*sin(vTexCoord.x*79.0)*sin(vTexCoord.y*93.0);
+        return vec4(vec3(1.0,.69,.33)*grain,uOpacity);
+    }
+    if(uMaterial==17) {
+        vec2 tile=p.xz*1.45;
+        float checker=mod(floor(tile.x)+floor(tile.y),2.0);
+        surface=mix(vec3(.22,.22,.235),vec3(.15,.155,.17),checker);
+        vec2 seam=min(fract(tile),1.0-fract(tile));
+        surface*=mix(.65,1.0,smoothstep(.0,.015,min(seam.x,seam.y)));
+    }
+    if(uMaterial==19) {
+        float grain=sin(p.x*97.0+p.z*61.0)*sin(p.z*117.0-p.x*53.0);
+        surface*=.96+grain*.04;
+    }
+    if(uMaterial==22) {
+        float leaf=sin(p.x*19.0+sin(p.y*11.0))*sin(p.z*17.0+p.y*23.0);
+        surface*=.90+.10*leaf;
+    }
+    if(uMaterial==21) {
+        float slate=fract(vTexCoord.y*14.0);
+        surface*=.77+.23*smoothstep(.0,.07,slate);
+    }
+    vec3 result=surface;
+    if(uLighting) {
+        vec3 moon=normalize(vec3(-.55,.85,.25));
+        result=surface*(vec3(.19,.22,.29)+vec3(.24,.28,.38)*max(dot(n,moon),0.0));
+        result+=surface*uEmission;
+        for(int i=0;i<4;++i) {
+            vec3 lamp=vec3(i<2?-3.1:3.1,2.22,mod(float(i),2.0)<.5?4.3:7.65);
+            result+=exteriorPoint(p,n,v,lamp,surface,4.9, uMaterial==19?40.0:uShininess,false)*uLightIntensity;
+        }
+        for(int i=0;i<8;++i) {
+            float x=i<4?(i<2?-3.45:-1.80):(i<6?1.80:3.45);
+            float y=mod(float(i),2.0)<.5?1.44:3.52;
+            result+=exteriorPoint(p,n,v,vec3(x,y,2.16),surface,1.65,uShininess,true)*uLightIntensity;
+        }
+        // Soft contact occlusion at the foot of the facade and under the sills.
+        if(p.y<.22 && abs(p.x)<4.55)
+            result*=mix(.26,1.0,smoothstep(1.8,2.65,p.z));
+        if(p.z>1.82 && p.z<2.15) {
+            float sill=min(abs(p.y-.75),abs(p.y-2.83));
+            result*=.78+.22*smoothstep(.02,.16,sill);
+        }
+    }
+    float peak=max(result.r,max(result.g,result.b));
+    if(peak>.82) result*=(.82+.18*(1.0-exp(-(peak-.82)/.18)))/peak;
+    if(uMaterial==16 || uMaterial==17 || uMaterial==19 || uMaterial==22) {
+        // Independent of camera movement: no darkening of the palace itself.
+        float extent=length(vec2(p.x/24.0,(p.z-3.0)/27.0));
+        float fade=1.0-exp(-pow(extent,3.0));
+        result=mix(result,nightSky(gl_FragCoord.xy/uResolution),fade);
+    }
+    return vec4(result,uOpacity);
+}
+
+
 vec4 finishSurface(vec3 color) {
     // Soft highlight shoulder preserves ink and brass at the upper light setting.
     float peak=max(color.r,max(color.g,color.b));
@@ -153,6 +306,10 @@ void main() {
         float silhouette = pow(max(0.0, dot(normalize(vNormal), normalize(uCameraPosition-vWorldPosition))), .7);
         fragColor = vec4(surface * (.50 + min(illumination, 1.25)),
             uOpacity * silhouette * clamp((illumination - .035) * 1.5, 0.0, 1.0));
+        return;
+    }
+    if (uRoomLight < .5) {
+        fragColor = exteriorSurface(surface);
         return;
     }
     if (!uLighting) {

@@ -1,24 +1,34 @@
 #version 330 core
-
 out vec4 fragColor;
 uniform vec2 uResolution;
 
-void main() {
-    vec2 uv = gl_FragCoord.xy / uResolution;
-    vec3 horizon = vec3(0.29, 0.18, 0.22);
-    vec3 twilight = vec3(0.075, 0.065, 0.135);
-    vec3 night = vec3(0.025, 0.035, 0.075);
-    vec3 sky = mix(horizon, twilight, smoothstep(0.60, 0.88, uv.y));
-    sky = mix(sky, night, smoothstep(0.84, 1.0, uv.y));
-
-    // A low, soft sunset and sparse cloud bands keep this an evening sky.
-    vec2 sunDistance = (uv - vec2(0.83, 0.70)) * vec2(uResolution.x / uResolution.y, 1.0);
-    float glow = exp(-dot(sunDistance, sunDistance) * 10.0);
-    sky += vec3(0.08, 0.035, 0.012) * glow;
-    float sun = 1.0 - smoothstep(0.024, 0.031, length(sunDistance));
-    sky = mix(sky, vec3(0.54, 0.31, 0.20), sun * 0.45);
-    float band = sin(uv.y * 76.0 + sin(uv.x * 5.0) * 1.8);
-    float clouds = smoothstep(0.55, 0.95, band) * (1.0 - smoothstep(0.57, 0.92, uv.y));
-    sky = mix(sky, vec3(0.13, 0.10, 0.18), clouds * 0.10);
-    fragColor = vec4(sky, 1.0);
+float hash(vec2 p) { return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453); }
+float noise(vec2 p) {
+    vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+    return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),
+               mix(hash(i+vec2(0,1)),hash(i+vec2(1,1)),f.x),f.y);
 }
+vec3 nightSky(vec2 uv) {
+
+    vec3 ground=vec3(.012,.016,.027);
+    vec3 sky=mix(vec3(.060,.075,.112),vec3(.014,.020,.047),smoothstep(.4,1.0,uv.y));
+    float cloud=noise(vec2(uv.x*4.0,uv.y*9.0));
+    cloud+=noise(vec2(uv.x*9.0,uv.y*19.0))*.35;
+    sky+=vec3(.012,.014,.021)*smoothstep(.5,.95,cloud)*smoothstep(.5,.8,uv.y);
+    // Fine, sparse stars stay behind the architecture; no large screen glow.
+    vec2 cells=uv*vec2(uResolution.x/uResolution.y,1)*250.0;
+    vec2 star=fract(cells)-.5;
+    float point=(1.0-smoothstep(.025,.12,length(star)))*step(.996,hash(floor(cells)));
+    sky+=vec3(.20,.22,.27)*point*smoothstep(.60,.85,uv.y);
+    // Quiet layered hills create depth without a cut-off polygon horizon.
+    for(int layer=0;layer<3;++layer) {
+        float l=float(layer);
+        float ridge=.615+l*.025+noise(vec2(uv.x*(4.0+l*2.0),l*3.0))*(.035+l*.010);
+        float mountain=1.0-smoothstep(ridge-.012,ridge+.018,uv.y);
+        sky=mix(sky,mix(ground,vec3(.049,.062,.090),l*.20),mountain*.62);
+    }
+    sky=mix(ground,sky,smoothstep(.40,.70,uv.y));
+    return sky;
+}
+
+void main() { fragColor=vec4(nightSky(gl_FragCoord.xy/uResolution),1); }

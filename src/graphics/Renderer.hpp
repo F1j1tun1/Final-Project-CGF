@@ -45,7 +45,7 @@ struct Scene {
     float time = 0.0f;
     bool menu = false;
     float menuApproach = 0.0f; // Eased progress from establishing view to the threshold.
-    float doorOpen = 0.0f; // Hinged leaves, 0 = closed, 1 = open inward.
+    float doorOpen = 0.0f; // Hinged leaves, 0 = closed, 1 = open outward into the forecourt.
     float menuPush = 0.0f; // Short final movement through the open doorway.
     Viewport tableViewport;
     float dealerReach = 0.0f;
