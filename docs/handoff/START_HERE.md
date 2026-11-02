@@ -1,15 +1,15 @@
-# Jester Jack — передача проекта новому аккаунту
+# Jester Jack — handoff for a new account
 
-Срез проекта: **22 октября 2026 года**. Этот документ переносит рабочий контекст, а не историю аккаунта. Читать сначала его, затем четыре тематических файла ниже. При расхождении с документацией фактическое поведение определяют исходники; новые прямые указания владельца важнее прежних предпочтений.
+Project snapshot: **October 22, 2026**. This document transfers working context, not account history. Read it first, then the four topic files below. If documentation conflicts, actual behavior is determined by the source code; new direct instructions from the owner take precedence over earlier preferences.
 
-## Где актуальная версия
+## Current version
 
-- Репозиторий: [F1j1tun1/Final-Project-CGF](https://github.com/F1j1tun1/Final-Project-CGF).
-- Ветка для переноса: **`codex/account-handoff`**. Она содержит последнюю игру и эти документы. Обычный Download ZIP или clone без указания ветки возьмёт старый `main`.
-- Последний коммит, изменивший игру: **`f7e9526d158b84d7e62e6b88ebc0934db7df65c9`** — увеличение текста рядом с улучшениями. Коммиты передачи после него меняют только документацию.
-- Ветка предыдущей локальной разработки: `codex/theatre-polish`.
-- `main` и удалённый `main` при подготовке передачи: **`95045813dbe8579bb806739e59140dc33895aaa4`**. Владелец отложил обновление `main`: **не сливать ветки и не обновлять `main`, пока он явно не попросит**.
-- Проверенная Windows Release-сборка `JesterJack.exe`, SHA-256: `60E799EB7461306B4804A4F951985BD247DD43753900F58845F48FB1287E2A46`.
+- Repository: [F1j1tun1/Final-Project-CGF](https://github.com/F1j1tun1/Final-Project-CGF).
+- Handoff branch: **`codex/account-handoff`**. It contains the latest game and these documents. A regular Download ZIP or clone without a branch name will get the old `main`.
+- Latest commit that changed the game: **`f7e9526d158b84d7e62e6b88ebc0934db7df65c9`** — enlarging text beside relics. Handoff commits after it change documentation only.
+- Previous local development branch: `codex/theatre-polish`.
+- `main` and remote `main` at the time this handoff was prepared: **`95045813dbe8579bb806739e59140dc33895aaa4`**. The owner deferred updating `main`: **do not merge branches or update `main` unless explicitly asked**.
+- Verified Windows Release build `JesterJack.exe`, SHA-256: `60E799EB7461306B4804A4F951985BD247DD43753900F58845F48FB1287E2A46`.
 
 ```powershell
 git clone --branch codex/account-handoff https://github.com/F1j1tun1/Final-Project-CGF.git JesterJackWork
@@ -18,43 +18,43 @@ git status --short
 git log -1 --oneline
 ```
 
-В полном ZIP есть исходники, готовая игра, Git bundle и материалы лекций. В маленьком контекстном ZIP есть документы и актуальные иллюстрации; он не заменяет исходники. На прежнем ноутбуке пути перечислены в отдельном **LOCAL_SETUP.md**, который намеренно не публикуется в GitHub.
+The full ZIP contains source files, the built game, a Git bundle, and lecture materials. The small context ZIP contains documents and current illustrations; it does not replace the source. Paths on the previous laptop are listed in a separate **LOCAL_SETUP.md**, which is intentionally not published to GitHub.
 
-## Что читать
+## What to read
 
-1. [GAMEPLAY_AND_UI.md](GAMEPLAY_AND_UI.md) — правила, все 24 улучшения, экономика, колоды, управление, актуальный визуал и отклонённые варианты.
-2. [ENGINEERING.md](ENGINEERING.md) — устройство C++/OpenGL, карты, очередь анимаций, UI, меши, свет, камера, ресурсы и точки редактирования.
-3. [WORKFLOW_AND_CHECKS.md](WORKFLOW_AND_CHECKS.md) — сборка, проверки, захваты кадров, доставка игры с исходниками, работа нескольких исполнителей.
-4. [ASSISTANT_GUIDE.md](ASSISTANT_GUIDE.md) — как продолжать работу с владельцем, что переносится между аккаунтами, какие инструменты и навыки нужны.
-5. Существующие технические документы: [архитектура](../ARCHITECTURE.md), [соответствие лекциям](../LECTURE_ALIGNMENT.md), [требования курса](../COURSE_REQUIREMENTS.md), [запуск и управление](../../README.md), [источники и лицензии](../../THIRD_PARTY_NOTICES.md).
+1. [GAMEPLAY_AND_UI.md](GAMEPLAY_AND_UI.md) — rules, all 24 relics, economy, decks, controls, current visuals, and rejected alternatives.
+2. [ENGINEERING.md](ENGINEERING.md) — C++/OpenGL structure, cards, animation queue, UI, meshes, lighting, camera, assets, and edit points.
+3. [WORKFLOW_AND_CHECKS.md](WORKFLOW_AND_CHECKS.md) — build, checks, screenshots, delivery of the game with sources, and multi-contributor workflow.
+4. [ASSISTANT_GUIDE.md](ASSISTANT_GUIDE.md) — how to continue working with the owner, what transfers between accounts, and which tools and skills may be useful.
+5. Existing technical documents: [architecture](../ARCHITECTURE.md), [lecture alignment](../LECTURE_ALIGNMENT.md), [course requirements](../COURSE_REQUIREMENTS.md), [launch and controls](../../README.md), [sources and licenses](../../THIRD_PARTY_NOTICES.md).
 
-## Текущий результат
+## Current result
 
-Учебная одиночная игра Jester Jack: C++17, OpenGL 3.3 Core, GLFW, GLM, Dear ImGui. Это блэкджек с несколькими руками в раунде, целью по очкам, монетами и улучшениями. Раунды бесконечные, ставок нет. Случайность карт не подкручивается. Правила из ранних сообщений неоднократно уточнялись — использовать только текущий каталог и текущую логику.
+An educational single-player game, Jester Jack: C++17, OpenGL 3.3 Core, GLFW, GLM, Dear ImGui. It is blackjack with multiple hands per round, a point target, coins, and relics. Rounds are endless; there are no bets. Card randomness is not manipulated. Rules from early messages were clarified several times; use only the current catalog and current logic.
 
-Визуал: загадочный театр без хоррора, зелёный стол, один дилер с фарфоровой маской, симметричные фиолетово-бордовые портьеры, арки, две высокие лампы, свечи и плиточный пол. Без дополнительных столов, фоновых персонажей и разбросанных предметов. В меню — вечернее казино и периодический тёмный седан с фарами. Камера на ПКМ и колесо.
+Visuals: a mysterious theater without horror, green table, one dealer in a porcelain mask, symmetrical purple-burgundy curtains, arches, two tall lamps, candles, and a tiled floor. No extra tables, background characters, or scattered objects. The menu shows an evening casino and a dark sedan with headlights passing periodically. Camera controls use the right mouse button and scroll wheel.
 
-Последняя законченная правка: названия и описания справа от четырёх фишек стали крупнее; названия 22–28 px, описания 18–22 px в зависимости от ширины окна. Фишки сохранили размер, описание переносится по словам без разрыва чисел `+0.6`. Проверены все 24 описания и полный ряд улучшений. Сборка и исходники обновлены на рабочем столе. **Незавершённой правки игры сейчас нет**; текущая задача — только перенос контекста.
+Last completed change: names and descriptions to the right of four chips were enlarged; names use 22–28 px and descriptions 18–22 px depending on window width. Chip size stayed the same, and descriptions wrap at word boundaries without splitting numbers such as `+0.6`. All 24 descriptions and the full relic row were checked. The build and source were updated on the desktop. **There is no unfinished game change**; the current task is only to transfer context.
 
-![Последняя панель улучшений и сцена](../images/jester-table.png)
+![Latest relic panel and scene](../images/jester-table.png)
 
-## Что не переносится автоматически
+## What does not transfer automatically
 
-История чата, память аккаунта, подключение GitHub, авторизация, установленные плагины и живые агенты не становятся частью нового аккаунта. Не нужны старые токены или копия всей папки профиля Codex. Новый аккаунт читает эти документы и открывает исходники; GitHub при необходимости подключается заново. Если доступен только обычный веб-чат без локальных инструментов, он не сможет сам собрать и запустить Windows/OpenGL-игру.
+Chat history, account memory, GitHub connection, authentication, installed plugins, and live agents do not become part of a new account. Old tokens or a copy of the entire Codex profile folder are not needed. The new account reads these documents and opens the source; reconnect GitHub if needed. If only a regular web chat is available without local tools, it cannot build and run the Windows/OpenGL game itself.
 
-Предыдущий рабочий каталог является **linked Git worktree**: его `.git` — ссылка на другой каталог. Нельзя переносить один этот файл как репозиторий. Использовать новый clone, либо `repository.bundle` из полного пакета. Не копировать старые `build/` и `CMakeCache.txt` на другой компьютер: они содержат абсолютные пути и привязку к компилятору.
+The previous working directory is a **linked Git worktree**: its `.git` file points to another directory. Do not transfer that file by itself as a repository. Use a fresh clone or `repository.bundle` from the full package. Do not copy old `build/` or `CMakeCache.txt` to another computer: they contain absolute paths and compiler-specific configuration.
 
-## Что осталось на будущее
+## Future work
 
-- Обновление `main` — только по отдельной просьбе владельца.
-- Кастомные музыка и звуки обсуждались как будущая работа; аудиосистема и пользовательские аудиофайлы сейчас отсутствуют.
-- Нет сохранения забега между запусками, постоянного файла настроек и меню продолжения.
-- В README/HOW TO PLAY есть небольшие старые формулировки об управлении/hover; точные расхождения перечислены в GAMEPLAY_AND_UI.md. Это известные текстовые мелочи, не повод менять правила при переносе.
-- Для собственных TGA-иллюстраций есть готовые игровые изображения; отдельные исходные PNG/слои и история их создания в текущем репозитории не обнаружены. Не выдумывать их наличие.
-- Требования отчёта/слайдов и демонстрации описаны в COURSE_REQUIREMENTS.md; не считать материалы защиты готовыми без проверки их наличия.
+- Update `main` only on a separate request from the owner.
+- Custom music and sounds were discussed as future work; the audio system and custom audio files are currently absent.
+- There is no save system between launches, persistent settings file, or continue menu.
+- README/HOW TO PLAY contain a few older descriptions of controls/hover; exact discrepancies are listed in GAMEPLAY_AND_UI.md. These are known minor text issues, not a reason to change the rules during handoff.
+- Ready-to-use in-game TGA illustrations exist, but separate source PNGs/layers and their creation history were not found in the current repository. Do not assume they are available.
+- Report/slide and demonstration requirements are described in COURSE_REQUIREMENTS.md; do not treat defense materials as complete without checking whether they exist.
 
-## Первый запрос новому ассистенту
+## First request to the new assistant
 
-Скопировать этот текст, приложить маленький ZIP контекста и открыть папку исходников:
+Copy this text, attach the small context ZIP, and open the source folder:
 
-> Продолжаем Jester Jack. Прочитай docs/handoff/START_HERE.md, затем GAMEPLAY_AND_UI.md, ENGINEERING.md, WORKFLOW_AND_CHECKS.md и ASSISTANT_GUIDE.md. Актуальный код находится в codex/account-handoff и основан на f7e9526; main пока не обновляй. Сначала проверь реальную папку, ветку и локальные изменения. Не переделывай игру по старым отклонённым идеям. Кратко подтверди, что понял состояние, и жди моей следующей задачи. Если работаем на том же ноутбуке, учти LOCAL_SETUP.md из ZIP. Общаемся по-русски, коротко; интерфейс игры остаётся английским.
+> We are continuing Jester Jack. Read docs/handoff/START_HERE.md, then GAMEPLAY_AND_UI.md, ENGINEERING.md, WORKFLOW_AND_CHECKS.md, and ASSISTANT_GUIDE.md. The current code is on codex/account-handoff and is based on f7e9526; do not update main yet. First check the actual folder, branch, and local changes. Do not redesign the game based on old rejected ideas. Briefly confirm that you understand the state, then wait for my next task. If we are using the same laptop, consult LOCAL_SETUP.md from the ZIP. Communicate briefly in Russian; keep the game UI in English.

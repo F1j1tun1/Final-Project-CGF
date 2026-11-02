@@ -1,152 +1,153 @@
-# Техническое устройство Jester Jack
+# Jester Jack architecture
 
-Jester Jack — учебный прототип блэкджека с 3D-столом, бесконечными раундами и магазином улучшений. Сборка и запуск описаны в [README.md](../README.md).
+Jester Jack is an educational blackjack prototype with a 3D table, endless rounds, and a relic shop. See [README.md](../README.md) for build and launch instructions.
 
-## Стек и структура
+## Technology stack and structure
 
-| Часть | Технологии |
+| Area | Technologies |
 | --- | --- |
-| Приложение | C++17, GLFW 3.4, Dear ImGui 1.91.9b |
-| Графика | OpenGL 3.3 Core, GLSL 330, GLAD, GLM 1.0.1 |
-| Сборка и тесты | CMake 3.24+, CTest, пресеты desktop/core-only |
+| Application | C++17, GLFW 3.4, Dear ImGui 1.91.9b |
+| Graphics | OpenGL 3.3 Core, GLSL 330, GLAD, GLM 1.0.1 |
+| Build and tests | CMake 3.24+, CTest, desktop/core-only presets |
 
-Зависимости включены в `third_party/`; CMake не скачивает библиотеки. Имя собираемого executable и target — `blackjack_forge`.
+Dependencies are included in `third_party/`; CMake does not download libraries. The executable and target are named `blackjack_forge`.
 
-| Файлы | Назначение |
+| Files | Purpose |
 | --- | --- |
-| `src/game/` | Правила, колода, исходы, награды, состояние забега и магазин; без графики, файлов и часов |
-| `src/presentation/` | Очередь показа карт, раскрытия дилера и начисления награды; без команд игры и случайных чисел |
-| `src/graphics/BandModel.*`, `src/presentation/BandSync.*` | Джазовый ансамбль на сцене и привязка к долям саундтрека (подробно ниже) |
-| `src/audio/` | Звук: `Mixer` решает, что и когда играет (без ОС и устройств), `Engine` играет в отдельном потоке; без правил и графики |
-| `src/graphics/` | Меши, текстуры, шейдеры, камера, свет и GPU-ресурсы; без расчёта исходов |
-| `src/graphics/RendererRoom.inl` | Театральные арки, портьеры, колонны и освещение зала |
-| `src/main.cpp` | Окно, ввод, меню, UI, время перехода и преобразование Snapshot в Scene |
-| `assets/` | Шейдеры, иллюстрации TGA, шрифты и их лицензии |
-| `assets/audio/` | Эффекты (`sfx/`), звуки интерфейса (`ui/`), главная тема и саундтреки (`music/`); описание в `assets/audio/README.md` |
-| `tests/game_tests.cpp` | Проверки правил, всех улучшений, начальных колод, возрождения, магазина и воспроизводимости |
-| `tests/presentation_tests.cpp` | Проверки порядка показа, ускорения, активных способностей и независимости от шага времени |
-| `tests/band_tests.cpp` | Проверки ансамбля и разбора файлов синхронизации |
-| `tests/audio_tests.cpp` | Проверки перемешивания саундтреков, зацикливания главной темы, перекрытия эффектов, приглушения и отсутствующих файлов (на фиктивном бэкенде, без звуковой карты) |
-| `src/presentation/EntranceTransition.hpp` / `tests/entrance_tests.cpp` | Независимые от частоты кадров этапы входа, пропуск, короткое затемнение и повторный запуск |
-| `scripts/balance_sim.cpp` | Воспроизводимое сравнение прогрессии без знания закрытых карт |
+| `src/game/` | Rules, deck, outcomes, rewards, run state, and shop; no graphics, files, or clocks |
+| `src/presentation/` | Queue for showing cards, revealing the dealer, and awarding rewards; no game commands or random numbers |
+| `src/graphics/BandModel.*`, `src/presentation/BandSync.*` | Stage jazz ensemble and synchronization to soundtrack beats (details below) |
+| `src/audio/` | Audio: `Mixer` decides what plays and when (no OS or devices), while `Engine` plays on a separate thread; no rules or graphics |
+| `src/graphics/` | Meshes, textures, shaders, camera, lighting, and GPU resources; no outcome calculations |
+| `src/graphics/RendererRoom.inl` | Theater arches, curtains, columns, and room lighting |
+| `src/main.cpp` | Window, input, menus, UI, transition timing, and conversion from Snapshot to Scene |
+| `assets/` | Shaders, TGA illustrations, fonts, and their licenses |
+| `assets/audio/` | Effects (`sfx/`), UI sounds (`ui/`), main theme, and soundtracks (`music/`); see `assets/audio/README.md` |
+| `tests/game_tests.cpp` | Tests for rules, every relic, starting decks, revival, shop, and reproducibility |
+| `tests/presentation_tests.cpp` | Tests for display order, acceleration, active abilities, and independence from time-step size |
+| `tests/band_tests.cpp` | Tests for the ensemble and parsing synchronization files |
+| `tests/audio_tests.cpp` | Tests for soundtrack shuffling, main-theme looping, overlapping effects, ducking, and missing files (with a fake backend and no sound card) |
+| `src/presentation/EntranceTransition.hpp` / `tests/entrance_tests.cpp` | Frame-rate-independent entrance stages, skipping, short fade, and restart |
+| `scripts/balance_sim.cpp` | Reproducible progression comparison without access to hidden cards |
 
-## Правила и состояние
+## Rules and state
 
-Раздача — одна рука против дилера; раунд — пять раздач на общую цель, либо шесть с LAST LAUGH. Цели: 30, 38, 46, 54, 62, 70, 78, затем всегда 86. После выполнения цели продолжение ведёт в магазин. Последняя раздача без достижения цели автоматически переводит игру в `RunLost`; выполненная цель имеет приоритет. Следующий раунд получает полный запас раздач и нулевой счёт раунда, сохраняя монеты и улучшения. Неиспользованные раздачи не переносятся. Ставок и финальной победы нет.
+A hand is one play against the dealer; a round has a shared target and five hands, or six with LAST LAUGH. Targets are 30, 38, 46, 54, 62, 70, 78, and then 86 indefinitely. After meeting the target, continuing opens the shop. If the target is not met by the final hand, the game automatically enters `RunLost`; meeting the target takes priority. The next round restores the full hand allotment and resets the round score while preserving coins and relics. Unused hands do not carry over. There are no bets or final victory.
 
-Дилер останавливается на 17, включая мягкие 17. Туз стоит 1 или 11. Натуральный блэкджек — 21 на первых двух картах, сильнее обычной суммы 21. За победу начисляются сумма руки и 4 монеты плюс эффекты улучшений; натуральный блэкджек без улучшений приносит 21 очко. Ничья даёт ноль и сохраняет серию, проигрыш руки даёт ноль и обрывает серию. Обе расходуют раздачу, но сами по себе не завершают забег.
+The dealer stands on 17, including soft 17. An ace counts as 1 or 11. A natural blackjack is 21 on the first two cards and beats an ordinary 21. A winning hand awards points equal to its total and 4 coins, plus relic effects; a natural blackjack without relics awards 21 points. A push awards zero and preserves the streak; a lost hand awards zero and breaks the streak. Both use a hand but do not by themselves end the run.
 
-`Game` принимает команды `deal/hit/stand/advance/buy/sell/replace/activate/chooseCard/leaveShop/revive` и предоставляет `Snapshot`. Недопустимая игровая команда возвращает `false` без изменения состояния и будущей последовательности случайных чисел. `restart(seed, deck)` начинает новый забег с выбранной колодой; `restart(seed)` сохраняет выбор колоды. Состояние содержит фазу, карты, счёт и цель раунда, оставшиеся раздачи, общие очки и победы, монеты, серию, улучшения и предложения магазина. Поля `startDeck/maxHands/revivesLeft/revivalsUsed` описывают начальную колоду и её ресурс. `owned` — единственный список экипировки с пределом `maxEquipmentSlots = 8`; отдельный декоративный инвентарь не создаётся. `usedHandAbilities/usedRoundAbilities`, `cardChoices`, `pendingRescue`, `alteredThisHand/rescuedThisHand` хранят расход зарядов, незавершённый выбор и условия совместных эффектов. `abilityStatus` сообщает оставшийся заряд, доступность и причину запрета.
+`Game` accepts the commands `deal/hit/stand/advance/buy/sell/replace/activate/chooseCard/leaveShop/revive` and provides a `Snapshot`. An invalid game command returns `false` without changing state or the future random-number sequence. `restart(seed, deck)` starts a new run with the selected deck; `restart(seed)` preserves the deck selection. State includes the phase, cards, round score and target, hands remaining, total points and wins, coins, streak, relics, and shop offers. `startDeck/maxHands/revivesLeft/revivalsUsed` describe the starting deck and its resources. `owned` is the sole equipment list, limited by `maxEquipmentSlots = 8`; no separate decorative inventory is created. `usedHandAbilities/usedRoundAbilities`, `cardChoices`, `pendingRescue`, and `alteredThisHand/rescuedThisHand` track charge use, unfinished choices, and joint-effect conditions. `abilityStatus` reports remaining charges, availability, and the reason an ability is unavailable.
 
-Каждая раздача равномерно перемешивает новую колоду из 52 карт Fisher-Yates с rejection sampling. Отдельные `std::mt19937` карт и магазина сохраняют воспроизводимость: одинаковые seed, колода и действия дают одинаковый результат. Покупки не меняют поток карт; частота натурального блэкджека искусственно не корректируется. Приложение выбирает новый seed при обычном запуске; `--seed N` фиксирует его, `--smoke` по умолчанию использует 42.
+Each hand shuffles a new 52-card deck uniformly with Fisher–Yates and rejection sampling. Separate `std::mt19937` generators for cards and the shop preserve reproducibility: the same seed, deck, and actions produce the same result. Purchases do not affect the card stream; the natural-blackjack rate is not artificially adjusted. The application chooses a new seed on a normal launch; `--seed N` fixes it, and `--smoke` uses 42 by default.
 
-## Начальные колоды и возрождение
+## Starting decks and revival
 
-После нажатия START игрок выбирает одно преимущество для забега:
+After pressing START, the player chooses one run advantage:
 
-| Название в меню | `StartDeck` | Эффект |
+| Menu name | `StartDeck` | Effect |
 | --- | --- | --- |
-| LAST LAUGH | `ExtraHand` | Шесть раздач в каждом раунде |
-| ENCORE | `SecondLife` | Одно возрождение за забег, пять раздач в раунде |
-| GOLDEN FOOL | `Rich` | 10 начальных монет, пять раздач в раунде |
+| LAST LAUGH | `ExtraHand` | Six hands per round |
+| ENCORE | `SecondLife` | One revival per run, five hands per round |
+| GOLDEN FOOL | `Rich` | 10 starting coins, five hands per round |
 
-`Standard` — внутренний вариант по умолчанию для API и запуска без выбора: пять раздач без дополнительного преимущества. В меню он не предлагается.
+`Standard` is the internal default for the API and launches without a selection: five hands with no extra advantage. It is not offered in the menu.
 
-У ENCORE кнопка REVIVE появляется в `RunLost`, пока осталась жизнь. `revive()` повторяет тот же раунд с той же целью: обнуляет его очки и серию, восстанавливает раздачи, заряд Second Chance и заряды активных способностей. Монеты, улучшения, общие очки и число побед сохраняются. Возрождение тратится один раз, не меняет seed и не перематывает генераторы: следующие карты продолжают текущий случайный поток. Можно вместо него начать новый забег.
+For ENCORE, a REVIVE button appears in `RunLost` while a life remains. `revive()` retries the same round with the same target: it resets the round score and streak, restores the hands, Second Chance charge, and active-ability charges. Coins, relics, total points, and win count are preserved. Revival is used once and does not change the seed or rewind the random generators: subsequent cards continue from the current random stream. The player can start a new run instead.
 
-## Улучшения и магазин
+## Relics and the shop
 
-Каталог содержит 40 улучшений: 14 Common, 15 Rare и 11 Legendary. Все прибавки очков, множителя и монет действуют только при победе; защита Second Chance и четыре активные способности работают до определения исхода.
+The catalog contains 40 relics: 14 Common, 15 Rare, and 11 Legendary. All point, multiplier, and coin bonuses apply only on a win; Second Chance protection and the four active abilities work before the outcome is determined.
 
-Итог очков — `lround((base + bonus) * multiplier)`, где `base` равен сумме выигравшей руки, `bonus` — сумма плоских прибавок, а `multiplier = 1 + сумма прибавок к множителю`. Например, +0,5 и +1,0 вместе дают x2,5. Монеты не умножаются.
+The final score is `lround((base + bonus) * multiplier)`, where `base` is the winning hand total, `bonus` is the sum of flat point bonuses, and `multiplier = 1 + sum of multiplier bonuses`. For example, +0.5 and +1.0 together give x2.5. Coins are not multiplied.
 
-Полный [каталог 40 улучшений](catalog-balance.md) содержит цены, условия и ограничения. Активные Rewind и Redraw изменяют только последнюю добранную карту, Forked Path предлагает выбрать одну из двух карт, Lifeline сбрасывает карту перебора. Первые три имеют один заряд на раздачу, Lifeline — один на раунд. Перебор ожидает решения только при наличии применимого спасения; до решения дилер скрыт, награда не начислена. STAND принимает поражение, а завершённую раздачу открыть повторно нельзя. Alchemist усиливает победу после активной способности, Phoenix — после реального спасения от перебора в той же раздаче.
+The full [40-relic catalog](catalog-balance.md) lists prices, conditions, and limits. Active Rewind and Redraw alter only the last drawn card; Forked Path offers a choice between two cards; Lifeline removes a busting card. The first three have one charge per hand, while Lifeline has one per round. A bust waits for a decision only when an applicable rescue is available; until then, the dealer remains hidden and no reward is awarded. STAND accepts the loss, and a completed hand cannot be reopened. Alchemist strengthens a win after an active ability; Phoenix strengthens it after a genuine bust rescue in the same hand.
 
-Second Chance отменяет карту до определения поражения, после чего игрок продолжает ход. Отменённая карта не возвращается в колоду. Заряд обновляется между раундами и при возрождении; продажа и повторная покупка его не восстанавливают. Прибавка к множителю действует только на спасённую руку, если она завершилась победой. Улучшение Encore и начальная колода ENCORE имеют разные эффекты.
+Second Chance cancels a card before a loss is determined, allowing the player to continue. The cancelled card is not returned to the deck. Its charge refreshes between rounds and on revival; selling and buying it again does not restore the charge. Its multiplier bonus applies only to a rescued hand if that hand ends in a win. The Encore relic and the ENCORE starting deck have different effects.
 
-Магазин предлагает два разных неустановленных улучшения на весь визит. Для каждого слота сначала выбирается доступная редкость по весам Common/Rare/Legendary 50/36/14, затем равномерно предмет внутри неё. Пустые редкости исключаются с пересчётом весов, уже выбранный предмет исключается из второго слота. В выбранной редкости предпочтение отдаётся предложениям, которых не было в прошлом визите; если таких нет, допускается повтор той же редкости. Это сохраняет доступные редкости, поэтому веса не являются фиксированным шансом отдельного предмета.
+The shop offers two different unequipped relics for the entire visit. Each slot first selects an available rarity by Common/Rare/Legendary weights of 50/36/14, then selects a relic uniformly within that rarity. Empty rarities are excluded and the weights are renormalized; the item already selected for the first slot is excluded from the second. Within the selected rarity, priority goes to relics that were not offered on the previous visit; if none are available, a relic of the same rarity may repeat. This preserves the available rarities, so the weights are not fixed odds for any individual relic.
 
-Можно держать до восьми улучшений без дубликатов, покупать одно, оба или ни одного предложения. Цены по редкостям — 3/6/10 монет; продажа возвращает половину с округлением вниз, то есть 1/3/5. Проданное может появиться позже. Покупки и продажи не обновляют текущую пару, повторная покупка одного предмета в том же визите запрещена. `replace(equipped, offered)` сначала проверяет все условия и сумму с учётом возврата за старое улучшение, затем заменяет один слот без промежуточной продажи. Неуспешная замена ничего не меняет. Сохранения забегов не реализованы.
+The player can hold up to eight distinct relics, buy one or both offers, or buy neither. Prices by rarity are 3/6/10 coins; selling returns half the price rounded down, or 1/3/5 coins. A sold relic may appear later. Purchases and sales do not refresh the current pair, and an item bought and sold during the same visit cannot be bought again. `replace(equipped, offered)` checks all conditions and the balance after accounting for the sale of the old relic, then replaces one slot without an intermediate sale. A failed replacement changes nothing. Run saves are not implemented.
 
-`ScoreBreakdown` хранит базу, суммарный бонус, общий множитель, итог очков, заработанные монеты и `appliedEffects`. Каждая запись `AppliedEffect` содержит `relic`, `points`, `coins`, `multiplierBonus` реально сработавшего улучшения. Расчёт и запись вклада выполняются вместе; UI использует готовые данные. Порядок эффектов соответствует каталогу, при поражении или ничьей список пуст.
+`ScoreBreakdown` stores the base, total bonus, total multiplier, final points, coins earned, and `appliedEffects`. Each `AppliedEffect` entry records the `relic`, `points`, `coins`, and `multiplierBonus` that actually applied. Calculating the score and recording each contribution happen together; the UI uses the resulting data. Effects follow catalog order; the list is empty on a loss or push.
 
-## Последовательность показа
+## Presentation sequence
 
-`Game` разрешает команду сразу, а `presentation::Presentation` хранит промежуточный вид снимка и очередь визуальных шагов. Карты появляются по одной, дилер раскрывает закрытую карту и добирает свои карты; затем победная награда показывает базу, каждый сработавший эффект и итог. Пока очередь занята, новые игровые команды блокируются. Клик или Space завершает текущий шаг; скорость задаётся в OPTIONS. Показ не меняет правила или генераторы случайных чисел. `Action::Ability` показывает удаление, замену или добавление карты, сразу синхронизируя метаданные заряда и выбора; закрытая карта дилера остаётся скрытой до реального исхода.
+`Game` resolves a command immediately, while `presentation::Presentation` stores an intermediate visible snapshot and a queue of visual steps. Cards appear one at a time; the dealer reveals the hidden card and draws, then a winning reward shows the base, each applied effect, and the total. New game commands are blocked while the queue is active. A click or Space completes the current step; speed is set in OPTIONS. Presentation does not change rules or random-number generators. `Action::Ability` shows a card being removed, replaced, or added while synchronizing charge and choice metadata; the dealer's hidden card remains hidden until the actual outcome.
 
-При обычной скорости карта занимает 0,55 с, переворот и база награды — 0,4 с, спасение и отдельный эффект — 0,5 с, итог — 0,6 с. Ползунок сокращает каждый шаг вплоть до 0,07 с. Очередь потребляет прошедшее время между шагами, сохраняя результат при разной частоте кадров. Легендарное приобретение, спасение и легендарный эффект дают отдельную подсветку; начисленные очки остаются видны после анимации.
+At normal speed, a card takes 0.55 s, the flip and reward base take 0.4 s, a rescue and each individual effect take 0.5 s, and the total takes 0.6 s. The slider shortens each step to 0.07 s. The queue carries elapsed time across steps, preserving the result at different frame rates. Legendary purchases, rescues, and Legendary effects each receive a separate highlight; awarded points remain visible after the animation.
 
-## Звук
+## Audio
 
-Звук не влияет на правила и исходы. `Presentation` лишь помечает моменты показа событиями `Cue` (ставка, карта при раздаче, карта игрока, карта дилера, выигрыш руки, выполнение цели раунда, монеты, проигрыш руки, конец забега) в тот же миг, когда начинается соответствующий визуальный шаг; `main.cpp` забирает их через `takeCues()` и играет нужный эффект. Поэтому звук совпадает с анимацией, ускоряется вместе с ней и не повторяется при пропуске шага.
+Audio does not affect the rules or outcomes. `Presentation` marks event times with `Cue` events (bet, initial deal card, player card, dealer card, hand win, round target reached, coins, hand loss, run end) exactly when the corresponding visual step begins; `main.cpp` retrieves them through `takeCues()` and plays the appropriate effect. This keeps sound aligned with animation, speeds it up with the animation, and prevents replay when a step is skipped.
 
-`audio::Engine` запускает собственный поток и принимает команды из очереди; открытие MP3 и ожидание устройства не задерживают кадр. На Windows MP3 воспроизводит встроенный декодер MCI (`winmm`), дополнительных библиотек нет; на других системах и в скрытых запусках (`--hidden`, `--smoke`, снимки) `Engine` ничего не воспроизводит. `audio::Mixer` не зависит от ОС: он держит по два голоса на эффект (быстрые повторы перекрываются), следит за окончанием дорожки и сам включает следующую. Саундтреки из `music/soundtrack_*.mp3` идут в случайном порядке по кругу: каждый цикл проигрывает все дорожки по одному разу и не повторяет дорожку подряд. Главная тема повторяется во всех экранах меню; при нажатии TAKE A SEAT она сменяется саундтреками, а при возврате в меню начинается заново. Во время экрана проигрыша музыка приглушается.
+`audio::Engine` runs on its own thread and accepts queued commands; opening an MP3 and waiting for the device do not block a frame. On Windows, MP3 playback uses the built-in MCI decoder (`winmm`), with no extra libraries; on other systems and in hidden runs (`--hidden`, `--smoke`, captures), `Engine` plays nothing. `audio::Mixer` is OS-independent: it keeps two voices per effect (allowing quick repeats to overlap), tracks when a soundtrack ends, and starts the next one. Soundtracks from `music/soundtrack_*.mp3` play in shuffled cycles: each cycle plays every track once and does not repeat a track consecutively. The main theme loops on every menu screen; it switches to soundtracks when TAKE A SEAT is pressed, and restarts when returning to the menu. Music is ducked on the game-over screen.
 
-| Событие | Звук |
+| Event | Sound |
 | --- | --- |
-| Раздача (DEAL HAND) | `sfx/chips_bet.mp3` один раз; затем `sfx/card_deal.mp3` («Dealer's distribution of cards») для каждой из четырёх карт игроку и дилеру |
-| HIT, Redraw, выбор карты Forked Path | `sfx/card_roll.mp3` («The player's card roll») |
-| Дилер добирает карту | тот же `sfx/card_roll.mp3` |
-| Победа в раздаче | `sfx/tada_minor.mp3`, затем `sfx/chips_win.mp3` на итоге награды |
-| Победа, выполнившая цель раунда | `sfx/tada_major.mp3` вместо minor, затем `sfx/chips_win.mp3` |
-| Проигрыш раздачи | `sfx/chips_win.mp3`: дилер забирает ставку |
-| Конец забега | `sfx/you_lose.mp3` |
-| Начало нового забега | `sfx/chips_start.mp3` |
-| Покупка / обмен улучшения | `sfx/chips_bet.mp3`; продажа: `sfx/chips_win.mp3` |
-| Нажатие кнопки, флажка, ячейки коллекции, F1 (открыть) | `ui/ui_open.mp3` |
-| BACK, DONE, GOT IT, MENU, Escape, F1 (закрыть) | `ui/ui_close.mp3` |
-| Курсор входит на кнопку (только в меню, не во время забега) | `ui/ui_selection.mp3` |
-| Машина проезжает по улице в главном меню | `ambient/car_pass.mp3`, см. ниже |
-| Отклонённая команда, нажатие на недоступное предложение | `ui/ui_error.mp3` |
+| Deal (DEAL HAND) | `sfx/chips_bet.mp3` once; then `sfx/card_deal.mp3` ("Dealer's distribution of cards") for each of the four cards dealt to the player and dealer |
+| HIT, Redraw, Forked Path card selection | `sfx/card_roll.mp3` ("The player's card roll") |
+| Dealer draws | The same `sfx/card_roll.mp3` |
+| Hand win | `sfx/tada_minor.mp3`, then `sfx/chips_win.mp3` when the reward total appears |
+| Win that completes the round target | `sfx/tada_major.mp3` instead of minor, then `sfx/chips_win.mp3` |
+| Hand loss | `sfx/chips_win.mp3`: the dealer takes the bet |
+| Run ends | `sfx/you_lose.mp3` |
+| New run starts | `sfx/chips_start.mp3` |
+| Purchase / replace a relic | `sfx/chips_bet.mp3`; sale: `sfx/chips_win.mp3` |
+| Press a button, checkbox, collection item, F1 (open) | `ui/ui_open.mp3` |
+| BACK, DONE, GOT IT, MENU, Escape, F1 (close) | `ui/ui_close.mp3` |
+| Cursor enters a button (menu only, not during a run) | `ui/ui_selection.mp3` |
+| Car drives along the main-menu street | `ambient/car_pass.mp3`, see below |
+| Rejected command or click on an unavailable offer | `ui/ui_error.mp3` |
 
-Ставок в игре нет, поэтому «ставкой» считается раздача: именно она расходует одну из раздач раунда.
+There are no bets in the game, so “bet” refers to a hand: it is the hand that uses one of the round's available hands.
 
-### Машина в главном меню
+### Main-menu car
 
-Седан в меню проезжает улицу каждые 32 с (`Renderer::drawMenuSedan`: движение зависит только от времени сцены). Запись `ambient/car_pass.mp3` (проезд слева направо с пиком громкости около 5,1 с и сменой стереопанорамы) запускается в начале каждого цикла и стартует с позиции `фаза + 0,45 с`, поэтому момент «машина напротив камеры» совпадает с самым громким моментом и переходом панорамы через центр. Если меню открывается посреди цикла, запись начинается с соответствующей позиции. При TAKE A SEAT или выключенном Ambient motion (машина не рисуется) звук плавно затухает за 1,2 с. Запись нормализована (+6 дБ с лимитером), оригинал не менялся.
+The sedan drives along the menu street every 32 seconds (`Renderer::drawMenuSedan`: movement depends only on scene time). The `ambient/car_pass.mp3` recording (left-to-right pass, peak volume around 5.1 s, with stereo panning crossing center) starts at the beginning of each cycle at offset `phase + 0.45 s`. This aligns “car opposite the camera” with the loudest moment and the pan crossing center. If the menu opens mid-cycle, playback starts at the corresponding offset. On TAKE A SEAT or when Ambient motion is disabled (the car is not rendered), the sound fades out over 1.2 s. The recording was normalized (+6 dB with a limiter); the original was not changed.
 
-## Джазовый ансамбль
+## Jazz ensemble
 
-Пять музыкантов (пианист, электрогитарист, барабанщик, трубач, саксофонист) стоят на сцене за дилером и играют саундтрек, который звучит сейчас. Все они в чёрных костюмах и белых рубашках; шляпы у гитариста, трубача и саксофониста.
+Five musicians (pianist, electric guitarist, drummer, trumpeter, and saxophonist) stand on the stage behind the dealer and play along with the current soundtrack. They wear black suits and white shirts; the guitarist, trumpeter, and saxophonist wear hats.
 
-| Файл | Роль |
+| File | Role |
 | --- | --- |
-| `src/graphics/BandModel.{hpp,cpp}` | Геометрия и позы: плоский список примитивов (куб, сфера, цилиндр) с матрицей и материалом. Без OpenGL, поэтому детерминированный и проверяемый |
-| `src/presentation/BandSync.{hpp,cpp}` | Сетка долей и кривые громкости саундтрека, читаются из `assets/audio/music/soundtrack_N.sync` |
-| `scripts/analyze_soundtrack.py` | Создаёт `.sync`: отслеживание долей (динамическое программирование, Эллис, 2007), сильная доля такта, энергия низких, средних, высоких частот и атак 4 раза в секунду |
-| `scripts/band_preview.cpp` | Программный растеризатор для просмотра поз без GPU (инструмент разработчика) |
-| `tests/band_tests.cpp` | Конечные матрицы, границы сцены, детерминизм, плавность между кадрами (нет скачков), реакция на громкость, разбор `.sync` |
+| `src/graphics/BandModel.{hpp,cpp}` | Geometry and poses: a flat list of primitives (cube, sphere, cylinder) with a matrix and material. No OpenGL, making it deterministic and testable. |
+| `src/presentation/BandSync.{hpp,cpp}` | Beat grid and soundtrack volume curves, loaded from `assets/audio/music/soundtrack_N.sync` |
+| `scripts/analyze_soundtrack.py` | Creates `.sync` files: beat tracking (dynamic programming, Ellis, 2007), downbeats, low/mid/high-frequency energy, and attacks sampled four times per second |
+| `scripts/band_preview.cpp` | Software rasterizer for previewing poses without a GPU (developer tool) |
+| `tests/band_tests.cpp` | Final matrices, scene bounds, determinism, frame-to-frame smoothness (no jumps), volume response, and `.sync` parsing |
 
-![Ансамбль, предпросмотр](images/jazz-band-preview.png)
+![Jazz ensemble preview](images/jazz-band-preview.png)
 
-*Предпросмотр, полученный `scripts/band_preview.cpp` (программный растеризатор без освещения игры).*
+*Preview generated by `scripts/band_preview.cpp` (software rasterizer without the game's lighting).*
 
-Модель идёт в метрах (человек около 1,8 м) и ставится на пол сцены с масштабом 1,7, чтобы пятеро читались с камеры стола и не заходили за кулисы.
+The model uses meters (a person is about 1.8 m tall) and is placed on the stage floor at scale 1.7 so all five musicians read clearly from the table camera and do not extend behind the curtains.
 
-Как музыканты играют:
-- **Время.** `Engine::musicClock()` отдаёт номер дорожки и позицию (из MCI `status position`, с экстраполяцией между замерами); `SoundtrackSync::beatAt()` переводит её в непрерывный счёт долей. Каждое движение привязано к этому счёту: свинговые восьмые (вторая восьмая на 2/3 доли), удары по долям такта, смена аккорда раз в два такта. Если темп выше 140 BPM, играют через долю.
-- **Динамика.** Усилие каждого музыканта берётся из кривых громкости: барабанщик следует атакам и низким, трубач и саксофонист высоким и средним, пианист и гитарист средним. В паузах и между номерами они играют тише и расслабляются; труба опускается.
-- **Анатомия.** Руки и ноги решаются двухзвенным IK (плечо, локоть, кисть). Пианист: 52 белые и 36 чёрных клавиш, нажимаемые под пальцами правой (мелодия) и левой (аккорды) руки, педаль. Гитарист: ремень, гриф с ладами и струнами, левая рука скользит по грифу между аккордами, правая бьёт по струнам, нога отбивает долю. Барабанщик: райд со свинговым рисунком, малый, хай-хэт с педалью, том-томы, бас-бочка с биттером, филлы раз в четыре такта, палочки идут по дуге к тарелкам и барабанам. Трубач: три вентиля нажимаются по аппликатуре, раструб поднимается с фразой, щёки надуваются. Саксофонист: ремень, клавиши, раскачивание в такт, раструб поднимается на длинных фразах.
-- **Без звука** (скрытые запуски, нет файлов) ансамбль играет демонстрационный грув 110 BPM, чтобы сцена не замирала.
+How the musicians play:
 
-Ограничения: это стилизованные манекены из примитивов (как и остальная сцена), а не снятая по записи партия. Ансамбль знает темп, долю и громкость трека, но не отдельные ноты, поэтому пальцы играют правдоподобные, а не воспроизводящие запись фигуры. Со стандартной камеры сцена далека, музыканты занимают около 45 пикселей по высоте.
+- **Timing.** `Engine::musicClock()` returns the track index and position (from MCI `status position`, with interpolation between samples); `SoundtrackSync::beatAt()` converts this into a continuous beat count. Every movement follows that count: swung eighth notes (the second eighth at two-thirds of a beat), downbeats, and chord changes every two bars. Above 140 BPM, they play on every other beat.
+- **Dynamics.** Each musician's effort comes from the volume curves: the drummer follows attacks and low frequencies, trumpet and saxophone follow high and mid frequencies, and piano and guitar follow mid frequencies. In quiet passages and between tracks they play more softly and relax; the trumpet lowers.
+- **Anatomy.** Arms and legs use two-bone IK (shoulder, elbow, wrist). The pianist plays 52 white and 36 black keys with the right hand (melody) and left hand (chords), and uses a pedal. The guitarist has a strap, fretted neck, and strings; the left hand moves along the neck between chords, the right hand strums, and one foot keeps the beat. The drummer plays a swung ride pattern, snare, pedal hi-hat, toms, and bass drum with beater; fills occur every four bars, and the sticks arc toward cymbals and drums. The trumpeter presses three valves according to fingering, lifts the bell with the phrase, and puffs the cheeks. The saxophonist has a strap and keys, sways in time, and raises the bell on long phrases.
+- **Without audio** (hidden runs or missing files), the ensemble plays a demonstration groove at 110 BPM so the stage does not go still.
 
-## Рендеринг и интерфейс
+Limitations: these are stylized mannequins made from primitives, like the rest of the scene, not a performance reconstructed from a recording. The ensemble knows the track's tempo, beats, and volume, but not individual notes, so its fingers play plausible figures rather than reproducing the recording. From the standard camera, the stage is distant and the musicians are about 45 pixels tall.
 
-Приложение преобразует видимый снимок Presentation и прогресс анимаций в Scene. `Scene::tableViewport` содержит нормированные left/top/width/height от верхнего левого угла framebuffer. Перспектива рассчитывается по области стола, затем смещается и масштабируется в полном кадре: положение карт сохраняется, а зал продолжается за прозрачным интерфейсом. Слабый верхний и нижний градиент рисуется поверх сцены, под игровыми надписями и кнопками. Меню использует обычную перспективу полного кадра. Vertex shader вычисляет `projection * view * model * position`, нормали преобразуются `transpose(inverse(mat3(model)))`. Fragment shader сочетает UV-выборку текстуры с ambient/diffuse/specular Blinn-Phong; depth test определяет видимость поверхностей.
+## Rendering and UI
 
-Казино, стол и лицевые стороны карт создаются процедурно. Маска, одежда, перчатки и складки штор используют непрерывные поверхности с нормалями; статические меши загружаются при создании рендерера. Ведущий носит фиолетово-бордовый камзол с приглушённой золотой отделкой, кружевом и фарфоровой маской. Его рукава обновляют вершины и нормали в выделенном буфере; остальные части и полёт карт меняются model-матрицами. Короткие реакции на карту, победу и перебор связаны с видимым состоянием раздачи. Шахматный рисунок пола вычисляется в шейдере на одной поверхности вместо отдельных плиток.
+The application converts the visible Presentation snapshot and animation progress into a Scene. `Scene::tableViewport` contains normalized left/top/width/height values measured from the framebuffer's upper-left corner. Perspective is calculated for the table area, then translated and scaled into the full frame: card positions remain fixed while the room continues behind the transparent UI. A subtle top and bottom gradient is drawn over the scene beneath game labels and buttons. The menu uses a standard full-frame perspective. The vertex shader computes `projection * view * model * position`; normals are transformed by `transpose(inverse(mat3(model)))`. The fragment shader combines UV texture sampling with ambient/diffuse/specular Blinn–Phong lighting; the depth test determines surface visibility.
 
-Центральная арка обрамляет дилера, а следующие порталы уходят в глубину. Парные бордовые и фиолетовые портьеры, карнизы, отдельные колонны и тёплые свечи образуют симметричную театральную композицию без стен и потолка. Плиточный пол растворяется в естественной чёрной темноте вдали. Одна подвесная лампа освещает стол и увеличенного дилера; её трос продолжается до верхнего крепления за пределами разрешённых ракурсов. Частицы пыли распределены в мировом объёме по трём независимым координатам, медленно дрейфуют, учитывают локальное освещение и сортируются по расстоянию для прозрачности. Центральная опора увеличенного стола сохраняется. Ambient motion останавливает декоративные циклы. Дополнительных столов, фоновых персонажей и предметов на полу нет.
+The casino, table, and card fronts are generated procedurally. The mask, clothing, gloves, and curtain folds use continuous surfaces with normals; static meshes load when the renderer is created. The dealer wears a purple-burgundy coat with muted gold trim, lace, and a porcelain mask. His sleeves update vertices and normals in a dedicated buffer; other parts and card motion change through model matrices. Short reactions to cards, wins, and busts follow the visible hand state. The checkerboard floor is computed in a single surface shader instead of using separate tiles.
 
-`ArtTexture` загружает несжатые TGA 24/32 bit, учитывая порядок BGR(A) и ориентацию изображения. UI использует атлас 24 исходных иллюстраций улучшений, процедурные символы для 16 новых предметов и три отдельные рубашки колод; рендерер использует те же рубашки для стопки и закрытых карт. Загрузчик сохраняет состояние распаковки OpenGL; для 3D-плоскостей рубашка переворачивается по вертикали. GPU-ресурсы принадлежат RAII-объектам и уничтожаются при живом контексте. ImGui рисуется поверх 3D-сцены. Папка assets копируется рядом с executable; `--assets DIR` позволяет задать другой корень ресурсов.
+The central arch frames the dealer; the next portals recede into the distance. Paired burgundy and purple curtains, rails, separate columns, and warm candles form a symmetrical theatrical composition without walls or ceiling. The tiled floor fades into natural blackness in the distance. One hanging lamp lights the table and enlarged dealer; its cable continues to an upper mount outside permitted camera angles. Dust particles are distributed through a world-space volume along three independent axes, drift slowly, respond to local lighting, and are depth-sorted for transparency. The central support of the enlarged table remains. Ambient motion stops decorative cycles. There are no extra tables, background characters, or objects scattered on the floor.
 
-В меню увеличенный заголовок с шутским орнаментом и кнопки START/OPTIONS/COLLECTION/EXIT расположены слева, дворец-казино — справа в приглушённом вечернем свете. По дороге периодически проезжает тёмный седан с фарами; его движение задаётся временем сцены и не использует игровую случайность. START открывает карусель трёх колод с рубашкой и описанием преимущества; выбор работает стрелками на экране и клавишами влево/вправо. После TAKE A SEAT кнопки плавно исчезают, камера приближается к двери и замедляется; двери открываются во время замедления, затем короткое движение внутрь завершается затемнением. Полный переход длится 4,6 секунды, смена сцены происходит один раз в полностью чёрном кадре. Повторный старт во время перехода отклоняется; возврат в меню сбрасывает переход. Escape пропускает вход, отключённый Cinematic entrance оставляет затемнение длительностью 0,6 секунды без движения камеры. COLLECTION показывает все 40 улучшений с фильтрами редкости и отдельной областью описания выбранного предмета.
+`ArtTexture` loads uncompressed 24/32-bit TGA files, accounting for BGR(A) order and image orientation. The UI uses an atlas of 24 original relic illustrations, procedural symbols for 16 new items, and three separate card backs; the renderer uses those backs for the stack and face-down cards too. The loader restores OpenGL unpack state; card backs are flipped vertically on 3D planes. GPU resources belong to RAII objects and are destroyed while the context is alive. ImGui is drawn over the 3D scene. The `assets` folder is copied next to the executable; `--assets DIR` can set a different asset root.
 
-В игре цель и счётчики слева, увеличенные стол и дилер-шут — в центре справа. Физические фишки на столе соответствуют `owned`: от нуля в начале забега до восьми, без декоративных копий. Наведение показывает имя, редкость и эффект; клик по фишке или клавиши 1–8 выбирают улучшение для подробного просмотра. Сам просмотр не расходует заряд. Только отдельная клавиша A или кнопка ACTIVATE применяет выбранную доступную способность; рядом показаны заряд и причина недоступности. Покупка, продажа, замена и перезапуск сразу синхронизируют физические фишки с экипировкой. Во время каждого шага AppliedEffect соответствующая фишка поднимается и подсвечивается цветом редкости, под ней появляется её реальная прибавка очков, монет или множителя. HIT/STAND расположены по центру снизу; сумма руки справа снизу сохраняет красный перебор, начисленные очки показаны отдельно. Подсказка знака/дельты/масти после HIT длится около 1,5 секунды и учитывает пересчёт туза. Дилер показывает видимую сумму с `+ ?` до раскрытия. Space выполняет действие фазы или ускоряет текущую анимацию, Enter нажимает выделенную кнопку; полные правила открывает HOW TO PLAY.
+In the menu, an enlarged title with jester ornament and the START/OPTIONS/COLLECTION/EXIT buttons sit on the left; the casino palace is on the right in subdued evening light. A dark sedan with headlights periodically drives along the road; its movement uses scene time and not game randomness. START opens a carousel of three decks with card backs and advantage descriptions; selection uses on-screen arrows and the left/right keys. After TAKE A SEAT, the buttons fade, the camera approaches the door and slows down; the doors open during deceleration, then a short move inside ends in a fade. The complete transition takes 4.6 seconds; the scene changes once during a fully black frame. A second start during the transition is rejected; returning to the menu resets the transition. Escape skips the entrance, while disabling Cinematic entrance uses a 0.6-second fade without camera movement. COLLECTION shows all 40 relics, rarity filters, and a separate description area for the selected item.
 
-GAME OVER плавно затемняет сцену и показывает белый заголовок, достигнутый раунд, итоговый счёт и три прозрачные кнопки с белыми рамками. Красное заполнение появляется только при наведении или нажатии мышью; клавиатурный фокус выделяется белой рамкой. Первая кнопка использует оставшуюся жизнь ENCORE, если она есть, иначе начинает новый забег; остальные возвращают в меню или закрывают игру.
+During gameplay, the target and counters are on the left, and the enlarged table and dealer-jester are centered on the right. Physical chips on the table match `owned`: zero at the start of a run, up to eight, with no decorative duplicates. Hovering shows the name, rarity, and effect; clicking a chip or pressing 1–8 selects a relic for detailed inspection. Inspection does not use a charge. Only the separate A key or ACTIVATE button uses a selected available ability; its charge and the reason it is unavailable are shown nearby. Purchases, sales, replacement, and restart immediately synchronize physical chips with equipment. During each AppliedEffect step, the corresponding chip rises and glows with its rarity color, and its actual point, coin, or multiplier bonus appears beneath it. HIT/STAND are centered at the bottom; the hand total is at the bottom right, with a bust shown in red and awarded points separately. After HIT, a sign/delta/suit hint lasts about 1.5 seconds and accounts for ace recalculation. Before the reveal, the dealer's visible total is shown with `+ ?`. Space performs the action for the current phase or speeds up the current animation; Enter activates the highlighted button. HOW TO PLAY contains the full rules.
 
-На свободной области стола зажатая ПКМ вращает камеру, колесо меняет дистанцию, двойной клик ПКМ возвращает исходный вид. Углы и приближение ограничены; меню, магазин, Game Over и открытые панели не принимают жесты камеры. Настройки также содержат RESET VIEW.
+GAME OVER smoothly darkens the scene and shows a white heading, reached round, final score, and three transparent buttons with white borders. Red fill appears only on hover or mouse press; keyboard focus is shown with a white border. The first button uses the remaining ENCORE life if available, otherwise starts a new run; the other buttons return to the menu or exit.
 
-Шрифты Cormorant Garamond и Source Sans 3 распространяются под SIL OFL 1.1. Источники и лицензии компонентов указаны в [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md); учебные техники сопоставлены с лекциями в [LECTURE_ALIGNMENT.md](LECTURE_ALIGNMENT.md).
+On an empty area of the table, holding the right mouse button rotates the camera; the scroll wheel changes distance; double right-click restores the default view. Yaw and zoom are limited; the menu, shop, Game Over, and open panels ignore camera gestures. Settings also include RESET VIEW.
+
+Cormorant Garamond and Source Sans 3 fonts are distributed under SIL OFL 1.1. Component sources and licenses are listed in [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md); course techniques are mapped to lectures in [LECTURE_ALIGNMENT.md](LECTURE_ALIGNMENT.md).

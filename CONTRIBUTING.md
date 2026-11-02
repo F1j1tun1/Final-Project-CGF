@@ -1,8 +1,8 @@
-# Совместная работа
+# Contributing
 
-Репозиторий: [F1j1tun1/Final-Project-CGF](https://github.com/F1j1tun1/Final-Project-CGF). Сборка требует C++17 и CMake 3.24+; приложение использует OpenGL 3.3 Core.
+Repository: [F1j1tun1/Final-Project-CGF](https://github.com/F1j1tun1/Final-Project-CGF). The project requires C++17 and CMake 3.24+; the application uses OpenGL 3.3 Core.
 
-Создайте ветку от актуального main, сохраните изменения и откройте Pull Request. Согласуйте общие файлы с участниками; не перезаписывайте чужую работу и историю общих веток.
+Create a branch from the current main branch, save your changes, and open a pull request. Coordinate shared files with other contributors; do not overwrite someone else’s work or shared branch history.
 
 ```powershell
 git switch -c feature/change-name
@@ -15,6 +15,6 @@ ctest --preset desktop
 .\build\desktop\Debug\blackjack_forge.exe --smoke
 ```
 
-`src/game/` содержит чистые правила и случайность по seed; `src/graphics/` — отрисовку; `src/main.cpp` — окно, ввод и UI. Недопустимые команды не меняют состояние, визуальные эффекты не влияют на исходы. Техническое устройство описано в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+`src/game/` contains pure game rules and seeded randomness; `src/graphics/` contains rendering; `src/main.cpp` contains the window, input, and UI. Invalid commands do not change state, and visual effects do not affect outcomes. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical overview.
 
-Для изменения правил добавьте содержательный тест. Для графики проверьте видимый кадр, размер окна и нужный сценарий. В PR укажите выполненные команды и результат. Сохраняйте лицензии и источники ресурсов; не добавляйте build, бинарники, временные файлы и секреты. Документация — на русском, интерфейс и идентификаторы — на английском.
+Add a meaningful test when changing rules. For graphics changes, inspect a visible frame, the window size, and the relevant scenario. In a pull request, list the commands you ran and their results. Preserve licenses and asset sources; do not add build outputs, binaries, temporary files, or secrets. Write documentation, UI text, and identifiers in English.

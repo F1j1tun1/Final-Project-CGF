@@ -2061,6 +2061,8 @@ int main(int argc, char** argv) {
             }
             if(options.smoke) {
                 auto& io=ImGui::GetIO();
+                // Smoke clicks are frame-scheduled; allow slow software-rendered CI frames between clicks.
+                io.MouseDoubleClickTime=2.0f;
                 const auto menu=menuLayout(io.DisplaySize);
                 const auto click=[&](int down,ImVec2 point,int button=0) {
                     if(frame==down||frame==down+1) {
@@ -2099,7 +2101,7 @@ int main(int argc, char** argv) {
                 }
                 const auto table=tableLayout(io.DisplaySize);
                 const ImVec2 freePoint{table.contentX+table.contentWidth*.65f+40,table.boardY+120};
-                click(134,freePoint,1);click(138,freePoint,1);
+                click(134,freePoint,1);click(136,freePoint,1);
                 if(frame==142||frame==144||frame==146) {
                     io.AddMousePosEvent(freePoint.x+(frame>=144?40:0),freePoint.y);
                     if(frame==142) io.AddMouseButtonEvent(0,true);

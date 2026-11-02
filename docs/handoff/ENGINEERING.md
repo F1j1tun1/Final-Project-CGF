@@ -1,166 +1,166 @@
-# Jester Jack: техническая карта для продолжения работы
+# Jester Jack: engineering map for continued work
 
-Срез передачи: `f7e9526`, 22 октября 2026 года. Это карта существующей реализации, а не список новых требований. При расхождении приоритет имеют текущие исходники и конфигурация сборки; старые изображения и описания не должны незаметно подменять поведение кода. Версия проекта в `CMakeLists.txt` — `0.3.0`, имя CMake target/executable по-прежнему `blackjack_forge`.
+Handoff snapshot: `f7e9526`, October 22, 2026. This maps the existing implementation; it is not a list of new requirements. If there is a conflict, current source and build configuration take priority; old images and descriptions must not silently replace code behavior. The project version in `CMakeLists.txt` is `0.3.0`; the CMake target/executable is still named `blackjack_forge`.
 
-## 1. Где находится ответственность
+## 1. Areas of responsibility
 
-| Путь | Ответственность и основные точки входа |
+| Path | Responsibility and main entry points |
 | --- | --- |
-| `src/game/Game.hpp`, `Game.cpp` | Правила, два генератора случайных чисел, каталог улучшений, магазин и забег. `Game::deal/hit/stand/advance/buy/sell/leaveShop/revive/restart`, `Game::state`, `evaluateHand`, `relicCatalog`. Нет OpenGL, ImGui, файлов или часов. |
-| `src/presentation/Presentation.hpp`, `Presentation.cpp` | Очередь промежуточных снимков. `Presentation::begin/update/accelerate/reset`, `visible`, прогресс карт/переворота, шаги награды и импульсы эффектов. Не вызывает игровые команды и не меняет RNG. |
-| `src/main.cpp` | Создание окна/ImGui, время, ввод, команды, меню, магазин, коллекция, выбор колоды, HUD, переходы, capture/smoke. `Commands`, `Session`, `HandFeedback`, `makeScene` связывают остальные слои. |
-| `src/graphics/Renderer.hpp`, `Renderer.cpp` | Публичные `Scene/VisualCard/RenderSettings`, GPU-ресурсы, процедурные меши/текстуры, ведущий, стол, казино, седан и эффекты. Внешняя точка входа — `Renderer::render`. |
-| `src/graphics/RendererRoom.inl` | Часть `Renderer::Impl`, включается непосредственно из `Renderer.cpp`. `drawRoom`, `roomPortal`, `roomColumn`, `roomCurtainRail`, `roomLamp`, `roomLampBrightness`, `roomMainLegs`. Это не самостоятельная единица компиляции. |
-| `src/graphics/ArtTexture.hpp` | RAII-загрузчик несжатых TGA в `GL_TEXTURE_2D`, включая ориентацию строк и восстановление OpenGL unpack-state. |
-| `assets/shaders/table.vert`, `table.frag` | Собственный основной GLSL 330 pipeline, normal matrix, UV, материалы, освещение и естественное затемнение вдали. |
-| `assets/shaders/sky.vert`, `sky.frag` | Полноэкранное процедурное вечернее небо главного меню. |
-| `src/presentation/CardSuit.hpp` | Векторные масти ImGui: `presentation::drawCardSuit`; независимы от Unicode-глифов шрифта. |
-| `tests/game_tests.cpp`, `tests/presentation_tests.cpp` | CPU-проверки правил и показа. Названия CTest — `blackjack_rules`, `card_presentation`. |
+| `src/game/Game.hpp`, `Game.cpp` | Rules, two random-number generators, relic catalog, shop, and run. `Game::deal/hit/stand/advance/buy/sell/leaveShop/revive/restart`, `Game::state`, `evaluateHand`, `relicCatalog`. No OpenGL, ImGui, files, or clocks. |
+| `src/presentation/Presentation.hpp`, `Presentation.cpp` | Queue of intermediate snapshots. `Presentation::begin/update/accelerate/reset`, `visible`, card/flip progress, reward steps, and effect pulses. Does not call game commands or change RNG. |
+| `src/main.cpp` | Window/ImGui creation, time, input, commands, menu, shop, collection, deck selection, HUD, transitions, captures/smoke. `Commands`, `Session`, `HandFeedback`, and `makeScene` connect the other layers. |
+| `src/graphics/Renderer.hpp`, `Renderer.cpp` | Public `Scene/VisualCard/RenderSettings`, GPU resources, procedural meshes/textures, dealer, table, casino, sedan, and effects. External entry point: `Renderer::render`. |
+| `src/graphics/RendererRoom.inl` | Part of `Renderer::Impl`, included directly by `Renderer.cpp`. `drawRoom`, `roomPortal`, `roomColumn`, `roomCurtainRail`, `roomLamp`, `roomLampBrightness`, `roomMainLegs`. Not a standalone compilation unit. |
+| `src/graphics/ArtTexture.hpp` | RAII loader for uncompressed TGA files into `GL_TEXTURE_2D`, including row orientation and restoration of OpenGL unpack state. |
+| `assets/shaders/table.vert`, `table.frag` | Custom main GLSL 330 pipeline, normal matrix, UVs, materials, lighting, and natural distance fade. |
+| `assets/shaders/sky.vert`, `sky.frag` | Full-screen procedural evening sky for the main menu. |
+| `src/presentation/CardSuit.hpp` | Vector card suits for ImGui: `presentation::drawCardSuit`; independent of font Unicode glyphs. |
+| `tests/game_tests.cpp`, `tests/presentation_tests.cpp` | CPU checks for rules and presentation. CTest names: `blackjack_rules`, `card_presentation`. |
 
-Детальные игровые правила и каталог всех 24 эффектов уже описаны в `docs/ARCHITECTURE.md`. Не дублировать расчёт наград в UI или шейдере.
+Detailed game rules and the catalog of all 24 effects are already described in `docs/ARCHITECTURE.md`. Do not duplicate reward calculations in the UI or shader.
 
-## 2. Как проходит действие игрока
+## 2. How a player action flows
 
 ```text
-кнопка / клавиша
-    → Commands::apply: максимум одна принятая команда за кадр
-    → Game немедленно получает итоговый Snapshot
+button / key
+    → Commands::apply: at most one accepted command per frame
+    → Game immediately receives the resulting Snapshot
     → Presentation::begin(before, after, Action)
-    → Presentation::update(dt, speed) выдаёт visible() и прогресс текущего шага
-    → UI рисует видимое состояние; makeScene формирует gfx::Scene
-    → Renderer рисует 3D; ImGui рисуется поверх
+    → Presentation::update(dt, speed) returns visible() and current-step progress
+    → UI draws the visible state; makeScene builds gfx::Scene
+    → Renderer draws 3D; ImGui is drawn over it
 ```
 
-`Snapshot` — значение состояния: карты, `Phase/Outcome`, цель и счёт раунда, оставшиеся раздачи, колода старта, монеты, серия, `owned/offers`, ресурс возрождения и `ScoreBreakdown`. `ScoreBreakdown::appliedEffects` содержит реальные вклады улучшений (`points/coins/multiplierBonus`). Именно эти записи питают поочерёдную подсветку фишек; UI не выводит срабатывания из названия или описания улучшения.
+`Snapshot` is a value containing state: cards, `Phase/Outcome`, round target and score, hands remaining, starting deck, coins, streak, `owned/offers`, revival resource, and `ScoreBreakdown`. `ScoreBreakdown::appliedEffects` contains the actual relic contributions (`points/coins/multiplierBonus`). Those entries drive the sequential chip highlights; the UI does not infer activations from a relic's name or description.
 
-`Game` и `Presentation` хранят разные стадии одного действия. Во время раздачи фактический `Game::state()` может уже содержать итог дилера, который ещё нельзя показывать игроку. Для стола использовать `timeline.visible()`, `settledState()` и методы раскрытия дилера, а не подставлять окончательный снимок напрямую. `Commands::blocked/used` защищают от повторной команды и от ввода во время занятой очереди.
+`Game` and `Presentation` store different stages of one action. During a deal, the actual `Game::state()` may already contain the dealer's final result, which must not yet be shown to the player. For the table, use `timeline.visible()`, `settledState()`, and the dealer-reveal methods instead of assigning the final snapshot directly. `Commands::blocked/used` prevent duplicate commands and input while the queue is busy.
 
-Очередь Presentation содержит `PlayerCard`, `DealerCard`, `Flip`, `Rescue`, `RewardBase`, `RewardEffect`, `RewardTotal`. `accelerate()` завершает текущий шаг, а не выполняет ещё одну игровую команду. `update` расходует остаток `dt` между шагами. При natural speed карта занимает 0,55 с, flip/base — 0,4 с, rescue/effect — 0,5 с, final — 0,6 с; ползунок сокращает каждый шаг до 0,07 с. Неверный/неположительный `dt` игнорируется.
+The Presentation queue contains `PlayerCard`, `DealerCard`, `Flip`, `Rescue`, `RewardBase`, `RewardEffect`, and `RewardTotal`. `accelerate()` completes the current step rather than executing another game command. `update` consumes leftover `dt` between steps. At natural speed, a card takes 0.55 s, flip/base takes 0.4 s, rescue/effect takes 0.5 s, and final takes 0.6 s; the slider shortens each step to 0.07 s. Invalid or non-positive `dt` is ignored.
 
-Важные инварианты правил:
+Important rule invariants:
 
-- Новая колода из 52 карт перемешивается для каждой раздачи; Fisher–Yates использует `boundedRandom` с rejection sampling. `cardRandom_` и `shopRandom_` независимы. Декоративная анимация и время сцены никогда не должны вызывать игровой RNG.
-- Исход руки вычисляется один раз в Game. Натуральный blackjack сам по себе даёт 21 очко; дополнительный бонус принадлежит улучшению Blackjack Bonus.
-- Поражение отдельной руки расходует раздачу; забег завершается, когда закончились раздачи и не выполнена цель. Цель выполненного раунда имеет приоритет.
-- Максимум четыре активных улучшения без дублей. Покупка/продажа не обновляют текущую пару магазина. Проданное может встретиться в следующем визите; возвращается `cost/2` с целочисленным округлением вниз.
-- `revive` повторяет попытку того же раунда без перемотки RNG и без потери монет/улучшений. `restart` — отдельный новый забег.
+- A fresh 52-card deck is shuffled for every hand; Fisher–Yates uses `boundedRandom` with rejection sampling. `cardRandom_` and `shopRandom_` are independent. Decorative animation and scene time must never call the game RNG.
+- The hand outcome is calculated once in Game. A natural blackjack by itself awards 21 points; the extra bonus belongs to the Blackjack Bonus relic.
+- Losing an individual hand uses a hand; the run ends when there are no hands left and the target has not been reached. Meeting the round target takes priority.
+- At most four distinct relics are equipped. Buying/selling does not refresh the current shop pair. A sold relic may appear on the next visit; half of its cost is returned, rounded down.
+- `revive` retries the same round without rewinding RNG or losing coins/relics. `restart` starts a separate new run.
 
-`Session` хранит только состояние приложения: открытые экраны, переход, выбор колоды, скорость анимации, hover/reaction и таймер game over. `Session::updateBustReaction` выдаёт envelope на 0,8 с при новом видимом переборе. `HandFeedback::observe` показывает 1,5 с реальную дельту суммы после добавленной карты, включая пересчёт туза; смена руки/раунда/seed, спасение и скрытый экран сбрасывают подсказку. Сохранения забега на диск сейчас нет.
+`Session` stores only application state: open screens, transition, deck selection, animation speed, hover/reaction, and game-over timer. `Session::updateBustReaction` generates a 0.8 s envelope for a newly visible bust. `HandFeedback::observe` displays the actual total delta for 1.5 s after a card is added, including ace recalculation; a new hand/round/seed, rescue, or hidden screen resets the hint. Runs are not currently saved to disk.
 
-## 3. Контракт сцены и система координат
+## 3. Scene contract and coordinate system
 
-Единицы сцены условные, не метры. `+Y` вверх, стол находится около `Y=0`; при нулевом yaw камера на стороне `+Z`, игрок ближе к `+Z`, дилер — к `−Z`. `+X` направлен вправо по столу.
+Scene units are arbitrary, not meters. `+Y` points up, and the table is around `Y=0`; at zero yaw the camera is on the `+Z` side, the player is closer to `+Z`, and the dealer is at `−Z`. `+X` points right across the table.
 
-| Элемент | Текущая опора |
+| Element | Current reference |
 | --- | --- |
-| Пол комнаты | Верх основной поверхности `Y≈−0.775`. |
-| Основной стол | Центр по X/Z — `(0,0)`, внешние радиусы 4,2 и 3,0; дальняя кромка `Z≈−3.0`. Верх зелёного сукна `Y≈−0.005`. |
-| Руки карт | Дилер `Z=−1.12`, игрок `Z=+1.12`. Размер карты по X/Z — `0.74×1.08`, толщина 0,045. Обычный шаг слотов X — 0,88; длинная рука сжимается в диапазон 5,65. |
-| Ведущий | Root по Z `−3.68`; transform камзола `(0,−0.32+breath,−3.68)` с масштабом `(0.86,1.02,0.92)`. Это позиция за столом, а не на сукне. Ноги и ботинки продолжаются до пола. |
-| Голова ведущего | Центр около `(0,1.54,−3.665)`. Отдельная `leadPorcelainShape` — узкая тонкая оболочка без выступа носа; не заменять её старой общей `porcelainShape`. |
-| Кисти в покое | Запястья около `(±0.83,0.082,−2.89)`, пальцы лежат у дальней кромки. Источник вылета карты — `(±0.83,0.12,−2.55)`. |
+| Room floor | Top of main surface at `Y≈−0.775`. |
+| Main table | Center at X/Z `(0,0)`, outer radii 4.2 and 3.0; far edge `Z≈−3.0`. Top of green felt `Y≈−0.005`. |
+| Card hands | Dealer `Z=−1.12`, player `Z=+1.12`. Card size in X/Z: `0.74×1.08`, thickness 0.045. Normal X slot spacing 0.88; a long hand compresses to a span of 5.65. |
+| Dealer | Root Z `−3.68`; coat transform `(0,−0.32+breath,−3.68)` with scale `(0.86,1.02,0.92)`. This is behind the table, not on the felt. Legs and shoes reach the floor. |
+| Dealer's head | Center near `(0,1.54,−3.665)`. Separate `leadPorcelainShape` is a narrow, thin shell without a protruding nose; do not replace it with the old shared `porcelainShape`. |
+| Resting hands | Wrists near `(±0.83,0.082,−2.89)`, fingers rest at the far edge. Card launch point is `(±0.83,0.12,−2.55)`. |
 
-`VisualCard.rank` — 1..13, `suit` — 0 Clubs / 1 Diamonds / 2 Hearts / 3 Spades. `arrival=0` означает отправление от руки, `arrival=1` — слот на столе. `flip` управляет раскрытием лицевой карты; закрытая `faceDown` остаётся рубашкой. `makeScene` назначает прогресс последней видимой карте соответствующей руки и отдельный flip второй карте дилера.
+`VisualCard.rank` is 1..13; `suit` is 0 Clubs / 1 Diamonds / 2 Hearts / 3 Spades. `arrival=0` means starting from the dealer's hand; `arrival=1` means the table slot. `flip` controls the face-card reveal; a face-down `faceDown` card remains a card back. `makeScene` assigns the progress to the last visible card in the relevant hand and a separate flip to the dealer's second card.
 
-Прочие поля Scene:
+Other Scene fields:
 
-- `menu/time`: выбор сцены и её декоративное время;
-- `coins`: высота декоративных стопок фишек;
-- `dealerReach/dealingToPlayer`: поза раздачи;
-- `celebration/legendary`: готовые envelope победы и легендарной подсветки;
-- `bustReaction`: envelope 1→0, без расчёта исхода в Renderer;
+- `menu/time`: scene selection and decorative time;
+- `coins`: height of decorative chip stacks;
+- `dealerReach/dealingToPlayer`: dealing pose;
+- `celebration/legendary`: prepared win and Legendary highlight envelopes;
+- `bustReaction`: 1→0 envelope, with no outcome calculation in Renderer;
 - `deckDesign`: 0 hands, 1 life, 2 coins;
-- `tableViewport`: **область кадрирования**, нормированные `left/top/width/height` от верхнего левого угла UI. Она не обрезает мир отдельным viewport.
+- `tableViewport`: the **framing area**, normalized `left/top/width/height` from the UI's upper-left corner. It does not crop the world with a separate viewport.
 
-Полёт `cardPosition` интерполирует источник и слот, добавляя дугу; последние 22% отданы посадке. `drawCard` сочетает физический переворот с подъёмом, чтобы бумага не пересекала сукно. `drawEffects` рисует следы, кольца посадки, пыль и искры через blending с отключённой записью глубины. Не привязывать эти эффекты к частоте кадров или генератору карт.
+`cardPosition` interpolates the source and slot with an added arc; the final 22% is used for landing. `drawCard` combines a physical flip with a lift so the card does not pass through the felt. `drawEffects` draws trails, landing rings, dust, and sparks with blending and depth writes disabled. Do not tie these effects to frame rate or the card generator.
 
-## 4. Камера, полный framebuffer и OpenGL-state
+## 4. Camera, full framebuffer, and OpenGL state
 
-Defaults находятся **только** в `RenderSettings` (`Renderer.hpp`): yaw 0°, pitch 32°, distance 9,1, intensity 1,2, textures/lighting/animate включены. `resetCamera` в `main.cpp` читает эти defaults и сбрасывает лишь yaw/pitch/distance; свет, текстуры и скорость не меняет. Пользовательский ввод ограничен yaw ±35°, pitch 32..68°, distance 8..14. Внутренние защитные пределы Renderer шире: pitch 20..85°, distance 5..18.
+Defaults are defined **only** in `RenderSettings` (`Renderer.hpp`): yaw 0°, pitch 32°, distance 9.1, intensity 1.2, and textures/lighting/animation enabled. `resetCamera` in `main.cpp` reads those defaults and resets yaw/pitch/distance only; it does not change lighting, textures, or speed. User input is limited to yaw ±35°, pitch 32..68°, distance 8..14. Renderer’s internal safety limits are wider: pitch 20..85°, distance 5..18.
 
-Игровой `lookAt` направлен в `(0,0.60,−0.50)`, up `(0,1,0)`. Перспектива — FOV 43°, near 0,1, far 60. Сначала `Renderer::Impl::render` переводит `tableViewport` в исходный пиксельный прямоугольник `(L,B,w,h)` и строит перспективу по его aspect. Затем переносит эту же проекцию в полный framebuffer `(W,H)`:
+The game `lookAt` points to `(0,0.60,−0.50)`, up `(0,1,0)`. Perspective is FOV 43°, near 0.1, far 60. First, `Renderer::Impl::render` converts `tableViewport` into the source pixel rectangle `(L,B,w,h)` and builds the perspective from its aspect ratio. Then it maps that same projection into the full framebuffer `(W,H)`:
 
 ```text
 sx = w/W                 ox = (2L+w)/W − 1
 sy = h/H                 oy = (2B+h)/H − 1
-для каждого столбца c:
+for each column c:
     P[c][0] = sx * P[c][0] + ox * P[c][3]
     P[c][1] = sy * P[c][1] + oy * P[c][3]
 ```
 
-GLM хранит матрицу по столбцам; W-строка при этом не меняется. `glViewport(0,0,W,H)` рисует комнату во весь кадр, сохраняя прежние пиксельные позиции карт и стола. **Не возвращать `glViewport(L,B,w,h)` для комнаты:** появятся прямоугольные края пола под прозрачным HUD. Шейдерный edge-vignette удалён; лёгкое верхнее/нижнее UI-затемнение теперь находится в `drawGameplayShading`, а дальний пол уходит в чёрный по мировой дистанции.
+GLM stores matrices by column; the W row remains unchanged. `glViewport(0,0,W,H)` draws the room across the full frame while preserving the previous pixel positions of cards and table. **Do not restore `glViewport(L,B,w,h)` for the room:** rectangular floor edges would appear beneath the transparent HUD. The shader edge vignette was removed; subtle top/bottom UI shading is now in `drawGameplayShading`, while the distant floor fades to black by world-space distance.
 
-Меню не использует эту off-axis коррекцию: камера `(0,4.8,menuDistance)` смотрит в `(0,1.55,0)`, `menuDistance=15.5*max(1,1.45/aspect)`. `drawSky` рисует полноэкранный треугольник без depth test, затем восстанавливает depth test/write.
+The menu does not use this off-axis correction: the camera at `(0,4.8,menuDistance)` looks toward `(0,1.55,0)`, where `menuDistance=15.5*max(1,1.45/aspect)`. `drawSky` renders a full-screen triangle without depth testing, then restores depth testing/writes.
 
-Начало render восстанавливает depth test `GL_LESS`, depth write, отключает blending/culling/scissor и очищает весь framebuffer. Комната имеет чёрные clear/fog, меню — отдельный приглушённый fog и 80% основной интенсивности света. `draw` передаёт model и `transpose(inverse(mat3(model)))`, материал, UV-scale, цвет, opacity/specular/emission/velvet. Матрицы передаются с `GL_FALSE`, а не с транспонированием из старых учебных примеров.
+At the start of rendering, depth test `GL_LESS` and depth writes are restored; blending/culling/scissor are disabled and the full framebuffer is cleared. The room has black clear/fog; the menu has separate subdued fog and 80% of main light intensity. `draw` passes the model and `transpose(inverse(mat3(model)))`, material, UV scale, color, opacity/specular/emission/velvet. Matrices are passed with `GL_FALSE`, not transposed as in older lecture examples.
 
-`Program`, `Mesh`, `Textures`, `ArtTexture` владеют ресурсами через RAII. Порядок объектов в `main` оставляет GLFW-контекст живым до уничтожения GPU-ресурсов. Вершина меша: position3 + normal3 + UV2; VAO/VBO/EBO и статические индексы создаются при конструировании. Только рукав ведущего обновляет вершины/нормали через `updateLeadSleeve` и `glBufferSubData`, переиспользуя CPU-вектор и прежний EBO. Не добавлять `glGen*`, загрузку текстур или новый динамический mesh в покадровый путь.
+`Program`, `Mesh`, `Textures`, and `ArtTexture` own resources through RAII. Object order in `main` keeps the GLFW context alive until GPU resources are destroyed. A mesh vertex has position3 + normal3 + UV2; VAO/VBO/EBO and static indices are created at construction. Only the dealer's sleeve updates vertices/normals through `updateLeadSleeve` and `glBufferSubData`, reusing the CPU vector and existing EBO. Do not add `glGen*`, texture loading, or a new dynamic mesh to the per-frame path.
 
-## 5. Текущий художественный и материальный контракт
+## 5. Current art and material contract
 
-Направление — загадочный театр, без хоррора. Ведущий сохраняет взрослый узкий силуэт, фарфоровую маску без носа, фиолетово-бордовый камзол, приглушённое золото и кружево. Не возвращать большую круглую голову, крупные шаровые плечи, стоячие рожки или длинные тёмные трубки сзади. Положение тела/кистей относительно стола и текущую форму головы менять только после отдельного согласования.
+The direction is a mysterious theater, without horror. The dealer keeps an adult, narrow silhouette, a nose-free porcelain mask, a purple-burgundy coat, muted gold, and lace. Do not bring back a large round head, oversized spherical shoulders, upright horns, or long dark tubes at the back. Change body/hand positions relative to the table or the current head shape only after separate agreement.
 
-В `drawDealer` нет idle покачивания головы или шапки. Есть тихое дыхание, ограниченный взгляд на летящую карту, короткий наклон на `bustReaction` и небольшой левый жест победы только вне активной раздачи. Рука проходит через локоть двумя Hermite-сегментами в `leadSleeveShape`; не заменять её одной кривой, которая не попадает в elbow.
+`drawDealer` has no idle head or hat bobbing. It has quiet breathing, a limited gaze toward a flying card, a short lean on `bustReaction`, and a small left-hand win gesture only outside an active hand. The arm passes through the elbow via two Hermite segments in `leadSleeveShape`; do not replace it with one curve that misses the elbow.
 
-| `uMaterial` в `table.frag` | Назначение |
+| `uMaterial` in `table.frag` | Purpose |
 | --- | --- |
-| 0 | Обычный материал/текстура; при room+velvet добавляется слабая потёртость сукна. |
-| 1 | Общий фарфор с прорезями глаз. |
-| 2 / 4 | Ткань / прежняя двухцветная куртка; часть общих ресурсов сохранена, даже если текущая комната их не использует. |
-| 3 | Шахматный пол по world XZ, швы и затухание по дистанции. |
-| 5 | Клетчатая ткань мягкой шапки. |
-| 6 / 10 | Полосы / рукав с тёмным предплечьем и тесьмой. |
-| 7 | Кружево с небольшими eyelets через discard. |
-| 8 | Маска ведущего с асимметричной раскраской. |
-| 9 | Камзол: burgundy из `uColor`, violet из shader, чёрные лацканы и пояс. |
+| 0 | Ordinary material/texture; a subtle felt wear effect is added for room+velvet. |
+| 1 | Shared porcelain with eye cutouts. |
+| 2 / 4 | Fabric / former two-tone jacket; some shared resources are retained even if the current room does not use them. |
+| 3 | Checkerboard floor in world XZ, seams, and distance fade. |
+| 5 | Checkered fabric on the soft hat. |
+| 6 / 10 | Stripes / sleeve with dark forearm and trim. |
+| 7 | Lace with small eyelets using discard. |
+| 8 | Dealer mask with asymmetric coloring. |
+| 9 | Coat: burgundy from `uColor`, violet from the shader, black lapels and belt. |
 
-Основная палитра ведущего задаётся в `drawDealer`; фиолетовая половина камзола, цвет тёмного предплечья и часть отделки дублируются по назначению в `table.frag`. При изменении палитры сверять оба файла. Нельзя оставить прежнюю широкую общую маску на ведущем или сдвинуть капюшон вперёд: ранее это давало чёрные пятна геометрического пересечения.
+The dealer's primary palette is set in `drawDealer`; the coat's violet half, dark forearm color, and some trim are also assigned in `table.frag`. Check both files when changing the palette. Do not leave the old broad shared mask on the dealer or move the hood forward: these previously caused black geometry-intersection artifacts.
 
-Зал в `RendererRoom.inl`: открытая центральная арка и следующие порталы Z −6,5 / −10,8 / −16; парные бордовые и фиолетовые портьеры, колонны, карнизы/кольца, свечи. Сейчас **нет** фоновых персонажей, дополнительных игровых столов, стен/потолка и разбросанных напольных масок. Лампы стоят симметрично `(±4.7,3.1,−5.75)`, свечи — X ±5,45, Z −2,6. Позиции локальных источников в shader должны совпадать с геометрией.
+The room in `RendererRoom.inl` has an open central arch and further portals at Z −6.5 / −10.8 / −16; paired burgundy and purple curtains, columns, rails/rings, and candles. There are currently **no** background characters, extra game tables, walls/ceiling, or masks scattered on the floor. Lamps are symmetrical at `(±4.7,3.1,−5.75)`; candles at X ±5.45, Z −2.6. Local shader light positions must match the geometry.
 
-`roomLampBrightness` — единый источник мягкого редкого потускнения: период 31 с, провалы около 12 и 13,3 с, без резкого строба. При `animate=false` возвращает 1. Материалы ламп и `uLampBrightness` используют одно значение; менять только один из двух путей нельзя.
+`roomLampBrightness` is the single source of soft, occasional dimming: period 31 s, dips around 12 and 13.3 s, no sharp strobe. It returns 1 when `animate=false`. Lamp materials and `uLampBrightness` use the same value; do not update only one path.
 
-## 6. Главное меню: казино и седан
+## 6. Main menu: casino and sedan
 
-`drawCasino` использует общую матрицу здания/улицы: translate `(2.2,0,−3)`, rotation Y `−0.70`, scale `(1.35,1.12,1.12)`. Дорога, бордюр, тротуар, ступени и седан должны сохранять этот общий базис. Казино — собственная 3D-геометрия: фасад с правым annex, карнизы, глубокие оконные рамы, тёплое стекло, навес, вход и круглый JJ-медальон. Не заменять его картинкой или веб-страницей.
+`drawCasino` uses a shared building/street matrix: translate `(2.2,0,−3)`, rotate Y by `−0.70`, scale `(1.35,1.12,1.12)`. Road, curb, sidewalk, steps, and sedan must retain this shared basis. The casino uses custom 3D geometry: facade with a right annex, cornices, deep window frames, warm glass, canopy, entrance, and a round JJ medallion. Do not replace it with an image or webpage.
 
-`sky.frag` создаёт приглушённые сумерки с низким мягким солнцем; насыщенность и свет уже уменьшены. `drawMenu` добавляет свой левый полупрозрачный фон для читаемости заголовка и кнопок. Его сохранение — отдельное условие, не путать с удалённой рамкой игрового мира.
+`sky.frag` creates subdued twilight with a low, soft sun; saturation and brightness have already been reduced. `drawMenu` adds its own translucent background on the left for title/button readability. Preserving it is a separate condition; do not confuse it with the removed game-world frame.
 
-`drawMenuSedan` — полноценный тёмный седан с кузовом, низким капотом/багажником, крышей, окнами/стойками, четырьмя колёсами, передними и задними фонарями. Статические меши созданы заранее. Движение полностью определяется `Scene.time`: `phase=fmod(max(time,0),32)`, проезд в фазе 0..9,4 с от local X −18 до +18, затем пауза 22,6 с. Local Z машины — 6,13. При отключённом Ambient motion она остаётся вне видимого участка. Игровой RNG не используется.
+`drawMenuSedan` is a complete dark sedan with body, low hood/trunk, roof, windows/pillars, four wheels, headlights, and tail lights. Static meshes are created in advance. Movement depends entirely on `Scene.time`: `phase=fmod(max(time,0),32)`; it passes during phase 0..9.4 s from local X −18 to +18, then pauses for 22.6 s. The car's local Z is 6.13. With Ambient motion disabled, it stays outside the visible area. The game RNG is not used.
 
-Для кадра с машиной удобно время около 5..5,5 с; для пустой дороги — 16 с. Фары — emissive-геометрия и слабые additive-пятна на дороге. Этот проход сохраняет и восстанавливает blend enable, RGB/alpha blend functions/equations и depth-write; не добавлять непрозрачные конусы или оставлять изменённое состояние для ImGui.
+For a frame with the car, use a time around 5–5.5 s; for an empty road, use 16 s. Headlights use emissive geometry and subtle additive patches on the road. This pass saves and restores blend enable, RGB/alpha blend functions/equations, and depth writes; do not add opaque cones or leave altered state for ImGui.
 
-## 7. Ресурсы, оригиналы и шрифты
+## 7. Assets, originals, and fonts
 
-Runtime-арт в исходниках:
+Runtime art in the source:
 
-| Файл | Формат и использование |
+| File | Format and use |
 | --- | --- |
-| `assets/art/relics.tga` | 1536×1024, 32 bit; атлас 6×4, порядок — enum `bj::Relic`. |
-| `assets/art/deck-hands.tga` | 1024×1536, 32 bit; LAST LAUGH. |
-| `assets/art/deck-life.tga` | 1024×1536, 32 bit; ENCORE. |
-| `assets/art/deck-coins.tga` | 1024×1536, 32 bit; GOLDEN FOOL. |
-| `assets/JesterJack.png`, `JesterJack.ico` | Иконка приложения; Windows resource 101 описан в `src/windows.rc.in`. |
+| `assets/art/relics.tga` | 1536×1024, 32-bit; 6×4 atlas, order follows enum `bj::Relic`. |
+| `assets/art/deck-hands.tga` | 1024×1536, 32-bit; LAST LAUGH. |
+| `assets/art/deck-life.tga` | 1024×1536, 32-bit; ENCORE. |
+| `assets/art/deck-coins.tga` | 1024×1536, 32-bit; GOLDEN FOOL. |
+| `assets/JesterJack.png`, `JesterJack.ico` | Application icon; Windows resource 101 is defined in `src/windows.rc.in`. |
 
-`ArtAssets` загружает TGA для UI; `Renderer::Impl` использует те же рубашки с `load(path,true)` для 3D. Обычный `ArtTexture::load` нормализует UV `(0,0)` как верхний левый угол; `makeTopPlane` имеет другую ориентацию V, поэтому этот flip необходим. Не переворачивать рубашки второй раз в UI.
+`ArtAssets` loads TGA files for UI; `Renderer::Impl` uses the same card backs with `load(path,true)` for 3D. Normal `ArtTexture::load` defines UV `(0,0)` as the upper-left corner; `makeTopPlane` has a different V orientation, so this flip is required. Do not flip the card backs a second time in the UI.
 
-В `drawChip` crop привязан к фактическому атласу: `col=id%6`, `row=id/6`, `rowTop={8,252,500,748}` и внутренний отступ ячейки. Простое равномерное деление на четыре строки даёт неправильные поля. При замене атласа сохранять порядок Relic либо одновременно менять mapping и проверять все 24 изображения.
+In `drawChip`, the crop follows the actual atlas: `col=id%6`, `row=id/6`, `rowTop={8,252,500,748}`, plus the cell inset. Simply dividing into four equal rows produces incorrect crops. When replacing the atlas, preserve Relic order or change the mapping too and check all 24 images.
 
-`ArtTexture` поддерживает только несжатые true-colour TGA type 2, 24/32 bit, без color map/interleaving, до 8192×8192. Нельзя просто переименовать PNG в `.tga`. Для UI отсутствие обязательного арта — ошибка запуска; renderer для рубашки может вывести диагностируемый процедурный fallback. Лицевые стороны карт, масти/номиналы, сукно и часть декора создаются самим C++-кодом.
+`ArtTexture` supports only uncompressed true-colour TGA type 2, 24/32 bit, without a color map/interleaving, up to 8192×8192. Renaming a PNG to `.tga` does not convert it. Missing required UI art is a startup error; the renderer can show a diagnostic procedural fallback for a card back. Card fronts, suits/ranks, felt, and some decor are generated in C++.
 
-В текущем source tree **нет отдельных PNG-оригиналов/редактируемых проектов и манифеста промптов генерации** четырёх TGA. Имеющиеся TGA достаточны для запуска и сборки. Для дальнейшего редактирования исходные изображения, пользовательские референсы и история генерации должны передаваться отдельными материалами; не считать временный файл или историю старого аккаунта частью репозитория. Путь к такому дополнительному пакету должен быть зафиксирован в общем handoff после его создания. Источник/лицензия собственных иллюстраций также не описаны отдельным asset-manifest.
+The current source tree has **no separate PNG originals/editable projects or generation-prompt manifest** for the four TGA files. The existing TGAs are sufficient to run and build. For future editing, source images, user references, and generation history must be provided separately; do not treat a temporary file or old account history as repository content. Record the location of such an additional package in the shared handoff once it is created. Sources/licenses for original illustrations are also not documented in a separate asset manifest.
 
-Шрифты включены полностью и не зависят от Windows fonts:
+Fonts are included in full and do not depend on Windows fonts:
 
-- `assets/fonts/CormorantGaramond-Regular.ttf`, `CormorantGaramond-SemiBold.ttf`: Christian Thalmann / Cormorant Project, SIL OFL 1.1; источник закреплён commit `bcf5515652e4d99eb3e42e41ed5f4285a315a175`.
-- `assets/fonts/SourceSans3-Regular.ttf`, `SourceSans3-Semibold.ttf`: Adobe, SIL OFL 1.1, Reserved Font Name Source; источник закреплён commit `87b37a2daaed80fcb8e8ccb0085c4d72ddade12e`.
-- Точные upstream URL, SHA-256 и лицензии — `assets/fonts/README.md`, `OFL-CormorantGaramond.txt`, `OFL-SourceSans3.txt`. Непроверенные новые версии не подставлять под старые записи.
+- `assets/fonts/CormorantGaramond-Regular.ttf`, `CormorantGaramond-SemiBold.ttf`: Christian Thalmann / Cormorant Project, SIL OFL 1.1; source pinned to commit `bcf5515652e4d99eb3e42e41ed5f4285a315a175`.
+- `assets/fonts/SourceSans3-Regular.ttf`, `SourceSans3-Semibold.ttf`: Adobe, SIL OFL 1.1, Reserved Font Name Source; source pinned to commit `87b37a2daaed80fcb8e8ccb0085c4d72ddade12e`.
+- Exact upstream URLs, SHA-256 values, and licenses are in `assets/fonts/README.md`, `OFL-CormorantGaramond.txt`, and `OFL-SourceSans3.txt`. Do not replace these entries with unverified newer versions.
 
-## 8. UI: где менять и какие размеры уже приняты
+## 8. UI: edit locations and accepted sizes
 
-Все экраны находятся в `src/main.cpp`; номера строк быстро устаревают, искать по функциям. `Interface` создаёт ImGui с отключённым `imgui.ini` и включённой keyboard navigation (`ImGuiConfigFlags_NavEnableKeyboard`). Атлас использует OversampleH=3/V=2.
+All screens are in `src/main.cpp`; line numbers quickly become stale, so search by function. `Interface` creates ImGui with `imgui.ini` disabled and keyboard navigation enabled (`ImGuiConfigFlags_NavEnableKeyboard`). The atlas uses OversampleH=3/V=2.
 
-| Роль в `Interface` | Шрифт / размер загрузки |
+| `Interface` role | Font / loaded size |
 | --- | --- |
 | `io.FontDefault` | Source Sans 3 Regular, 22 |
 | `small` | Source Sans 3 Regular, 18 |
@@ -171,29 +171,29 @@ Runtime-арт в исходниках:
 | `heading` | Cormorant Garamond SemiBold, 36 |
 | `title` | Cormorant Garamond SemiBold, 200 |
 
-Это размеры atlas, а не гарантия одинакового размера каждого draw-call. `drawMenu` уменьшает title при нехватке ширины; надписи дилера используют 64, подсказка изменения руки — 34, масть рисуется вектором 32, rarity badge — 26. Главная сумма руки — 104 и показывает реальный перебор, а не нулевую награду.
+These are atlas sizes, not a guarantee that every draw call uses the same size. `drawMenu` reduces the title if there is not enough width; dealer labels use 64, the hand-change hint 34, the suit is drawn as a 32-pixel vector, and the rarity badge is 26. The main hand total is 104 and shows the actual bust total, not zero reward.
 
-Основные точки изменений:
+Main edit points:
 
-- `menuLayout/drawMenu`: заголовок сверху слева, вертикальные START/OPTIONS/COLLECTION/EXIT. Кнопка шириной 350, высота 64 при высоте окна <800, иначе 76; шаг 76/88. Левый overlay сохраняется.
-- `tableLayout`: sidebar `clamp(width*.24,280,340)`, content X=sidebar+24, справа отступ 20, action Y=height−154. `boardY` берётся из `relicRowStyle`, boardHeight=height−boardY−110; эти значения также формируют Scene framing.
-- `relicRowStyle`: при ширине колонки <235 — radius38/name22/body18/rarity16/height208; <320 — 44/26/20/18/208; иначе 44/28/22/18/192. `drawRelicStrip` показывает имя, редкость и полное описание справа от каждой фишки. `wrapRelicWords/verifyRelicTextLayout` защищают переносы на минимальном окне.
-- `drawRelicStrip`, `Session::updateRelicReaction`: вклад из `AppliedEffect` поднимает нужную фишку, показывает кольца и короткие POINTS/MULT/COIN. Учитывать длительность Presentation, а не запускать отдельный расчёт бонуса.
-- `drawSidebar`: цель, счёт, руки, монеты; подробный hand reward только при высоте >=820, чтобы не ломать 720.
-- `controlsLeft/drawTable/drawHandValue`: HIT 190×78 и STAND 250×78 с промежутком 16; справа отдельная сумма шириной 210. При узком окне центр управления немного смещён влево ради зазора. Не возвращать широкую нижнюю текстовую панель.
-- `drawShop`: два предложения и четыре sell-слота; `drawCollection` — все 24 фишки/фильтры; `deckLayout/drawDeckSelection/browseDeck` — трёхпозиционная карусель; `drawGameOver` — отдельный экран после fade.
-- `beginPanel`, `theatreButton`, `rarityBadge`, `drawChip`: общие стили. Для неинтерактивных подписей используется `ImGuiWindowFlags_NoInputs`, иначе невидимая текстовая панель может перехватывать HIT/STAND или drag камеры.
-- `drawSettings/resetCamera`, основной блок ввода в `main`: overlays должны блокировать нижние экраны и камеру. Escape сначала закрывает текущий overlay. Не дублировать команды клавиатуры и мыши в одном кадре.
+- `menuLayout/drawMenu`: top-left title, vertical START/OPTIONS/COLLECTION/EXIT. Button width 350; height 64 when window height <800, otherwise 76; step 76/88. Keep the left overlay.
+- `tableLayout`: sidebar `clamp(width*.24,280,340)`, content X=sidebar+24, right margin 20, action Y=height−154. `boardY` comes from `relicRowStyle`; `boardHeight=height−boardY−110`. These values also define Scene framing.
+- `relicRowStyle`: for column width <235 — radius38/name22/body18/rarity16/height208; <320 — 44/26/20/18/208; otherwise 44/28/22/18/192. `drawRelicStrip` shows the name, rarity, and full description beside each chip. `wrapRelicWords/verifyRelicTextLayout` protect wrapping at the minimum window size.
+- `drawRelicStrip`, `Session::updateRelicReaction`: the `AppliedEffect` contribution raises the relevant chip, shows rings, and briefly displays POINTS/MULT/COIN. Use Presentation timing instead of a separate bonus calculation.
+- `drawSidebar`: target, score, hands, coins; detailed hand reward only at height >=820 so 720 remains usable.
+- `controlsLeft/drawTable/drawHandValue`: HIT 190×78 and STAND 250×78 with 16 spacing; separate total width 210 on the right. At a narrow window, shift controls slightly left for clearance. Do not restore a wide text panel along the bottom.
+- `drawShop`: two offers and four sale slots; `drawCollection`: all 24 chips/filters; `deckLayout/drawDeckSelection/browseDeck`: three-position carousel; `drawGameOver`: separate screen after fade.
+- `beginPanel`, `theatreButton`, `rarityBadge`, `drawChip`: shared styles. Non-interactive labels use `ImGuiWindowFlags_NoInputs`; otherwise an invisible text panel may intercept HIT/STAND or camera drag.
+- `drawSettings/resetCamera`, main input block: overlays must block screens/camera behind them. Escape first closes the current overlay. Do not duplicate keyboard and mouse commands in one frame.
 
-После изменения шрифтов проверять не только крупный title: длинные названия/описания фишек, все три редкости, две цены магазина, четыре заполненных слота и самый узкий supported размер. Не чинить отдельную строку одним уменьшением всего текста.
+After changing fonts, check more than the large title: long chip names/descriptions, all three rarities, two shop prices, four occupied slots, and the narrowest supported size. Do not fix one line by shrinking all text.
 
-## 9. Сборка: что включено, что ставится на машине
+## 9. Build dependencies and machine setup
 
-Нужны установленный CMake 3.24+, C/C++17 toolchain и OpenGL 3.3 Core driver. На Windows — MSVC/Windows SDK/компонент Desktop development with C++; на runtime-машине компилятор не нужен. GLFW/GLM/ImGui включены исходниками; npm, Python, отдельный texture SDK или скачивание библиотек при configure не требуются.
+Requires CMake 3.24+, a C/C++17 toolchain, and an OpenGL 3.3 Core driver. On Windows: MSVC/Windows SDK/Desktop development with C++; no compiler is needed on the runtime machine. GLFW/GLM/ImGui source is included; npm, Python, a separate texture SDK, and network downloads during configure are not required.
 
-Версии закреплены в `THIRD_PARTY_NOTICES.md`: GLFW 3.4, GLM 1.0.1, Dear ImGui 1.91.9b. GLAD берётся из `third_party/glfw/deps/glad/gl.h`, loader — `src/graphics/glad.cpp`; `stb_image_write.h` из GLFW используется только для PNG captures. Обновлять GLFW отдельно от GLAD нельзя без проверки совместимости. Сохранять upstream licenses.
+Versions are pinned in `THIRD_PARTY_NOTICES.md`: GLFW 3.4, GLM 1.0.1, Dear ImGui 1.91.9b. GLAD comes from `third_party/glfw/deps/glad/gl.h`, the loader is `src/graphics/glad.cpp`, and GLFW's `stb_image_write.h` is used only for PNG captures. Do not update GLFW separately from GLAD without checking compatibility. Preserve upstream licenses.
 
-`BJ_BUILD_APP=ON` и `BUILD_TESTING=ON` — desktop default. `find_package(OpenGL REQUIRED)` находится только внутри app-ветки. `core-only` выключает окно/графические зависимости и собирает те же правила/Presentation с тестами. CMake использует C++17 без extensions, MSVC `/W4 /permissive- /utf-8 /EHsc`, статический MSVC CRT (`MultiThreaded`/`MultiThreadedDebug`).
+`BJ_BUILD_APP=ON` and `BUILD_TESTING=ON` are desktop defaults. `find_package(OpenGL REQUIRED)` is only inside the app branch. `core-only` disables the window/graphics dependencies and builds the same rules/Presentation with tests. CMake uses C++17 without extensions, MSVC `/W4 /permissive- /utf-8 /EHsc`, and the static MSVC CRT (`MultiThreaded`/`MultiThreadedDebug`).
 
 ```powershell
 cmake --preset desktop
@@ -205,7 +205,7 @@ cmake --build --preset core-only --parallel
 ctest --preset core-only
 ```
 
-Preset по умолчанию Debug; с Visual Studio multi-config Release выбирается отдельно:
+The preset defaults to Debug; choose Release separately with Visual Studio's multi-config generator:
 
 ```powershell
 cmake --build build/desktop --config Release --parallel 1
@@ -213,52 +213,52 @@ ctest --test-dir build/desktop -C Release --output-on-failure
 cmake --install build/desktop --config Release --prefix dist/JesterJack
 ```
 
-Для single-config generator executable может лежать прямо в build directory, а `CMAKE_BUILD_TYPE` задаётся на configure. `scripts/run.ps1` сам выбирает Debug/Release (`-Release`), собирает, запускает CTest и находит обе схемы расположения executable. `.vscode/tasks.json/launch.json` используют CMake Tools и текущую launch target, без персональных путей.
+With a single-config generator, the executable may be directly in the build directory, and `CMAKE_BUILD_TYPE` is set during configure. `scripts/run.ps1` selects Debug or Release itself (`-Release`), builds, runs CTest, and locates both executable layouts. `.vscode/tasks.json/launch.json` use CMake Tools and the current launch target, with no personal paths.
 
-`blackjack_assets` копирует весь `assets/` рядом с executable при build; install копирует также notices и dependency licenses. Не считать изменённый source shader автоматически обновлённым в уже собранной portable-папке. При запуске root assets ищется рядом с executable, затем в рабочей папке; `--assets DIR` переопределяет его. Runtime-имя target — `blackjack_forge.exe`; имя распространяемой копии может быть `JesterJack.exe`. Рядом обязательно должны быть актуальные assets и лицензии.
+`blackjack_assets` copies all of `assets/` beside the executable during build; install also copies notices and dependency licenses. Do not assume a changed source shader was automatically updated in an already-built portable folder. At launch, the root assets directory is searched beside the executable, then in the working directory; `--assets DIR` overrides it. The runtime target name is `blackjack_forge.exe`; the distributed copy may be named `JesterJack.exe`. Current assets and licenses must remain beside it.
 
-## 10. Проверка графических изменений и ограничения передачи
+## 10. Verifying graphics changes and handoff limitations
 
-Подготовка этого документа не запускала сборку или тесты. Список ниже — воспроизводимый маршрут проверки; фактические результаты конкретной поставки нужно брать из её журнала/общего handoff, а не считать выполненными по наличию команды.
+Preparing this document did not run a build or tests. The list below is a reproducible verification route; use the log/shared handoff for actual results from a particular delivery instead of treating the presence of a command as proof it was run.
 
-Минимальный размер — **1100×720**, основной — **1440×900**. Обычное окно 1440×900; GLFW context 3.3 Core, MSAA 4, VSync включён для видимого окна и выключен для hidden. Проверять реальный framebuffer, а не только логические координаты ImGui; различия DPI и чужой GPU/OS требуют отдельной проверки.
+Minimum size is **1100×720**; primary size is **1440×900**. Normal window: 1440×900; GLFW context 3.3 Core, MSAA 4, VSync enabled for visible windows and disabled for hidden runs. Check the actual framebuffer, not only ImGui logical coordinates; DPI differences and a different GPU/OS require separate verification.
 
 ```powershell
-# Меню с седаном около пятой секунды; нет autoplay.
+# Menu with the sedan near the fifth second; no autoplay.
 .\build\desktop\Release\blackjack_forge.exe --hidden --seed 42 --frames 300 --size 1440x900 --screenshot build/qa/menu-car.png
 
-# Статичный стол после начальной раздачи, без декоративных циклов.
+# Static table after the first deal, without decorative cycles.
 .\build\desktop\Release\blackjack_forge.exe --demo --hidden --seed 42 --no-ambient-motion --frames 240 --size 1100x720 --screenshot build/qa/table-small.png
 
-# Полный hidden integration маршрут с автоматическими captures и resize.
+# Full hidden integration path with automatic captures and resize.
 .\build\desktop\Release\blackjack_forge.exe --smoke --frames 1200 --capture-states build/qa/smoke
 ```
 
-CLI разбирается последовательно: ставить `--frames` после `--smoke`, если нужно переопределить его 1200 кадров. `--screenshot` без frames сам выбирает лишь три кадра. Hidden+frames использует `dt=1/60` и sceneTime=frame/60; обычный запуск использует GLFW time. `--no-animation` отключает только стартовый fade, **не** очередь раздачи; `--no-ambient-motion` выключает декоративные циклы, но не игровые правила и не саму Presentation. `--demo` сразу раздаёт первую руку; `--deck hands|life|coins`, `--seed N`, `--autoplay`, `--assets DIR` помогают воспроизведению.
+The CLI parses arguments in order: put `--frames` after `--smoke` to override its 1200-frame default. `--screenshot` without frames selects only three frames. Hidden+frames uses `dt=1/60` and `sceneTime=frame/60`; a normal launch uses GLFW time. `--no-animation` disables only the starting fade, **not** the deal queue; `--no-ambient-motion` disables decorative cycles but not rules or Presentation. `--demo` deals the first hand immediately; `--deck hands|life|coins`, `--seed N`, `--autoplay`, and `--assets DIR` help reproduce scenarios.
 
-Визуальная приёмка после затронутого изменения:
+Visual acceptance after a relevant change:
 
-1. Меню в обоих размерах: title/все кнопки свободны, дом виден с двумя гранями, ступени/бордюр параллельны дороге; седан проходит и исчезает в паузе, фары не дают непрозрачных треугольников или утечки blend-state.
-2. Стол: текущая композиция и позиции карт сохранены; мир продолжается под верхом HUD и низом кнопок без прямоугольной рамки. Кисти на дальней кромке, торс за ней, маска/капюшон/воротник не пересекаются.
-3. Раздача/flip/посадка, blackjack, обычная победа, перебор, спасение и пересчёт туза. Сумма перебора показывает настоящие 22+, дельта может быть отрицательной. Подсказки не закрывают кнопки.
-4. Четыре фишки, длинные описания, Common/Rare/Legendary, пошаговые срабатывания и итог награды. Магазин 0/4 и 4/4, продажа и покупка; COLLECTION/фильтры; все три рубашки колод в обоих размерах.
-5. Камера: yaw−35/pitch32/distance8 и yaw35/pitch68/distance14; карты остаются видимыми, нет прорезания сукна и головы, пол не кончается жёстким краем. Проверить RMB/колесо/double-RMB и блокировку за SETTINGS/RULES.
-6. Ambient motion off: нет декоративного седана/idle качания, лампы постоянны; можно продолжать играть. Lighting/Textures/Light settings работают и reset camera не сбрасывает их.
-7. Закрытие/запуск из другой рабочей папки, resize, актуальность assets рядом с executable. Capture-path создаётся приложением; отсутствующий арт/шрифт и `glGetError` дают диагностируемую ошибку.
+1. Menu at both sizes: title/all buttons fit; the building shows two faces; steps/curb run parallel to the road; the sedan passes and disappears during its pause; headlights produce no opaque triangles or blend-state leak.
+2. Table: current composition and card positions remain; the world continues behind the top of the HUD and bottom buttons without a rectangular frame. Hands rest on the far edge, torso is behind it, mask/hood/collar do not intersect.
+3. Deal/flip/landing, blackjack, ordinary win, bust, rescue, and ace recalculation. Bust total shows the actual 22+; delta can be negative. Hints do not cover buttons.
+4. Four chips, long descriptions, Common/Rare/Legendary, sequential activations, and final reward. Shop with 0/4 and 4/4 slots, sales and purchases; COLLECTION/filters; all three card backs at both sizes.
+5. Camera: yaw−35/pitch32/distance8 and yaw35/pitch68/distance14; cards remain visible, do not cut through felt/head, and floor has no hard edge. Check RMB/wheel/double-RMB and blocking behind SETTINGS/RULES.
+6. Ambient motion off: no decorative sedan/idle bob, lamps are steady; game remains playable. Lighting/Textures/Light settings work, and reset camera does not reset them.
+7. Close/relaunch from another working directory, resize, current assets beside executable. Capture path is created by the app; missing art/font and `glGetError` produce diagnosable errors.
 
-`docs/images/` содержит переносимые иллюстрации состояния проекта. `build/**` и автоматически созданные captures игнорируются Git и не являются обязательной частью source. Старый удачный screenshot не доказывает, что текущий бинарник/asset-копия совпадают с исходниками.
+`docs/images/` contains portable illustrations of the project state. `build/**` and automatically generated captures are Git-ignored and are not required source. An old successful screenshot does not prove that the current binary/asset copy matches the source.
 
-Соответствие курсу подробно закреплено в `docs/LECTURE_ALIGNMENT.md`; номера ниже — страницы PDF с единицы, не напечатанные номера слайдов:
+Course mapping is detailed in `docs/LECTURE_ALIGNMENT.md`; page numbers below are 1-based PDF pages, not printed slide numbers:
 
-| Тема CGF | PDF и страницы | Где показывать реализацию |
+| CGF topic | PDF and pages | Where to show implementation |
 | --- | --- | --- |
-| Шейдеры, attributes/uniforms | `L-2-2 Computer Graphics Fundamentals.pdf`, 2–3, 7–9 | `Program`, `Mesh`, `Renderer::Impl::draw`, `table.vert/table.frag`. |
-| Model/view/projection и normal matrix | `L-4-1_Transformations.pdf`, 23, 45, 48 | `transform`, `draw`, `render`; формула `projection * view * model * position`. |
-| Камера и перспектива | `L-5-1_Viewing.pdf`, 3, 11–12, 43, 46 | `Renderer::Impl::render`: `glm::lookAt`, `glm::perspective`, перенос framing в полный framebuffer. |
-| Освещение | `L-5-2_Shading.pdf`, 14, 29, 42, 58, 66–70 | `table.frag`: нормализация, Blinn–Phong/halfway vector, локальные лампы и свечи. |
-| Текстуры и UV | `L-8_TextureMapping.pdf`, 24–25, 43–47 | `ArtTexture::load`, `Textures`, `makeTopPlane`, sampler/UV-scale в основном shader. |
-| Ввод, окно, resize | `L-3-1_Input.pdf`, 14–15, 24, 39 | `Window`, основной цикл `main`, `resetCamera`, `Renderer::render(width,height)`. |
+| Shaders, attributes/uniforms | `L-2-2 Computer Graphics Fundamentals.pdf`, 2–3, 7–9 | `Program`, `Mesh`, `Renderer::Impl::draw`, `table.vert/table.frag`. |
+| Model/view/projection and normal matrix | `L-4-1_Transformations.pdf`, 23, 45, 48 | `transform`, `draw`, `render`; formula `projection * view * model * position`. |
+| Camera and perspective | `L-5-1_Viewing.pdf`, 3, 11–12, 43, 46 | `Renderer::Impl::render`: `glm::lookAt`, `glm::perspective`, framing mapped to the full framebuffer. |
+| Lighting | `L-5-2_Shading.pdf`, 14, 29, 42, 58, 66–70 | `table.frag`: normalization, Blinn–Phong/halfway vector, local lamps and candles. |
+| Textures and UV | `L-8_TextureMapping.pdf`, 24–25, 43–47 | `ArtTexture::load`, `Textures`, `makeTopPlane`, sampler/UV scale in the main shader. |
+| Input, window, resize | `L-3-1_Input.pdf`, 14–15, 24, 39 | `Window`, main `main` loop, `resetCamera`, `Renderer::render(width,height)`. |
 
-`docs/COURSE_REQUIREMENTS.md` содержит требования демонстрации/отчёта. Это современный OpenGL Core; не переносить `glMatrixMode`, GLUT, `gl_FragColor` или `texture2D` из исторических слайдов в существующий pipeline. ImGui — overlay, а не замена собственной 3D-сцене.
+`docs/COURSE_REQUIREMENTS.md` contains demonstration/report requirements. This is modern OpenGL Core; do not bring `glMatrixMode`, GLUT, `gl_FragColor`, or `texture2D` from historical slides into the existing pipeline. ImGui is an overlay, not a replacement for the custom 3D scene.
 
-Оставшиеся пробелы передачи: отсутствуют исходные editable-материалы/manifest генерации арта; не выбрана отдельная публичная лицензия собственного кода/иллюстраций; нет встроенного сохранения забега и звукового стека/пакета пользовательской музыки. Поддержка Linux/macOS предусмотрена ветками кода, но переносимость конкретной поставки не следует объявлять проверенной только по этим веткам. Лекции PDF сохраняют авторство и не входят в runtime-пакет.
+Remaining handoff gaps: no editable source assets or art-generation manifest; no separate public license selected for the project's own code/illustrations; no built-in run save or audio stack/custom music package. Linux/macOS support is present in code branches, but do not claim a particular delivery is portable based only on those branches. Lecture PDFs retain their authorship and are not part of the runtime package.

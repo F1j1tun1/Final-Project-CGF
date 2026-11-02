@@ -1,15 +1,14 @@
-# Иллюстрации новых улучшений
+# Artwork for the new relics
 
-Атлас `assets/art/relics-expansion.tga` содержит 16 оригинальных рисованных медальонов для улучшений с ID 24–39. Он создан встроенным инструментом `image_gen` 30 октября 2026 года по текстовому художественному заданию: рельефный металл, слоновая кость, эмаль и казино-шутовской орнамент. Common использует спокойную слоновую кость, Rare — синюю эмаль, Legendary — золото. Старый атлас из 24 иллюстраций не изменён.
+The `assets/art/relics-expansion.tga` atlas contains 16 original illustrated medallions for relics with IDs 24–39. It was created with the built-in `image_gen` tool on October 30, 2026, from a written art brief: embossed metal, ivory, enamel, and a casino-jester ornament style. Common uses soft ivory, Rare uses blue enamel, and Legendary uses gold. The original atlas of 24 illustrations was not changed.
 
-PNG инструмента преобразован в несжатый 32-битный TGA без изменения пикселей RGBA; размер — 1254×1254. Поскольку исходная упаковка не образует идеально равномерную сетку, интерфейс использует явные UV-прямоугольники по фактическим границам медальонов. Это исключает попадание соседнего рисунка в иконку.
+The tool's PNG was converted to an uncompressed 32-bit TGA without changing the RGBA pixels; the image is 1254×1254. Because the source layout does not form a perfectly uniform grid, the interface uses explicit UV rectangles based on the medallions' actual bounds. This prevents adjacent artwork from appearing in an icon.
 
-Порядок по строкам:
+Row order:
 
 1. Rewind, Redraw, Forked Path, Lifeline.
 2. Velvet Dividend, Lucky Seven, Twin Sigil, Mixed Company.
 3. Crescendo, Ace High, Silver Lining, Loaded Dice.
 4. Alchemist, Phoenix, Royal Decree, Grand Finale.
 
-Исходный PNG и полный запрос сохранены среди материалов проверки в `palace-refinement/relics-expansion.png` и `palace-refinement/atlas-prompt.txt` рабочего каталога задачи. Эти материалы не требуются для запуска. Рендер использует только TGA; новые зависимости для игры не добавлены.
-
+The source PNG and full prompt are preserved among the review materials in `palace-refinement/relics-expansion.png` and `palace-refinement/atlas-prompt.txt` in the task working directory. These materials are not required to run the game. Rendering uses only the TGA; no new game dependencies were added.

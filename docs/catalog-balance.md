@@ -1,87 +1,87 @@
-# Каталог улучшений и баланс Jester Jack
+# Jester Jack relic catalog and balance
 
-Каталог содержит 40 уникальных улучшений: 14 Common (белые), 15 Rare (синие) и 11 Legendary (золотые). Новый забег начинается без улучшений. Единственный список экипировки — `Snapshot::owned`; предел задаёт `bj::maxEquipmentSlots = 8`. Каждому установленному улучшению соответствует ровно одна физическая фишка на столе.
+The catalog contains 40 unique relics: 14 Common (white), 15 Rare (blue), and 11 Legendary (gold). A new run starts with no relics. `Snapshot::owned` is the sole equipment list; its limit is `bj::maxEquipmentSlots = 8`. Each equipped relic corresponds to exactly one physical chip on the table.
 
-## Прогрессия и магазин
+## Progression and shop
 
-| Правило | До обновления | После обновления |
+| Rule | Before update | After update |
 | --- | --- | --- |
-| Слоты улучшений | 4 | 8 |
-| Доход за победу | 3 монеты | 4 монеты |
-| Цель раунда | 30 + 10 за раунд, предел 100 | 30 + 8 за раунд, предел 86 |
-| Веса Common / Rare / Legendary | 55 / 35 / 10 | 50 / 36 / 14 |
-| Предложения магазина | 2 | 2 |
-| Цена Common / Rare / Legendary | 3 / 6 / 10 монет | 3 / 6 / 10 монет |
-| Возврат при продаже | floor(cost / 2) | floor(cost / 2) |
+| Relic slots | 4 | 8 |
+| Win income | 3 coins | 4 coins |
+| Round target | 30 + 10 per round, capped at 100 | 30 + 8 per round, capped at 86 |
+| Common / Rare / Legendary weights | 55 / 35 / 10 | 50 / 36 / 14 |
+| Shop offers | 2 | 2 |
+| Common / Rare / Legendary price | 3 / 6 / 10 coins | 3 / 6 / 10 coins |
+| Sale return | floor(cost / 2) | floor(cost / 2) |
 
-Цель первого раунда — 30 очков. Предел действует с восьмого раунда, число раундов не ограничено. Обычный раунд даёт пять раздач, LAST LAUGH — шесть; ENCORE сохраняет одно возрождение на весь забег, GOLDEN FOOL начинает с 10 монет. Дилер останавливается на твёрдых и мягких 17. Правила натурального блэкджека, ничьей, поражения, перемешивания и прежних улучшений сохранены. Бонусы множителя складываются, а не перемножаются. Поражение и ничья не дают награды.
+The first round target is 30 points. The cap applies from round eight onward, and the number of rounds is unlimited. A standard round has five hands; LAST LAUGH has six. ENCORE provides one revival for the entire run, and GOLDEN FOOL starts with 10 coins. The dealer stands on hard and soft 17. The rules for natural blackjack, pushes, losses, shuffling, and earlier relics are preserved. Multiplier bonuses add together instead of multiplying each other. Losses and pushes award nothing.
 
-Магазин сначала выбирает редкость по указанным весам, затем доступное улучшение внутри неё. Установленные предметы и повтор текущего предложения исключаются; внутри выбранной редкости предпочтение получает предмет, которого не было в прошлом визите. В каждой редкости достаточно предметов для сохранения её веса даже при восьми установленных улучшениях. Покупки и продажи не меняют генератор карт. Замена сначала проверяет предложение, владение, отметку покупки в этом визите и средства с учётом продажи, затем одной операцией меняет существующий слот. Недопустимые команды сохраняют состояние и случайность. Купленный и затем проданный предмет нельзя снова купить в том же магазине.
+The shop first selects a rarity by the listed weights, then an available relic within that rarity. Equipped relics and the first offer are excluded. Within the selected rarity, relics not offered during the previous visit are preferred. Each rarity has enough items to preserve its weight even with eight relics equipped. Purchases and sales do not affect the card generator. A replacement first checks the offer, ownership, whether the item was already purchased during this visit, and the balance including the sale proceeds; it then replaces the existing slot in one operation. Invalid commands preserve state and randomness. An item that was bought and then sold cannot be bought again in the same shop visit.
 
-## Активные способности и ограничения
+## Active abilities and limits
 
-Клавиши `1–8` и клик по физической фишке только выбирают улучшение для просмотра имени, редкости, эффекта и заряда. Просмотр не расходует заряд. Для применения выбранной доступной способности нужно отдельно нажать `A` или кнопку ACTIVATE. Пассивные улучшения срабатывают автоматически при выполнении своего условия.
+Keys `1–8` and clicks on physical chips only select relics for inspection of their name, rarity, effect, and charges. Inspection does not use a charge. To activate a selected available ability, press `A` or the ACTIVATE button. Passive relics trigger automatically when their conditions are met.
 
-| Способность | Заряд | Условие | Результат |
+| Ability | Charges | Condition | Result |
 | --- | --- | --- | --- |
-| Rewind | 1 за раздачу | Ваш ход, уже был добор | Сбросить последнюю добранную карту, включая карту перебора |
-| Redraw | 1 за раздачу | Ваш ход, уже был добор | Заменить последнюю добранную карту следующей из колоды; замена может дать перебор |
-| Forked Path | 1 за раздачу | Ваш ход, нет перебора или незавершённого выбора | Взять две карты, выбрать одну для добора, вторую сбросить |
-| Lifeline | 1 за раунд | Перебор до определения исхода | Сбросить карту перебора |
+| Rewind | 1 per hand | Your turn; at least one card has been drawn | Remove the last drawn card, including a busting card |
+| Redraw | 1 per hand | Your turn; at least one card has been drawn | Replace the last drawn card with the next card in the deck; the replacement may bust |
+| Forked Path | 1 per hand | Your turn; no bust and no unfinished choice | Draw two cards, keep one, and discard the other |
+| Lifeline | 1 per round | Bust before the outcome is determined | Remove the busting card |
 
-Rewind и Redraw не меняют две начальные карты и не позволяют искусственно получить натуральный блэкджек. Добор до 21 запускает обычный ход дилера. Перебор приостанавливает раздачу только при наличии установленной, заряженной и применимой Rewind, Redraw или Lifeline; закрытая карта дилера остаётся скрытой, очки ещё не начисляются. STAND явно принимает поражение. Перебор после расходования всех подходящих зарядов завершается обычным образом. Автоматический щит Second Chance имеет приоритет и по-прежнему действует один раз за раунд.
+Rewind and Redraw cannot change the initial two cards or manufacture a natural blackjack. Drawing to 21 starts the dealer's normal turn. A bust pauses the hand only if an equipped, charged, and applicable Rewind, Redraw, or Lifeline is available; the dealer's hidden card remains hidden and no points have been awarded yet. STAND explicitly accepts the loss. A bust after all applicable charges have been used resolves normally. The automatic Second Chance shield takes priority and still works once per round.
 
-Выбор Forked Path нужно завершить кнопкой одной из двух карт перед любым добором, остановкой или другой способностью. Недопустимые индексы выбора, повторные нажатия, неустановленные способности, пассивные улучшения и действия после определения исхода ничего не меняют. Заряд расходуется при активации, в том числе при открытии выбора из двух карт, а не после окончания анимации. Новая раздача сбрасывает заряды раздачи и признаки совместных эффектов. Новый раунд или повтор через ENCORE сбрасывает заряды раунда. Перезапуск очищает экипировку, выбор карт, заряды и признаки спасения. Системы сохранения и загрузки в игре нет, поэтому миграция сохранённого инвентаря не требуется.
+The Forked Path choice must be completed by selecting one of the two cards before any hit, stand, or other ability. Invalid choice indices, repeated selections, unequipped abilities, passive relics, and actions after the outcome is decided do nothing. The charge is consumed on activation, including when opening the two-card choice, not when its animation finishes. A new hand resets per-hand charges and joint-effect flags. A new round or ENCORE revival resets per-round charges. Restart clears equipment, card choices, charges, and rescue flags. The game has no save/load system, so saved inventory does not need migration.
 
-Alchemist даёт награду только за победу после активной способности в той же раздаче. Phoenix — только если в этой раздаче игрок действительно избежал перебора через Second Chance, Rewind, Redraw или Lifeline. Они не платят за поражение или ничью и не могут повторно открыть уже рассчитанную раздачу.
+Alchemist rewards only a win after an active ability was used in the same hand. Phoenix rewards only if the player actually avoided a bust in that hand through Second Chance, Rewind, Redraw, or Lifeline. Neither pays on a loss or push, and neither can reopen a hand whose outcome has already been settled.
 
-## Полный каталог
+## Full catalog
 
-Все прибавки очков, множителя и монет в таблице требуют победы. Активные способности и автоматическое спасение Second Chance действуют до определения исхода.
+All point, multiplier, and coin bonuses in the table require a win. Active abilities and automatic Second Chance rescue take effect before the outcome is determined.
 
-| Улучшение | Редкость | Цена | Эффект |
+| Relic | Rarity | Price | Effect |
 | --- | --- | ---: | --- |
-| Precision | Rare | 6 | Сумма 21: +0,5 к множителю и +1 монета |
-| Long Hand | Rare | 6 | 4+ карты: +0,6 к множителю и +1 монета |
-| Second Chance | Legendary | 10 | Отмена первой карты перебора раз за раунд; победа той же рукой после спасения: +1,0 к множителю |
-| Streak | Rare | 6 | +0,1 к множителю за предшествующую победу серии, максимум +0,4; +1 монета за каждую третью победу |
-| Royal Purse | Common | 3 | Натуральный блэкджек: +1 монета |
-| Soft Touch | Common | 3 | Мягкая рука: +1 монета |
-| Narrow Escape | Rare | 6 | Перебор дилера: +0,4 к множителю и +1 монета |
-| Red Ribbon | Common | 3 | Обе начальные карты красные: +1 монета |
-| Black Velvet | Common | 3 | Обе начальные карты чёрные: +1 монета |
-| Even Odds | Common | 3 | Чётная сумма руки: +1 монета |
-| Court Favor | Common | 3 | Есть J, Q или K: +3 очка |
-| Humble Crown | Common | 3 | Сумма не больше 18: +5 очков |
-| Blackjack Bonus | Common | 3 | Натуральный блэкджек: +5 очков |
-| Copper Bell | Common | 3 | 3+ карты: +3 очка |
-| Seventeen Charm | Common | 3 | Сумма ровно 17: +1 монета |
-| Scarlet Mask | Rare | 6 | Все карты красные: +0,5 к множителю |
-| Midnight Mask | Rare | 6 | Все карты чёрные: +0,5 к множителю |
-| Royal Court | Rare | 6 | 2+ карты J/Q/K: +0,75 к множителю |
-| Soft Crown | Rare | 6 | Мягкие 19, 20 или 21: +0,75 к множителю |
-| Jester Crown | Legendary | 10 | Натуральный блэкджек: +1,0 к множителю |
-| Five Card Parade | Legendary | 10 | 5+ карт: +1,5 к множителю |
-| Final Act | Legendary | 10 | Последняя доступная раздача раунда: +1,0 к множителю |
-| Underdog | Legendary | 10 | Сумма не больше 16 и перебор дилера: +1,5 к множителю |
-| Encore | Legendary | 10 | Уже есть серия из 3+ побед: +1,0 к множителю |
-| Rewind | Rare | 6 | Активное: сбросить последнюю добранную карту, включая карту перебора; один раз за раздачу, начальные карты трогать нельзя |
-| Redraw | Rare | 6 | Активное: заменить последнюю добранную карту следующей из колоды; один раз за раздачу, замена тоже может дать перебор |
-| Forked Path | Legendary | 10 | Активное: взять две карты, выбрать одну для добора, вторую сбросить; один раз за раздачу |
-| Lifeline | Legendary | 10 | Активное: сбросить карту перебора до определения исхода; один раз за раунд |
-| Velvet Dividend | Common | 3 | Каждая победа: +2 монеты |
-| Lucky Seven | Common | 3 | В руке есть семёрка: +7 очков |
-| Twin Sigil | Common | 3 | Начальные карты одного достоинства: +10 очков |
-| Mixed Company | Common | 3 | В руке есть красные и чёрные карты: +5 очков |
-| Crescendo | Rare | 6 | 3+ карты: +0,75 к множителю |
-| Ace High | Rare | 6 | В руке есть туз: +0,75 к множителю и +1 монета |
-| Silver Lining | Rare | 6 | Каждая победа: +0,35 к множителю |
-| Loaded Dice | Rare | 6 | Сумма не меньше 18: +8 очков |
-| Alchemist | Rare | 6 | Победа после применения активной способности в той же раздаче: +0,8 к множителю и +2 монеты |
-| Phoenix | Legendary | 10 | Победа после спасения от перебора в той же раздаче: +2,0 к множителю и +2 монеты |
-| Royal Decree | Legendary | 10 | Каждая победа: +0,8 к множителю |
-| Grand Finale | Legendary | 10 | После победной раздачи осталось не больше одной раздачи: +1,5 к множителю |
+| Precision | Rare | 6 | Hand total 21: +0.5 multiplier and +1 coin |
+| Long Hand | Rare | 6 | 4+ cards: +0.6 multiplier and +1 coin |
+| Second Chance | Legendary | 10 | Cancel the first busting card once per round; win that same hand after rescue: +1.0 multiplier |
+| Streak | Rare | 6 | +0.1 multiplier per previous win in the streak, up to +0.4; +1 coin for every third win |
+| Royal Purse | Common | 3 | Natural blackjack: +1 coin |
+| Soft Touch | Common | 3 | Soft hand: +1 coin |
+| Narrow Escape | Rare | 6 | Dealer busts: +0.4 multiplier and +1 coin |
+| Red Ribbon | Common | 3 | Both initial cards are red: +1 coin |
+| Black Velvet | Common | 3 | Both initial cards are black: +1 coin |
+| Even Odds | Common | 3 | Even hand total: +1 coin |
+| Court Favor | Common | 3 | Hand contains a J, Q, or K: +3 points |
+| Humble Crown | Common | 3 | Hand total is 18 or lower: +5 points |
+| Blackjack Bonus | Common | 3 | Natural blackjack: +5 points |
+| Copper Bell | Common | 3 | 3+ cards: +3 points |
+| Seventeen Charm | Common | 3 | Hand total exactly 17: +1 coin |
+| Scarlet Mask | Rare | 6 | All cards are red: +0.5 multiplier |
+| Midnight Mask | Rare | 6 | All cards are black: +0.5 multiplier |
+| Royal Court | Rare | 6 | 2+ J/Q/K cards: +0.75 multiplier |
+| Soft Crown | Rare | 6 | Soft 19, 20, or 21: +0.75 multiplier |
+| Jester Crown | Legendary | 10 | Natural blackjack: +1.0 multiplier |
+| Five Card Parade | Legendary | 10 | 5+ cards: +1.5 multiplier |
+| Final Act | Legendary | 10 | Last available hand of the round: +1.0 multiplier |
+| Underdog | Legendary | 10 | Hand total 16 or lower and dealer busts: +1.5 multiplier |
+| Encore | Legendary | 10 | Already on a streak of 3+ wins: +1.0 multiplier |
+| Rewind | Rare | 6 | Active: remove the last drawn card, including a busting card; once per hand, cannot affect initial cards |
+| Redraw | Rare | 6 | Active: replace the last drawn card with the next card in the deck; once per hand, replacement may also bust |
+| Forked Path | Legendary | 10 | Active: draw two cards, choose one to keep, and discard the other; once per hand |
+| Lifeline | Legendary | 10 | Active: remove a busting card before the outcome is decided; once per round |
+| Velvet Dividend | Common | 3 | Every win: +2 coins |
+| Lucky Seven | Common | 3 | Hand contains a seven: +7 points |
+| Twin Sigil | Common | 3 | Initial cards have the same rank: +10 points |
+| Mixed Company | Common | 3 | Hand contains both red and black cards: +5 points |
+| Crescendo | Rare | 6 | 3+ cards: +0.75 multiplier |
+| Ace High | Rare | 6 | Hand contains an ace: +0.75 multiplier and +1 coin |
+| Silver Lining | Rare | 6 | Every win: +0.35 multiplier |
+| Loaded Dice | Rare | 6 | Hand total is at least 18: +8 points |
+| Alchemist | Rare | 6 | Win after using an active ability in the same hand: +0.8 multiplier and +2 coins |
+| Phoenix | Legendary | 10 | Win after rescue from a bust in the same hand: +2.0 multiplier and +2 coins |
+| Royal Decree | Legendary | 10 | Every win: +0.8 multiplier |
+| Grand Finale | Legendary | 10 | After a winning hand, one or fewer hands remain in the round: +1.5 multiplier |
 
-## Проверки
+## Verification
 
-Тесты правил проверяют все размеры экипировки 0..8 через реальные магазины и воспроизводимые раздачи: ограничение вместимости, замену заполненного слота одной операцией и отказ при нехватке монет, покупку, продажу и перезапуск. Проверяются доступность и заряды способностей, оба варианта выбора карты, отложенный исход при переборе, воспроизводимость и реальное начисление совместного эффекта. Сохранены проверки распределения начальных карт, весов магазина, уникальности карт колоды, исходов, наград, щита и начальных колод. В [сравнении баланса](balance-results.md) приведены независимые симуляции до и после обновления и ограничения этой оценки.
+Rules tests cover every equipment size from 0 to 8 through real shops and reproducible hands: capacity limits, replacing a full slot in one operation and rejecting replacement when coins are insufficient, purchase, sale, and restart. They verify ability availability and charges, both card-choice paths, deferred outcomes on a bust, reproducibility, and actual joint-effect rewards. Existing tests for starting-card distributions, shop weights, deck-card uniqueness, outcomes, rewards, the shield, and starting decks are preserved. The [balance comparison](balance-results.md) reports independent simulations before and after the update and explains the limitations of that estimate.

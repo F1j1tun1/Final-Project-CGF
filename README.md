@@ -1,55 +1,55 @@
 # Jester Jack
 
-Одиночный блэкджек с бесконечными раундами и улучшениями. C++17, OpenGL 3.3 Core.
+A single-player blackjack game with endless rounds and relics. Built with C++17 and OpenGL 3.3 Core.
 
-## Запуск
+## Getting started
 
-В готовой сборке откройте `JesterJack.exe`. Рядом должна оставаться папка `assets/`. Для запуска нужен Windows с драйвером OpenGL 3.3 Core.
+In a packaged build, open `JesterJack.exe`. Keep the `assets/` folder next to it. The game requires Windows with an OpenGL 3.3 Core driver.
 
-## Правила и управление
+## Rules and controls
 
-Нажмите START и выберите начальную колоду:
+Press START and choose a starting deck:
 
-| Колода | Преимущество |
+| Deck | Advantage |
 | --- | --- |
-| LAST LAUGH | Шесть раздач в каждом раунде вместо пяти |
-| ENCORE | Один раз за забег можно повторить проваленный раунд, сохранив монеты и улучшения |
-| GOLDEN FOOL | 10 монет в начале забега |
+| LAST LAUGH | Six hands per round instead of five |
+| ENCORE | Once per run, revive after a failed round while keeping coins and relics |
+| GOLDEN FOOL | Start a run with 10 coins |
 
-Наберите цель раунда: сначала 30 очков, затем +8 за раунд, максимум 86. Победная рука приносит свою сумму в очках и 4 монеты плюс эффекты улучшений. Проигрыш руки и ничья расходуют раздачу. После выполнения цели открывается магазин с двумя предложениями; если раздачи закончились раньше, забег завершается.
+Reach the round target: 30 points at first, then +8 per round, up to 86. A winning hand awards points equal to its total and 4 coins, plus relic effects. A losing hand or push uses a hand. Meeting the target opens the shop with two offers; the run ends if you run out of hands first.
 
-В COLLECTION доступны все 40 улучшений: 14 Common, 15 Rare и 11 Legendary. Цены — 3, 6 и 10 монет соответственно. Можно держать до восьми улучшений и продавать их за половину цены с округлением вниз. Веса редкостей в магазине — 50/36/14; Common отмечается белым, Rare синим, Legendary золотым. На новом столе нет фишек: каждая появляется вместе с купленным улучшением и исчезает при продаже; в заполненном инвентаре доступна замена выбранного улучшения. Натуральный блэкджек без улучшений даёт 21 очко; Common-улучшение Blackjack Bonus стоит 3 монеты и добавляет +5 очков за победу с натуральным блэкджеком.
+In COLLECTION, find all 40 relics: 14 Common, 15 Rare, and 11 Legendary. Their prices are 3, 6, and 10 coins, respectively. You can hold up to eight relics and sell them for half their price, rounded down. Shop rarity weights are 50/36/14; Common is white, Rare is blue, and Legendary is gold. A new run starts with no chips: each physical chip appears when its relic is bought and disappears when sold. If your inventory is full, you can replace a selected relic. A natural blackjack scores 21 points without relics; the Common Blackjack Bonus costs 3 coins and adds 5 points to a natural-blackjack win.
 
-| Управление | Действие |
+| Input | Action |
 | --- | --- |
-| ← / → в выборе колоды | Переключить колоду |
-| H | Взять карту |
-| S | Остановиться; при ожидающем спасения переборе — принять поражение |
-| 1–8 / клик по фишке | Выбрать улучшение для просмотра; заряд не расходуется |
-| A / ACTIVATE | Применить выбранную доступную активную способность |
-| Space | Основное действие: выбор колоды, раздача, остановиться, продолжить, возродиться или повторить забег |
-| Клик / Space во время анимации | Ускорить текущий шаг раздачи или начисления награды |
-| Enter | Нажать выделенную кнопку |
-| F1 | Настройки |
-| Escape | Пропустить вход в казино, закрыть открытое окно или вернуться в меню |
-| Перетаскивание ПКМ на свободном столе / колесо | Повернуть камеру / изменить приближение |
-| Двойной клик ПКМ на свободном столе | Сбросить камеру |
+| ← / → on deck selection | Switch decks |
+| H | Hit |
+| S | Stand; when a bust rescue is pending, accept the loss |
+| 1–8 / click a chip | Select a relic to inspect; this does not use a charge |
+| A / ACTIVATE | Use the selected available active ability |
+| Space | Main action: select a deck, deal, stand, continue, revive, or retry |
+| Click / Space during an animation | Speed up the current dealing or reward step |
+| Enter | Activate the highlighted button |
+| F1 | Settings |
+| Escape | Skip the casino entrance, close an open window, or return to the menu |
+| Right-drag on an empty table / scroll wheel | Orbit / zoom the camera |
+| Double right-click on an empty table | Reset the camera |
 
-Rewind отменяет последнюю добранную карту, Redraw заменяет её, Forked Path предлагает выбрать одну из двух карт, Lifeline спасает от перебора до расчёта результата. Заряды и условия применения видны в описании выбранной фишки; в Forked Path выбор подтверждается кнопкой карты.
+Rewind removes the last drawn card, Redraw replaces it, Forked Path lets you choose one of two cards, and Lifeline rescues you from a bust before settlement. Charges and conditions appear in the selected chip's description; confirm a Forked Path choice by clicking one of the cards.
 
-Полные правила — HOW TO PLAY; скорость анимаций и Cinematic entrance — OPTIONS. Отключение Cinematic entrance заменяет движение камеры коротким затемнением. Кнопки также работают мышью. Выход — EXIT или QUIT GAME. Устройство игры описано в [архитектуре](docs/ARCHITECTURE.md), полный каталог и ограничения — в [каталоге улучшений](docs/catalog-balance.md), сравнение прогрессии — в [отчёте о балансе](docs/balance-results.md).
+Full rules are in HOW TO PLAY; animation speed and Cinematic entrance are in OPTIONS. Turning off Cinematic entrance replaces camera movement with a short fade. Buttons also work with the mouse. Exit with EXIT or QUIT GAME. See the [architecture guide](docs/ARCHITECTURE.md), the [full relic catalog and limits](docs/catalog-balance.md), and the [progression balance report](docs/balance-results.md).
 
-## Звук
+## Audio
 
-Звук работает на Windows: MP3 воспроизводит встроенный декодер системы, ничего устанавливать не нужно. Рядом с игрой должна оставаться папка `assets/audio/`; если её нет или файл повреждён, игра идёт без этого звука. На других системах игра запускается без звука.
+Audio works on Windows: MP3 files use the built-in system decoder, so nothing needs to be installed. Keep `assets/audio/` next to the game. If the folder is missing or a file is damaged, that sound is skipped. On other systems, the game runs without audio.
 
-В меню играет главная тема по кругу; она сменяется саундтреками, когда вы садитесь за стол (TAKE A SEAT), а при возврате в меню начинается заново. Саундтреки (`assets/audio/music/soundtrack_*.mp3`) играют в случайном порядке по кругу и не заканчиваются; чтобы добавить дорожку, положите в ту же папку `soundtrack_6.mp3` и т. д. Карты, фишки, победы, проигрыш и интерфейс озвучены по таблице в [архитектуре](docs/ARCHITECTURE.md#звук); звук наведения на кнопки работает только в меню. Проезжающая по улице машина в главном меню сопровождается записью, привязанной к её положению. За дилером на сцене играет [джазовый ансамбль](docs/ARCHITECTURE.md#джазовый-ансамбль) из пяти музыкантов, который следует темпу и громкости текущего саундтрека. Уровни громкости заданы в `audio::Levels` (`src/audio/Mixer.hpp`).
+The main theme loops in the menu. It switches to soundtracks when you take a seat (TAKE A SEAT) and restarts when you return to the menu. Soundtracks (`assets/audio/music/soundtrack_*.mp3`) play in a shuffled loop and do not end; add `soundtrack_6.mp3` and later tracks to the same folder to extend it. Cards, chips, wins, losses, and UI sounds follow the table in the [architecture guide](docs/ARCHITECTURE.md#audio); button-hover sounds play only in the menu. A recording tied to its position plays as the car drives past the main-menu street. A [five-piece jazz ensemble](docs/ARCHITECTURE.md#jazz-ensemble) plays behind the dealer in time with the current soundtrack. Volume levels are defined in `audio::Levels` (`src/audio/Mixer.hpp`).
 
-## Сборка на Windows
+## Build on Windows
 
-Нужны CMake 3.24+ и Visual Studio 2022/2026 либо Build Tools с MSVC, Windows SDK и компонентом Desktop development with C++. Зависимости включены в `third_party/`.
+You need CMake 3.24+ and Visual Studio 2022/2026 or Build Tools with MSVC, the Windows SDK, and the Desktop development with C++ component. Dependencies are included in `third_party/`.
 
-В терминале из папки с `CMakeLists.txt`:
+From a terminal in the folder containing `CMakeLists.txt`:
 
 ```powershell
 cmake --preset desktop
@@ -58,9 +58,9 @@ ctest --preset desktop
 .\build\desktop\Debug\blackjack_forge.exe
 ```
 
-Если CMake не видит MSVC, используйте Developer PowerShell. Имя собираемого файла — `blackjack_forge.exe`; игра называется Jester Jack.
+If CMake cannot find MSVC, use Developer PowerShell. The built executable is `blackjack_forge.exe`; the game is called Jester Jack.
 
-Только правила, последовательность анимаций и их тесты, без окна и GPU:
+To build only the rules, animation sequence, and their tests, without a window or GPU:
 
 ```powershell
 cmake --preset core-only
@@ -68,4 +68,4 @@ cmake --build --preset core-only --parallel
 ctest --preset core-only
 ```
 
-Лицензии библиотек и шрифтов сохранены в `third_party/`, `assets/fonts/` и папке `licenses/` готовой сборки. Источники сторонних компонентов — `THIRD_PARTY_NOTICES.md`. При копировании игры сохраняйте ресурсы и лицензии.
+Library and font licenses are kept in `third_party/`, `assets/fonts/`, and the packaged build's `licenses/` folder. Third-party sources are listed in `THIRD_PARTY_NOTICES.md`. Keep the assets and licenses when copying the game.

@@ -1,12 +1,12 @@
-# Работа и проверки после переноса
+# Workflow and verification after handoff
 
-Все команды ниже выполняются из корня проекта. Ветка передачи — `codex/account-handoff`, контрольная точка кода — `f7e9526`; `codex/theatre-polish` — предыдущая локальная ветка разработки. Локальный `main` остаётся на `9504581`: продолжать актуальную ветку, не сливать её в `main` и не публиковать изменения без соответствующего запроса пользователя. Перед работой проверить `git status`, текущую ветку и последние коммиты; не считать старый `main` последней версией игры.
+Run all commands below from the project root. The handoff branch is `codex/account-handoff`, code checkpoint `f7e9526`; `codex/theatre-polish` is the previous local development branch. Local `main` remains at `9504581`: continue on the current branch, do not merge it into `main`, and do not publish changes without the corresponding user request. Before working, check `git status`, the current branch, and recent commits; do not assume the old `main` is the latest game version.
 
-## Среда и сборка
+## Environment and build
 
-Нужны CMake 3.24+, MSVC из Visual Studio/Build Tools с компонентом Desktop development with C++, Windows SDK. Для окна, включая `--hidden`, нужен рабочий драйвер OpenGL 3.3 Core. При проблемах поиска компилятора открыть Developer PowerShell. Проект — C++17; GLFW 3.4, GLM 1.0.1 и Dear ImGui 1.91.9b уже лежат в `third_party/`. GLAD и stb_image_write берутся из vendored GLFW. CMake не скачивает зависимости; полный исходный комплект собирается без сети. Учётная запись, плагины и навыки помощника для игры и сборки не нужны.
+CMake 3.24+, MSVC from Visual Studio/Build Tools with the Desktop development with C++ component, and the Windows SDK are required. A working OpenGL 3.3 Core driver is needed for a window, including `--hidden`. If the compiler cannot be found, open Developer PowerShell. The project uses C++17; GLFW 3.4, GLM 1.0.1, and Dear ImGui 1.91.9b are already in `third_party/`. GLAD and stb_image_write come from vendored GLFW. CMake does not download dependencies; the full source package builds offline. An assistant account, plugins, and assistant skills are not required for the game or build.
 
-Debug с приложением и двумя наборами тестов:
+Debug build with the app and both test suites:
 
 ```powershell
 cmake --preset desktop
@@ -15,7 +15,7 @@ ctest --preset desktop --no-tests=error --timeout 120
 .\build\desktop\Debug\blackjack_forge.exe
 ```
 
-Только правила и последовательность показа, без окна/GPU:
+Rules and presentation only, without a window/GPU:
 
 ```powershell
 cmake --preset core-only
@@ -23,7 +23,7 @@ cmake --build --preset core-only --parallel 2
 ctest --preset core-only --no-tests=error --timeout 120
 ```
 
-Release для доставки, после конфигурации `desktop`:
+Release build for delivery, after configuring `desktop`:
 
 ```powershell
 cmake --build build/desktop --config Release --parallel 2
@@ -31,28 +31,28 @@ ctest --test-dir build/desktop -C Release --output-on-failure --no-tests=error -
 $game = '.\build\desktop\Release\blackjack_forge.exe'
 ```
 
-Пресеты по умолчанию используют Debug. У многоконфигурационного генератора Visual Studio конфигурацию выбирают `--config` и `ctest -C`; один `CMAKE_BUILD_TYPE=Release` её не переключает. Для одноконфигурационного генератора executable может лежать непосредственно в `build/desktop/`. `scripts/run.ps1` собирает, тестирует и запускает Debug, а `scripts/run.ps1 -Release` — Release. Не переносить `build/` и его CMake cache между компьютерами: конфигурировать заново в отдельной папке, сохранив нужные результаты старой сборки.
+Presets use Debug by default. With the Visual Studio multi-config generator, choose a configuration with `--config` and `ctest -C`; `CMAKE_BUILD_TYPE=Release` alone does not switch it. With a single-config generator, the executable may be directly in `build/desktop/`. `scripts/run.ps1` builds, tests, and starts Debug; `scripts/run.ps1 -Release` does the same for Release. Do not move `build/` or its CMake cache between computers: configure again in a separate folder and preserve any needed results from the old build.
 
-## Воспроизводимые прогоны
+## Reproducible runs
 
-`--help` показывает актуальные флаги. Важные особенности:
+`--help` lists current flags. Important behavior:
 
-| Флаг | Поведение |
+| Flag | Behavior |
 | --- | --- |
-| `--seed N` | Фиксирует начальный seed; без него обычный запуск получает новый seed |
-| `--deck hands\|life\|coins` | Выбор LAST LAUGH / ENCORE / GOLDEN FOOL для demo и начального выбора |
-| `--demo` | Пропускает меню и начинает первую раздачу |
-| `--hidden --frames N` | Скрытое окно с ограничением кадров; графический контекст всё равно нужен |
-| `--size WIDTHxHEIGHT` | Начальный размер от 1100×720 до 7680×4320 |
-| `--autoplay` | Выполняет допустимые игровые действия для прохождения состояний |
-| `--smoke` | Включает hidden/autoplay, сценарий ввода и resize; задаёт 1200 кадров и seed 42, если seed не указан |
-| `--capture-states DIR` | Сохраняет достигнутые состояния в PNG и проверяет реальные метрики текста всех 24 улучшений |
-| `--screenshot FILE` | Сохраняет последний кадр; без `--frames` задаёт всего 3 кадра |
-| `--no-animation` | Пропускает стартовое затемнение, анимации карт и наград сохраняются |
-| `--no-ambient-motion` | Останавливает фоновое движение; игровые анимации продолжаются |
-| `--assets DIR` | Задаёт другой корень ресурсов |
+| `--seed N` | Fixes the initial seed; without it, a normal launch gets a new seed |
+| `--deck hands\|life\|coins` | Selects LAST LAUGH / ENCORE / GOLDEN FOOL for demo and initial selection |
+| `--demo` | Skips the menu and starts the first hand |
+| `--hidden --frames N` | Hidden window with a frame limit; a graphics context is still required |
+| `--size WIDTHxHEIGHT` | Initial size from 1100×720 to 7680×4320 |
+| `--autoplay` | Performs valid game actions to progress through states |
+| `--smoke` | Enables hidden/autoplay, an input and resize scenario; sets 1200 frames and seed 42 if no seed is specified |
+| `--capture-states DIR` | Saves reached states as PNGs and checks actual text metrics for all 24 relics |
+| `--screenshot FILE` | Saves the final frame; without `--frames`, runs for only 3 frames |
+| `--no-animation` | Skips the starting fade; card and reward animations remain |
+| `--no-ambient-motion` | Stops background motion; game animations continue |
+| `--assets DIR` | Specifies a different asset root |
 
-Порядок аргументов важен: `--frames 2400` ставить **после** `--smoke`, иначе smoke снова задаст 1200. Smoke сам меняет размер окна; для фиксированного размера использовать hidden/demo/autoplay.
+Argument order matters: put `--frames 2400` **after** `--smoke`, otherwise smoke resets the limit to 1200. Smoke changes the window size itself; use hidden/demo/autoplay for a fixed size.
 
 ```powershell
 & $game --smoke --frames 2400 --capture-states build/checks/smoke
@@ -61,28 +61,28 @@ $game = '.\build\desktop\Release\blackjack_forge.exe'
 & $game --hidden --demo --seed 42 --size 1440x900 --no-ambient-motion --frames 300 --screenshot build/checks/table.png
 ```
 
-Это примеры команд, а не запись уже выполненных проверок. Успех — код выхода 0, отсутствие ошибок OpenGL и фактически просмотренные нужные PNG. Автопрохождение не гарантирует каждое улучшение или каждый исход; проверить, какие файлы действительно появились. В smoke Game Over удерживается до завершения затемнения; `end-*` — готовый экран, `end-fade-*` — переход. `relic-reaction-*` показывает вклад эффекта; обычный `applied-relics-*` может быть снят в начале шага.
+These are example commands, not a record of checks already performed. Success means exit code 0, no OpenGL errors, and actual inspection of the required PNGs. Autoplay does not guarantee every relic or outcome; check which files were actually created. In smoke, Game Over remains on screen until the fade completes; `end-*` is the finished screen, and `end-fade-*` is the transition. `relic-reaction-*` shows an applied effect; ordinary `applied-relics-*` may be captured at the start of the step.
 
-## Что проверять после изменения
+## What to check after a change
 
-- `blackjack_rules` и `card_presentation` должны проходить. Правила, RNG карт и магазина, оценки рук и AppliedEffect не менять ради визуальной правки. Для изменения правил нужен содержательный тест.
-- UI смотреть при 1100×720, 1100×900 и 1440×900. После изменения адаптивных порогов дополнительно проверить их границы, например 1324, 1664 и 1920 по ширине. Диагностика всех 24 улучшений проверяет имена, исходное и использованное состояние Second Chance, длину слова и нижнюю границу текста. Она не заменяет просмотр кадра.
-- У четырёх занятых слотов имя, редкость и описание постоянно справа от фишки; нет общей подложки. Десятичные бонусы вроде `+0.6` не делятся по точке. Проверить Streak, Second Chance и длинные имена. Реакция эффекта идёт под своей фишкой и показывает действительные `+points`, `+coins`, `+MULT`, сохраняя читаемость текста.
-- Проверить меню и выбор всех трёх колод, COLLECTION с 24 предметами/фильтрами, магазин с двумя предложениями и четырьмя занятыми местами, покупку/продажу, закрытую карту дилера, перебор, награду и Game Over с retry/revive/menu/quit.
-- Space выполняет действие фазы или ускоряет шаг; Enter активирует выбранную кнопку. Только ПКМ вращает камеру, ЛКМ её не двигает; колесо приближает, двойная ПКМ сбрасывает вид. Панели должны блокировать ввод за собой. Проверить крайние положения камеры после изменения сцены.
-- Для сравнения фонового движения фиксировать seed, кадр, размер и состояние карт. При выключенном Ambient motion сравнивать одинаковые arrivals/reach/celebration/bust envelopes: это отдельные игровые анимации. Не объявлять FPS, отсутствие регрессий или успешный прогон без измерения/результата.
+- `blackjack_rules` and `card_presentation` must pass. Do not change rules, card/shop RNG, hand evaluation, or AppliedEffect for a visual adjustment. A rules change needs a meaningful test.
+- Inspect the UI at 1100×720, 1100×900, and 1440×900. After changing responsive breakpoints, also check their boundaries, such as widths 1324, 1664, and 1920. Diagnostics for all 24 relics check names, initial and used Second Chance states, long words, and the lower text boundary. They do not replace inspecting the frame.
+- With four occupied slots, the name, rarity, and description stay visible beside each chip, without a shared background panel. Decimal bonuses such as `+0.6` are not split at the decimal point. Check Streak, Second Chance, and long names. Effect animation happens beneath its chip and shows the actual `+points`, `+coins`, or `+MULT` while keeping text readable.
+- Check the menu and all three deck choices; COLLECTION with 24 items/filters; the shop with two offers and four occupied slots; purchases/sales; the dealer's hidden card; bust, reward, and Game Over with retry/revive/menu/quit.
+- Space performs the current phase action or speeds up a step; Enter activates the selected button. Only the right mouse button rotates the camera; the left button does not move it. The wheel zooms, and double right-click resets the view. Panels must block input behind them. Check camera extremes after scene changes.
+- To compare background motion, hold seed, frame, size, and card state constant. With Ambient motion off, compare identical arrival/reach/celebration/bust envelopes: these are separate gameplay animations. Do not claim FPS, no regressions, or a successful run without measurement/results.
 
-Не повторять полный набор после каждой мелкой обратимой правки: сначала подходящая сборка и конкретный кадр/сценарий; расширять проверки при изменении правил, интерфейсного контракта, ошибке или новом риске.
+Do not rerun the full suite after every small reversible change: start with the relevant build and specific frame/scenario; expand checks when rules or UI contracts change, or when there is an error or new risk.
 
-## Доставка на Desktop и сохранность
+## Delivery to Desktop and preservation
 
-Сначала создать **новую** staging-папку, установить в неё Release (`cmake --install build/desktop --config Release --prefix build/delivery-new`). Установленный `blackjack_forge.exe` переименовать в `JesterJack.exe`; имя CMake target не менять. Проверить запуск именно из staging, включая запуск из другой рабочей папки. `assets/`, шрифты и лицензии должны оставаться рядом с executable.
+First create a **new** staging folder and install Release there (`cmake --install build/desktop --config Release --prefix build/delivery-new`). Rename the installed `blackjack_forge.exe` to `JesterJack.exe`; do not rename the CMake target. Check that it runs from staging, including from a different working directory. Keep `assets/`, fonts, and licenses next to the executable.
 
-Базовая презентационная копия этой версии содержит 54 файла: executable; верхние `CMakeLists.txt`, `CMakePresets.json`, `CONTRIBUTING.md`, короткий `README.md`, `THIRD_PARTY_NOTICES.md`; `assets/` (17), `licenses/` (5), `scripts/` (1), `src/` (12), `tests/` (2); три обычных технических документа и восемь изображений в `docs/` (11). **Дополнительно** скопировать целиком `third_party/glfw`, `third_party/glm`, `third_party/imgui`, иначе исходники не пересоберутся. Один `cmake --install` не добавляет исходники и vendors. Число 54 описывает этот состав, а не требует удалять новые необходимые файлы ради совпадения счётчика.
+The baseline showcase copy for this version contains 54 files: the executable; top-level `CMakeLists.txt`, `CMakePresets.json`, `CONTRIBUTING.md`, short `README.md`, and `THIRD_PARTY_NOTICES.md`; `assets/` (17), `licenses/` (5), `scripts/` (1), `src/` (12), `tests/` (2); and three regular technical documents plus eight images in `docs/` (11). **Also** copy `third_party/glfw`, `third_party/glm`, and `third_party/imgui` in full, or the source cannot be rebuilt. A lone `cmake --install` does not include source files or vendored dependencies. The count of 54 describes this composition; it does not mean required new files should be removed to match the count.
 
-В чистую папку для показа не копировать `.git`, сборочные каталоги, логи, временные кадры, служебные handoff-документы, настройки учётной записи и секреты. Не копировать весь `docs/` без отбора: `docs/handoff/` предназначен для продолжения работы. Сторонние лицензии и upstream-файлы сохранять. README для показа оставлять коротким: название, правила/управление, запуск и сборка.
+Do not copy `.git`, build folders, logs, temporary captures, handoff documents, account settings, or secrets into the clean showcase folder. Do not copy all of `docs/` indiscriminately: `docs/handoff/` is for continued development. Preserve third-party licenses and upstream files. Keep the showcase README short: title, rules/controls, launch, and build.
 
-Перед заменой Desktop-копии сохранить предыдущую папку/ZIP и manifest в отдельном архиве **вне репозитория и презентационной папки**. Сверить список файлов и SHA-256 новой staging-копии и назначения; только после совпадения считать доставку завершённой. Не удалять старую копию или архив до проверки новой. Пример построения относительного manifest, запускаемый отдельно для staging и назначения:
+Before replacing the Desktop copy, preserve the previous folder/ZIP and manifest in a separate archive **outside the repository and showcase folder**. Compare the file list and SHA-256 hashes of the new staging copy and destination; count delivery complete only when they match. Do not delete the old copy or archive before verifying the new one. Example for generating a relative manifest, run separately on staging and destination:
 
 ```powershell
 function Get-DeliveryHashes([string]$Root) {
@@ -100,14 +100,14 @@ $after = Get-DeliveryHashes $deliveryTarget
 Compare-Object $before $after -Property Path,SHA256
 ```
 
-Пустой вывод последней команды означает совпадение путей и хешей. Сохранить manifest и результаты проверок рядом с резервной копией; не добавлять их в папку для показа. Пути должны быть заранее проверены. Для рекурсивных операций пользоваться одним PowerShell, `-LiteralPath` и конкретным целевым каталогом; не строить удаление через другую оболочку или непроверенную переменную.
+No output from the last command means the paths and hashes match. Save the manifest and verification results beside the backup; do not add them to the showcase folder. Verify paths in advance. For recursive operations, use a single PowerShell session, `-LiteralPath`, and an explicit target directory; do not construct deletion through another shell or an unchecked variable.
 
-## Совместная работа и Git
+## Collaboration and Git
 
-Один файл — один владелец на время задачи. Удобное разделение: координатор — `src/main.cpp` (UI, ввод, таймеры, makeScene), графика — `Renderer.cpp`/`Renderer.hpp` и шейдеры, комната — `RendererRoom.inl`, документы — согласованные Markdown-файлы. Правила/Presentation/тесты выделять отдельному владельцу только при необходимости. Изменения `Scene`, общих заголовков, CMake и новых ресурсов согласовать между владельцами заранее; не редактировать один файл одновременно.
+One person owns a file at a time. A useful division: coordinator — `src/main.cpp` (UI, input, timers, makeScene); graphics — `Renderer.cpp`/`Renderer.hpp` and shaders; room — `RendererRoom.inl`; documentation — agreed Markdown files. Assign rules/Presentation/tests to a separate owner only when needed. Coordinate `Scene` changes, shared headers, CMake, and new assets in advance; do not edit the same file concurrently.
 
-Перед общей сборкой каждый сообщает, что его файлы сохранены и заморожены. Затем одна согласованная сборка, проверка метрик и нужных кадров, исправление найденного дефекта, повтор затронутой проверки. После финального freeze обновить ресурсы рядом с exe, документацию и только затем staging/Desktop. Не коммитить промежуточную смесь старого executable и новых assets.
+Before a shared build, each contributor confirms that their files are saved and frozen. Then run one agreed build, verify metrics and relevant frames, fix any defect, and repeat the affected checks. After the final freeze, update assets beside the executable, documentation, and only then staging/Desktop. Do not commit an intermediate mix of an old executable and new assets.
 
-Работать небольшими понятными коммитами, предварительно читать diff и `git diff --check`. Не перезаписывать чужие изменения, не делать `reset --hard`, `clean`, force-push, переписывание истории или удаление резервных копий как способ «починить» состояние. Не коммитить build, бинарники, временные материалы и секреты. Сохранение текущей ветки, merge в main и push — разные действия; запрос на локальную правку сам по себе не разрешает публикацию.
+Make small, clear commits; review the diff and `git diff --check` first. Do not overwrite someone else's changes, use `reset --hard` or `clean`, force-push, rewrite history, or delete backups as a way to “fix” state. Do not commit build outputs, binaries, temporary materials, or secrets. Keeping the current branch, merging into main, and pushing are separate actions; a request for a local change does not by itself authorize publishing.
 
-Предпочтения пользователя: короткие обновления по-русски, больше действий и меньше комментариев. Продолжать уже разрешённую работу без повторных подтверждений; уточнять только существенную неоднозначность или действие, для которого действительно нет разрешения. Навыки, параллельные исполнители и инструменты необязательны и выбираются по задаче; настройки/токены старого аккаунта не переносить в проект. Новому исполнителю достаточно исходников, этих документов и доступной среды сборки.
+User preferences: brief updates in Russian, more action and fewer comments. Continue already authorized work without asking again; clarify only substantial ambiguity or an action for which authorization is actually missing. Skills, parallel contributors, and tools are optional and selected based on the task; do not transfer old account settings/tokens into the project. A new contributor needs only the source, these documents, and an available build environment.

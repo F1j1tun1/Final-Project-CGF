@@ -1,60 +1,60 @@
-# Сравнение прогрессии на фиксированных seed
+# Progression comparison with fixed seeds
 
-Измерения выполнены 2026-10-29. При воспроизводимой консервативной стратегии обновление заметно повышает достижимость длинных забегов. Долгое выживание не гарантировано: неудачные первые раздачи сохраняются, а предел наблюдения в 30 раундов преодолели лишь 23 из 15,000 забегов обновлённой версии.
+Measurements were run on 2026-10-29. With a reproducible, conservative strategy, the update substantially increases the chance of reaching longer runs. Long survival is not guaranteed: poor early hands still occur, and only 23 of 15,000 runs in the updated version passed the 30-round observation limit.
 
-## Версии и методика
+## Versions and methodology
 
-- Исходное ядро: `eb6611bc681b600794db660810ae899597f8c873` (`codex/visual-polish`).
-- Обновлённое ядро: `53a6aa05c07fe7804d78d618b68c27ad8df1592a`; последующие коммиты, меняющие только представление, не влияют на сравнение.
-- Для каждой колоды меню — Hands, Life и Coins — использованы 5,000 seed (`1..5000`), то есть 15,000 забегов на конфигурацию. Standard, используемая по умолчанию или из командной строки, в эти сводные результаты не включена.
-- Забег заканчивается при поражении без оставшегося возрождения либо после прохождения раунда 30. Средние значения ограничены этим пределом наблюдения и не оценивают неограниченную выживаемость. Симулятор автоматически использует предусмотренное правилами возрождение Life.
-- Раунд считается **достигнутым** после прохождения предыдущего. При поражении в раунде 1 число пройденных раундов равно нулю. Для процентилей берётся нижняя эмпирическая порядковая статистика.
-- Обе сборки используют один `scripts/balance_sim.cpp`, скомпилированный с соответствующим ядром. В исходной версии расширенный API отключён через `BJ_BALANCE_ACTIVE=0`; текущая цель CMake задаёт `1`.
-- Применяются только публичные игровые команды. Симулятор не редактирует снимки состояния, не смотрит скрытую карту дилера и не читает будущий порядок карт. Одинаковые seed связывают начальные случайные потоки; изменения магазина, доборы активными способностями и разная длина забегов закономерно разводят дальнейшие траектории.
+- Baseline core: `eb6611bc681b600794db660810ae899597f8c873` (`codex/visual-polish`).
+- Updated core: `53a6aa05c07fe7804d78d618b68c27ad8df1592a`; subsequent commits that change presentation only do not affect the comparison.
+- For each menu deck—Hands, Life, and Coins—5,000 seeds (`1..5000`) were used, for 15,000 runs per configuration. Standard, used by default or from the command line, is not included in these summary results.
+- A run ends on a loss with no revival remaining or after completing round 30. Averages are capped at this observation limit and do not estimate unlimited survival. The simulator automatically uses the Life revival provided by the rules.
+- A round counts as **reached** after the previous round has been completed. If the player loses in round 1, the number of rounds completed is zero. Percentiles use the lower empirical order statistic.
+- Both builds use the same `scripts/balance_sim.cpp` compiled against the corresponding core. The extended API is disabled in the baseline with `BJ_BALANCE_ACTIVE=0`; the current CMake target sets it to `1`.
+- Only public game commands are used. The simulator does not edit snapshots, inspect the dealer's hidden card, or read the future deck order. Matching seeds align the initial random streams; shop changes, active-ability draws, and different run lengths naturally cause later trajectories to diverge.
 
-Обычная стратегия берёт карту при жёсткой сумме 11 или меньше; останавливается на жёсткой 12 против открытой карты дилера 4..6 и на жёсткой 13..16 против 2..6; в остальных случаях при этих суммах берёт карту; на жёсткой 17 и выше останавливается. При мягкой сумме 17 или меньше она берёт карту, а при мягкой 18 делает это против 9, 10 или туза. Это фиксированные правила hit/stand для доступных действий, без утверждения об оптимальности.
+The standard strategy hits on a hard total of 11 or less; stands on hard 12 against a dealer up-card of 4–6 and hard 13–16 against 2–6; hits on other totals in those ranges; and stands on hard 17 or higher. On soft 17 or lower it hits, and on soft 18 it hits against 9, 10, or an ace. These are fixed hit/stand rules for the available actions, not a claim of optimal play.
 
-Магазин выбирает доступный по цене предмет с наивысшим приоритетом и повторяет покупки, пока возможно. При заполненных слотах самый слабый предмет заменяется только при преимуществе нового по приоритету не менее 15% и достаточном количестве монет с учётом продажи. Равные приоритеты разрешаются по значению перечисления relic, поэтому порядок экипировки не влияет на ничью. Приоритеты старых предметов одинаковы в обеих версиях; приоритеты новых явно перечислены в симуляторе. Это эвристические предпочтения, а не измеренные математические ожидания. Исходная версия продаёт, затем покупает; обновлённая использует атомарный `Game::replace`.
+The shop selects the affordable item with the highest priority and repeats purchases while possible. With full slots, it replaces the weakest item only if the new item's priority is at least 15% higher and there are enough coins after accounting for the sale. Ties are broken by the relic enum value, so equipment order does not affect the result. Priorities for older items are identical in both versions; priorities for new items are listed explicitly in the simulator. These are heuristic preferences, not measured expected values. The baseline sells and then buys; the updated version uses atomic `Game::replace`.
 
-При ожидающем подтверждения переборе активная стратегия последовательно пробует доступные Lifeline, Rewind и Redraw. Forked Path применяется, когда обычная стратегия требует добора: выбирается наибольшая показанная сумма без перебора либо меньший перебор, если безопасных вариантов нет. Неудачная жёсткая сумма 12..16 может быть перераздана, если обычная стратегия всё ещё требует добора, а ранг последней карты равен 6 или выше. Стартовые карты, начисленные награды и скрытые карты симулятор никогда не меняет. Проверки зарядов и допустимости действий выполняет игровой API.
+When a bust awaits confirmation, the active strategy tries available Lifeline, Rewind, and Redraw in that order. Forked Path is used when the standard strategy calls for a hit: it chooses the highest displayed total that does not bust, or the smaller bust if no safe option exists. A failed hard total of 12–16 may be redrawn if the standard strategy still calls for a hit and the last card's rank is 6 or higher. The simulator never changes initial cards, awarded rewards, or hidden cards. The game API enforces charge and action validity.
 
-## Основное сравнение
+## Main comparison
 
-| Колода | Среднее пройденных раундов, до -> после | Медиана, до -> после | 90-й процентиль, до -> после | Достижение раунда 5, до -> после | Достижение раунда 8, до -> после | Достижение раунда 12, до -> после |
+| Deck | Average rounds completed, before -> after | Median, before -> after | 90th percentile, before -> after | Reach round 5, before -> after | Reach round 8, before -> after | Reach round 12, before -> after |
 |---|---:|---:|---:|---:|---:|---:|
 | Hands | 2.006 -> 3.038 | 2 -> 2 | 4 -> 7 | 18.14% -> 29.70% | 0.96% -> 11.02% | 0.00% -> 3.58% |
 | Life | 2.365 -> 3.572 | 2 -> 3 | 4 -> 7 | 21.16% -> 38.40% | 0.98% -> 13.08% | 0.00% -> 3.88% |
 | Coins | 1.481 -> 2.092 | 1 -> 1 | 3 -> 5 | 9.78% -> 19.44% | 0.22% -> 5.58% | 0.00% -> 1.38% |
 
-Наблюдаемая средняя длина забега увеличилась приблизительно на 51%, 51% и 41% соответственно. Вероятность достижения раунда 8 заметно выросла, однако неизменившиеся медианы Hands и Coins показывают, что в начале игры сохраняется существенный случайный риск.
+The observed average run length increased by approximately 51%, 51%, and 41%, respectively. The probability of reaching round 8 rose substantially, although the unchanged Hands and Coins medians show that significant random risk remains in the early game.
 
-| Колода обновлённой версии | Достижение раунда 20 | Достижение раунда 30 | Прохождение предельного раунда 30 | Средний максимум занятых слотов | Забеги с заполнением всех 8 слотов | Среднее применений активных способностей за забег |
+| Updated-version deck | Reach round 20 | Reach round 30 | Complete round 30 cap | Average maximum occupied slots | Runs that filled all 8 slots | Average active-ability uses per run |
 |---|---:|---:|---:|---:|---:|---:|
 | Hands | 1.12% | 0.40% | 0.34% | 3.646 | 1,073 / 5,000 | 1.388 |
 | Life | 0.68% | 0.12% | 0.10% | 4.573 | 1,418 / 5,000 | 1.592 |
 | Coins | 0.20% | 0.04% | 0.02% | 3.295 | 876 / 5,000 | 0.786 |
 
-Всего все восемь слотов были заполнены в 3,367 забегах. Улучшение сводных результатов не означает улучшения каждого seed: обновлённая версия проходит больше / столько же / меньше раундов в 31.68% / 63.16% / 5.16% парных забегов Hands, в 41.24% / 52.76% / 6.00% забегов Life и в 25.16% / 70.26% / 4.58% забегов Coins. Изменившиеся предложения могут дать менее удачную сборку при отдельном seed.
+All eight slots were filled in 3,367 runs overall. Better aggregate results do not mean every seed improves: the updated version completed more / the same / fewer rounds in 31.68% / 63.16% / 5.16% of paired Hands runs, 41.24% / 52.76% / 6.00% of Life runs, and 25.16% / 70.26% / 4.58% of Coins runs. Different shop offers can produce a weaker build for an individual seed.
 
-## Контрольные варианты и интерпретация
+## Control variants and interpretation
 
-| Стратегия / версия | Среднее пройденных раундов Hands | Среднее пройденных раундов Life | Среднее пройденных раундов Coins |
+| Strategy / version | Average Hands rounds completed | Average Life rounds completed | Average Coins rounds completed |
 |---|---:|---:|---:|
-| Исходная версия с магазином | 2.006 | 2.365 | 1.481 |
-| Обновлённая версия с магазином, активные команды отключены | 2.682 | 3.207 | 1.905 |
-| Обновлённая версия с магазином и активными командами | 3.038 | 3.572 | 2.092 |
-| Исходная версия без покупок | 1.672 | 1.931 | 1.210 |
-| Обновлённая версия без покупок | 1.844 | 2.151 | 1.336 |
+| Baseline with shop | 2.006 | 2.365 | 1.481 |
+| Updated with shop, active commands disabled | 2.682 | 3.207 | 1.905 |
+| Updated with shop and active commands | 3.038 | 3.572 | 2.092 |
+| Baseline without purchases | 1.672 | 1.931 | 1.210 |
+| Updated without purchases | 1.844 | 2.151 | 1.336 |
 
-Контрольный вариант без активных команд сохраняет предпочтения магазина и может покупать активные предметы, но никогда их не применяет; ожидающие подтверждения переборы принимаются. Это консервативная проверка с отключением одной возможности, а не оптимизированная стратегия покупки только пассивных предметов. Она тоже показывает существенное улучшение, поэтому основной результат не объясняется исключительно более умным выбором действий. Вариант без покупок выявляет эффект более плавного роста целей; большая часть выигрыша в длине забегов связана с совокупностью изменений каталога, числа слотов, дохода и активного выбора.
+The control with active commands disabled keeps the shop preferences and may buy active relics, but never uses them; busts awaiting confirmation are accepted. This is a conservative test that removes one capability, not an optimized strategy that buys only passive items. It also shows a substantial improvement, so the main result is not explained solely by smarter action selection. The no-purchase variant isolates the effect of smoother target progression; most of the run-length gain comes from the combined changes to the catalog, slot count, income, and active choices.
 
-Проверены изменения: число слотов 4 -> 8; каталог 24 -> 40; веса редкостей 55/35/10 -> 50/36/14; доход за победу 3 -> 4; цели `min(100, 30 + 10 * (round - 1))` -> `min(86, 30 + 8 * (round - 1))`. Цены по редкостям остаются 3/6/10, магазин по-прежнему предлагает два предмета. Полные эффекты, заряды и ограничения описаны в [catalog-balance.md](catalog-balance.md).
+The changes checked were: slots 4 -> 8; catalog 24 -> 40; rarity weights 55/35/10 -> 50/36/14; win income 3 -> 4; targets `min(100, 30 + 10 * (round - 1))` -> `min(86, 30 + 8 * (round - 1))`. Rarity prices remain 3/6/10, and the shop still offers two items. Full effects, charges, and limits are described in [catalog-balance.md](catalog-balance.md).
 
-Это инженерная проверка баланса, а не тестирование людьми и не поиск оптимальной стратегии. Результаты зависят от раскрытых приоритетов магазина и правил активных способностей. При 5,000 seed на колоду даже доля около 50% имеет приблизительно +/-1.4 процентного пункта биномиальной выборочной неопределённости; редкие результаты длинных забегов основаны на небольшом числе наблюдений и требуют осторожной интерпретации. Отсутствие исходных забегов, достигших раунда 12, означает ноль в выборке, а не математическую невозможность. При дальнейших изменениях дизайна сравнение следует повторить и дополнить тестированием людьми.
+This is an engineering balance check, not human playtesting or a search for an optimal strategy. Results depend on the disclosed shop priorities and active-ability rules. With 5,000 seeds per deck, even a proportion around 50% has roughly ±1.4 percentage points of binomial sampling uncertainty; rare long-run outcomes are based on few observations and should be interpreted carefully. No baseline runs reached round 12; that means zero in this sample, not mathematical impossibility. Repeat the comparison and add human playtesting after further design changes.
 
-## Воспроизведение и показ настоящей сборки из восьми предметов
+## Reproduction and showcase of a real eight-relic build
 
-Настольная сборка CMake включает отдельную цель измерения баланса; она не является зависящим от времени выполнения тестом CTest:
+The desktop CMake build includes a separate balance-measurement target; it is not a time-dependent CTest test:
 
 ```powershell
 cmake --build build/desktop --config Release --target balance_sim --parallel 2
@@ -64,22 +64,22 @@ cmake --build build/desktop --config Release --target balance_sim --parallel 2
 .\build\desktop\Release\balance_sim.exe --trace 26 Life > fixture8.txt
 ```
 
-`--trace 26 Life` выдаёт 60 обычных команд публичного API (`deal`, `hit`, `stand`, `advance`, `revive`, `buy ID`, `leave`) и останавливается в раунде 5, в состоянии Ready, с восемью действительно купленными предметами. Последовательность включает предусмотренное правилами возрождение Life. Порядок покупок: Copper Bell, Black Velvet, Grand Finale, Narrow Escape, Mixed Company, Court Favor, Lifeline и Velvet Dividend. Воспроизведение в интерфейсе можно остановить после любой покупки для проверки раскладок с 0..8 предметами. Другие последовательности с активными способностями также могут выдавать `activate ID` и `choose INDEX`. `--trace 1 Life` создаёт сборку из восьми предметов с Forked Path в слоте 4; `--trace 17 Life` — сборку с Redraw в слоте 5 и Lifeline в слоте 2. Файлы `fixturefork.txt` и `fixturerewind.txt` сохранены рядом с `fixture8.txt` для проверки интерфейса настоящим вводом.
+`--trace 26 Life` emits 60 ordinary public API commands (`deal`, `hit`, `stand`, `advance`, `revive`, `buy ID`, `leave`) and stops in round 5, in the Ready state, with eight genuinely purchased relics. The sequence includes the Life revival provided by the rules. Purchase order: Copper Bell, Black Velvet, Grand Finale, Narrow Escape, Mixed Company, Court Favor, Lifeline, and Velvet Dividend. Playback in the UI can be stopped after any purchase to inspect layouts with 0–8 relics. Other traces with active abilities may also emit `activate ID` and `choose INDEX`. `--trace 1 Life` creates an eight-relic build with Forked Path in slot 4; `--trace 17 Life` creates one with Redraw in slot 5 and Lifeline in slot 2. `fixturefork.txt` and `fixturerewind.txt` are saved next to `fixture8.txt` for checking the UI with real input.
 
-Для исторического исполняемого файла извлеките `src/game/Game.cpp` и `Game.hpp` из исходного коммита во временную папку `baseline/game`. Скомпилируйте их с текущим симулятором как исполняемый файл C++17, добавив временную папку baseline в пути заголовков и задав `BJ_BALANCE_ACTIVE=0`. Затем выполните `balance_sim 5000 4 30 shop baseline-raw.csv`. Так исходник измерительного инструмента остаётся фиксированным, меняются только ядро и предусмотренный аргумент вместимости. Исходники исторической версии в репозитории не изменялись.
+For the historical executable, extract `src/game/Game.cpp` and `Game.hpp` from the baseline commit into a temporary `baseline/game` directory. Compile them with the current simulator as a C++17 executable, adding the temporary baseline directory to the header search paths and setting `BJ_BALANCE_ACTIVE=0`. Then run `balance_sim 5000 4 30 shop baseline-raw.csv`. This keeps the measurement tool source fixed while changing only the core and the capacity argument. Historical source files were not changed in the repository.
 
-## Подтверждение проверки
+## Verification record
 
-Release-сборки обоих отдельных вариантов симулятора выполнены с MSVC 19.51.36260. Все основные и контрольные серии завершились без отказов ожидаемых действий и без срабатывания защитных ограничений циклов забега или магазина. Основные серии исходной и обновлённой версий были повторены; в обоих случаях весь CSV из 15,000 строк воспроизвёлся побайтово. Контрольные суммы SHA-256:
+Release builds of both separate simulator variants were completed with MSVC 19.51.36260. All main and control runs completed without rejected expected actions or hitting the run/shop loop guards. The main baseline and updated runs were repeated; in both cases, the entire 15,000-row CSV reproduced byte for byte. SHA-256 checksums:
 
-| Артефакт | SHA-256 |
+| Artifact | SHA-256 |
 |---|---|
 | `baseline-raw.csv` | `87f856fab2b65997de92ce55e26b04755aee1bb5401dcec242415b3dab9d7806` |
 | `current-raw.csv` | `2dbb1d2c57fa36e0826e2dbc8714ed116440ab7cfe38e179aa6d43ba211c8fea` |
 | `current-no-active-raw.csv` | `594c47ebeea8130246e7480e6ff0e7297022a490352e3890eb57f0246650211b` |
 | `baseline-no-shop-raw.csv` | `5013ad025d3f137af8fde82f6fa760049957885818fadfe7d013b421a55c9664` |
 | `current-no-shop-raw.csv` | `4c1b48c00bf7040a15df6879ec88a0c65ecf492a40eb8121f50c1d8b35af3a00` |
-| Обновлённый `src/game/Game.cpp` | `4dd0319d66626597f44eb1609a01d08a5db64d873d961d4375744a62294e3224` |
-| Обновлённый `src/game/Game.hpp` | `61cb1818c5dbb47f8a6a2e24983183c242843431508e42896f768978246d4db1` |
+| Updated `src/game/Game.cpp` | `4dd0319d66626597f44eb1609a01d08a5db64d873d961d4375744a62294e3224` |
+| Updated `src/game/Game.hpp` | `61cb1818c5dbb47f8a6a2e24983183c242843431508e42896f768978246d4db1` |
 
-Исходные и сводные CSV, извлечённая историческая версия и независимые конфигурации сборки сохранены локально в `C:\Users\erkin\Documents\Codex\2026-10-26\task\balance-review`. Последовательность для показа в интерфейсе находится в `C:\Users\erkin\Documents\Codex\2026-10-26\task\palace-review\fixture8.txt`.
+The source and summary CSV files, extracted historical version, and independent build configurations are saved locally in `C:\Users\erkin\Documents\Codex\2026-10-26\task\balance-review`. The sequence for demonstrating the interface is in `C:\Users\erkin\Documents\Codex\2026-10-26\task\palace-review\fixture8.txt`.

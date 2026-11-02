@@ -1,32 +1,32 @@
-# Требования курса CGF
+# CGF course requirements
 
-Задание предусматривает интерактивную графику на OpenGL с современным шейдерным конвейером. В Jester Jack используются C++17, OpenGL 3.3 Core и CMake 3.24+.
+The assignment calls for interactive graphics with OpenGL and a modern shader pipeline. Jester Jack uses C++17, OpenGL 3.3 Core, and CMake 3.24+.
 
-## Графические техники
+## Graphics techniques
 
-| Требование | Реализация и демонстрация |
+| Requirement | Implementation and demonstration |
 | --- | --- |
-| Real-time interactive graphics | Цикл GLFW/OpenGL, действия мышью и клавиатурой |
-| Modern shader-based pipeline | VAO/VBO/EBO, собственные GLSL vertex/fragment shaders |
-| Scene setup | 3D-стол, карты, фишки, казино, камера и свет |
-| Transformation pipeline | Model/view/projection и матрица нормалей через GLM |
-| Lighting/shading | Blinn-Phong: ambient, diffuse, specular |
-| Texturing or equivalent effect | Процедурные изображения, GL_TEXTURE_2D, UV и выборка в шейдере |
+| Real-time interactive graphics | GLFW/OpenGL loop, mouse and keyboard input |
+| Modern shader-based pipeline | VAO/VBO/EBO, custom GLSL vertex and fragment shaders |
+| Scene setup | 3D table, cards, chips, casino, camera, and lighting |
+| Transformation pipeline | Model/view/projection and normal matrices through GLM |
+| Lighting/shading | Blinn–Phong: ambient, diffuse, specular |
+| Texturing or equivalent effect | Procedural images, GL_TEXTURE_2D, UVs, and shader sampling |
 
-ImGui дополняет собственную 3D-сцену. На защите следует показать преобразования объектов, освещение, текстуры и реакцию на ввод, а также объяснить связь C++-данных с GLSL.
+ImGui supplements the custom 3D scene. During the presentation, show object transformations, lighting, textures, and input response, and explain how the C++ data connects to GLSL.
 
-## Материалы сдачи
+## Submission materials
 
-- Репозиторий, собираемый на машине преподавателя: исходники, зависимости, лицензии и инструкция сборки.
-- Демонстрация вживую или видео длительностью 3-6 минут.
-- Письменный отчёт по шаблону курса и слайды: задача, архитектура, графические техники, результаты проверок, источники и вклад участников.
+- A repository that builds on the instructor's machine: source code, dependencies, licenses, and build instructions.
+- A live demonstration or a 3–6 minute video.
+- A written report using the course template and slides covering the task, architecture, graphics techniques, verification results, sources, and each contributor's work.
 
-## Контрольные точки
+## Milestones
 
-| Период курса | Материалы |
+| Course period | Materials |
 | --- | --- |
-| Week 5 / Midterm | Proposal; прототип с циклом рендеринга и одной функцией; Introduction, Background, Project Description, Methodology |
-| Week 7 | Feature-complete beta: освещение, текстуры и взаимодействие |
-| Finals week | Демонстрация, отчёт и слайды |
+| Week 5 / Midterm | Proposal; prototype with a render loop and one feature; Introduction, Background, Project Description, Methodology |
+| Week 7 | Feature-complete beta: lighting, textures, and interaction |
+| Finals week | Demonstration, report, and slides |
 
-В доступном фрагменте рубрики пункт Technical depth & correctness составляет 35%. Технические источники и страницы лекций перечислены в [LECTURE_ALIGNMENT.md](LECTURE_ALIGNMENT.md); устройство проекта — в [ARCHITECTURE.md](ARCHITECTURE.md).
+In the available rubric excerpt, Technical depth & correctness is worth 35%. Technical sources and lecture pages are listed in [LECTURE_ALIGNMENT.md](LECTURE_ALIGNMENT.md); the project architecture is described in [ARCHITECTURE.md](ARCHITECTURE.md).
