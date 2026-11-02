@@ -1,5 +1,6 @@
 #include "Renderer.hpp"
 #include "ArtTexture.hpp"
+#include "BandModel.hpp"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -829,6 +830,7 @@ SceneCamera sceneCamera(const Scene& scene, const RenderSettings& settings, int 
 struct Renderer::Impl {
     Program program;
     Program skyProgram;
+    std::vector<band::Part> bandParts;
     Mesh cube;
     Mesh plane;
     Mesh cylinder;
@@ -1277,6 +1279,31 @@ struct Renderer::Impl {
 
 #include "RendererRoom.inl"
 
+    // The jazz ensemble on the stage behind the dealer. Poses come from BandModel; this only places
+    // them on the stage floor and draws each primitive with the shared meshes.
+    void drawBand(const Scene& scene, bool animate) {
+        if (!scene.band.visible) return;
+        band::Playback playback;
+        playback.playing = scene.band.playing;
+        playback.beats = scene.band.beats;
+        playback.bpm = scene.band.bpm;
+        playback.low = scene.band.low;
+        playback.mid = scene.band.mid;
+        playback.high = scene.band.high;
+        playback.hit = scene.band.hit;
+        playback.time = animate ? scene.time : 0.0f;
+        bandParts.clear();
+        band::build(playback, bandParts);
+        // The stage floor is at y = .975 (see drawRoom). The group is modelled in metres and scaled up
+        // so the five players read from the table camera, while staying clear of the wing curtains.
+        const glm::mat4 root = glm::translate(glm::mat4(1), {0, .975f, -38.8f}) * glm::scale(glm::mat4(1), glm::vec3(1.7f));
+        for (const auto& part : bandParts) {
+            const Mesh& mesh = part.shape == band::Shape::Cube ? cube
+                : part.shape == band::Shape::Sphere ? sphere : cylinder;
+            draw(mesh, root * part.model, part.color, 0, glm::vec2(1), part.specular, part.shininess, part.emission);
+        }
+    }
+
     void drawDealer(const Scene& scene, bool animate) {
         modelRoot = glm::translate(glm::mat4(1), {0, -.78f, -4.16f})
             * glm::scale(glm::mat4(1), glm::vec3(1.34f))
@@ -1583,6 +1610,7 @@ struct Renderer::Impl {
         }
 
         drawRoom();
+        drawBand(scene, settings.animate);
         drawDealer(scene, settings.animate);
 
         // Layered elliptical cylinders form the table and its narrow brass rim.

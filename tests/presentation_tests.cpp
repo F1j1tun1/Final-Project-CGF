@@ -440,6 +440,125 @@ void collectionDisplayIdentity() {
           "Gallery sorting does not mutate the game catalog");
 }
 
+
+using presentation::Cue;
+
+std::vector<Cue> drainCues(presentation::Presentation& timeline, float speed = 0.0f) {
+    auto cues = timeline.takeCues();
+    int frames = 0;
+    while (timeline.busy() && frames++ < 10000) {
+        timeline.update(0.01f, speed);
+        for (const auto cue : timeline.takeCues()) cues.push_back(cue);
+    }
+    return cues;
+}
+
+int countOf(const std::vector<Cue>& cues, Cue cue) {
+    return static_cast<int>(std::count(cues.begin(), cues.end(), cue));
+}
+
+void soundCues() {
+    // Opening deal: one stake, then every one of the four cards is a "dealt" card.
+    bj::Snapshot empty;
+    presentation::Presentation timeline;
+    timeline.begin(empty, playing(), presentation::Action::Deal);
+    auto cues = timeline.takeCues();
+    check(cues.size() == 2 && cues[0] == Cue::BetPlaced && cues[1] == Cue::DealCard,
+          "A deal raises the bet and the first dealt card together");
+    check(timeline.takeCues().empty(), "Cues are delivered once");
+    timeline.update(0.55f);
+    cues = drainCues(timeline);
+    cues.insert(cues.begin(), Cue::DealCard); // The first card was taken above.
+    check(countOf(cues, Cue::DealCard) == 4 && countOf(cues, Cue::PlayerCardRoll) == 0 && countOf(cues, Cue::DealerCardRoll) == 0,
+          "All four opening cards use the dealing sound, never the roll sounds");
+    check(countOf(cues, Cue::HandWon) + countOf(cues, Cue::HandLost) + countOf(cues, Cue::RunLost) == 0,
+          "An ordinary deal announces no result");
+
+    // Hits are the player's own card roll; dealer draws are the bot's.
+    auto before = playing();
+    auto after = before;
+    after.player.push_back({3, bj::Suit::Spades});
+    timeline.begin(before, after, presentation::Action::Hit);
+    cues = drainCues(timeline);
+    check(cues.size() == 1 && cues[0] == Cue::PlayerCardRoll, "A hit is exactly one player card roll");
+
+    before = playing();
+    before.dealer = cards({2, 3});
+    after = before;
+    after.dealer = cards({2, 3, 6, 6});
+    after.phase = bj::Phase::RoundOver;
+    after.outcome = bj::Outcome::Push;
+    timeline.begin(before, after, presentation::Action::Stand);
+    cues = drainCues(timeline);
+    check(cues.size() == 2 && countOf(cues, Cue::DealerCardRoll) == 2,
+          "Each dealer draw is one dealer card sound and a push adds nothing");
+
+    // Wins: tada minor below the goal, tada major once the goal is met, chips for both.
+    before = playing();
+    before.player = cards({10, 9});
+    before.dealer = cards({10, 7});
+    after = winFrom(before);
+    timeline.begin(before, after, presentation::Action::Stand);
+    cues = drainCues(timeline);
+    check(cues.size() == 2 && cues[0] == Cue::HandWon && cues[1] == Cue::ChipsWon,
+          "A simple win plays the minor fanfare, then the coins");
+    after.goal = 15;
+    timeline.begin(before, after, presentation::Action::Stand);
+    cues = drainCues(timeline);
+    check(cues.size() == 2 && cues[0] == Cue::RoundCleared && cues[1] == Cue::ChipsWon,
+          "Reaching the round goal plays the major fanfare instead");
+    after.goal = 30;
+    timeline.begin(before, after, presentation::Action::Stand);
+    const auto accelerated = [&] {
+        std::vector<Cue> all = timeline.takeCues();
+        while (timeline.busy()) {
+            timeline.accelerate();
+            for (const auto cue : timeline.takeCues()) all.push_back(cue);
+        }
+        return all;
+    }();
+    check(accelerated.size() == 2 && accelerated[0] == Cue::HandWon && accelerated[1] == Cue::ChipsWon,
+          "Skipping the animation still raises each cue once");
+    timeline.begin(before, after, presentation::Action::Stand);
+    cues = drainCues(timeline, 1.0f);
+    check(cues.size() == 2 && cues[0] == Cue::HandWon, "Cues do not depend on animation speed");
+
+    // Losses: the dealer sweeps the stake; running out of hands ends the run.
+    before = playing();
+    before.player = cards({10, 6});
+    after = before;
+    after.player.push_back({10, bj::Suit::Spades});
+    after.phase = bj::Phase::RoundOver;
+    after.outcome = bj::Outcome::Loss;
+    timeline.begin(before, after, presentation::Action::Hit);
+    cues = drainCues(timeline);
+    check(cues.size() == 2 && cues[0] == Cue::PlayerCardRoll && cues[1] == Cue::HandLost,
+          "A bust rolls the card, then the dealer takes the stake");
+    after.phase = bj::Phase::RunLost;
+    timeline.begin(before, after, presentation::Action::Hit);
+    cues = drainCues(timeline);
+    check(cues.size() == 2 && cues.back() == Cue::RunLost && countOf(cues, Cue::HandLost) == 0,
+          "The last lost hand plays the game-over sound, not a hand-lost sound");
+    before = playing();
+    before.player = cards({10, 9});
+    before.dealer = cards({10, 7});
+    after = winFrom(before);
+    after.phase = bj::Phase::RunLost;
+    timeline.begin(before, after, presentation::Action::Stand);
+    cues = drainCues(timeline);
+    check(cues.size() == 3 && cues[0] == Cue::HandWon && cues[1] == Cue::ChipsWon && cues[2] == Cue::RunLost,
+          "A win that still misses the goal on the last hand is celebrated, then the run ends");
+
+    // Shop and other instant commands are silent; resets drop stale cues.
+    before = playing();
+    after = before;
+    timeline.begin(before, after, presentation::Action::Other);
+    check(timeline.takeCues().empty(), "Instant commands raise no timeline cues");
+    timeline.begin(before, winFrom(before), presentation::Action::Stand);
+    timeline.reset(before);
+    check(timeline.takeCues().empty(), "Reset discards cues from a cancelled timeline");
+}
+
 } // namespace
 
 int main() {
@@ -451,6 +570,7 @@ int main() {
     timingResetAndDeterminism();
     legendaryEffects();
     activeCardAlterations();
+    soundCues();
     std::cout << checks << " checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

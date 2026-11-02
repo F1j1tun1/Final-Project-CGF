@@ -37,6 +37,15 @@ struct ChipProjection {
     bool visible = false;
 };
 
+// What the on-stage jazz ensemble is playing (see graphics/BandModel.hpp).
+struct BandView {
+    bool visible = true;
+    bool playing = false;  // False: the musicians idle between numbers.
+    double beats = 0.0;    // Continuous beat count; a bar line every four beats.
+    float bpm = 110.0f;
+    float low = 0.5f, mid = 0.5f, high = 0.5f, hit = 0.5f; // Energies 0..1 of the current soundtrack.
+};
+
 struct Scene {
     std::vector<VisualCard> player;
     std::vector<VisualCard> dealer;
@@ -54,6 +63,7 @@ struct Scene {
     float legendary = 0.0f; // Presentation envelope for rare gold/violet sparks.
     int deckDesign = 0; // Hands, Life, Coins.
     float bustReaction = 0.0f; // Presentation envelope: 1 at a player bust, decays to 0.
+    BandView band;
 };
 
 inline constexpr float minLight = .55f, maxLight = 2.5f;

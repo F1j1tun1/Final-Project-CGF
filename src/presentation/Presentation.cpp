@@ -23,6 +23,7 @@ bool legendary(bj::Relic relic) {
 void Presentation::reset(const bj::Snapshot& snapshot) {
     visible_ = final_ = snapshot;
     stages_.clear();
+    cues_.clear();
     stage_ = 0;
     progress_ = 0.0f;
     dealerRevealed_ = snapshot.phase != bj::Phase::PlayerTurn;
@@ -36,6 +37,7 @@ void Presentation::reset(const bj::Snapshot& snapshot) {
 void Presentation::begin(const bj::Snapshot& before, const bj::Snapshot& after, Action action) {
     reset(before);
     final_ = after;
+    action_ = action;
     rewardStep_ = -1;
     rewardVisibleEffects_ = 0;
     const bool rescued = !before.usedSecondChance && after.usedSecondChance;
@@ -102,6 +104,7 @@ void Presentation::begin(const bj::Snapshot& before, const bj::Snapshot& after, 
     if (stages_.empty()) {
         reset(after);
     } else {
+        if (action == Action::Deal) cues_.push_back(Cue::BetPlaced);
         enterStage();
     }
     if (acquiredLegend) legendPulse_ = 1.0f;
@@ -113,9 +116,11 @@ void Presentation::enterStage() {
     switch (current.kind) {
     case Kind::PlayerCard:
         visible_.player.push_back(final_.player[current.index]);
+        cues_.push_back(action_ == Action::Deal ? Cue::DealCard : Cue::PlayerCardRoll);
         break;
     case Kind::DealerCard:
         visible_.dealer.push_back(final_.dealer[current.index]);
+        cues_.push_back(action_ == Action::Deal ? Cue::DealCard : Cue::DealerCardRoll);
         break;
     case Kind::Flip:
         break;
@@ -129,6 +134,7 @@ void Presentation::enterStage() {
         dealerRevealed_ = true;
         rewardStep_ = 0;
         celebration_ = 1.0f;
+        cues_.push_back(final_.roundScore >= final_.goal ? Cue::RoundCleared : Cue::HandWon);
         break;
     case Kind::RewardEffect:
         rewardStep_ = static_cast<int>(current.index) + 1;
@@ -140,6 +146,7 @@ void Presentation::enterStage() {
         rewardStep_ = static_cast<int>(final_.score.appliedEffects.size()) + 1;
         rewardVisibleEffects_ = final_.score.appliedEffects.size();
         celebration_ = 1.0f;
+        if (final_.score.coins > 0) cues_.push_back(Cue::ChipsWon);
         break;
     }
 }
@@ -154,6 +161,9 @@ void Presentation::finishStage() {
         visible_ = final_;
         dealerRevealed_ = final_.phase != bj::Phase::PlayerTurn;
         progress_ = 0.0f;
+        // The settlement becomes visible only now for hands that were not won.
+        if (final_.phase == bj::Phase::RunLost) cues_.push_back(Cue::RunLost);
+        else if (final_.outcome == bj::Outcome::Loss) cues_.push_back(Cue::HandLost);
     }
 }
 
@@ -190,6 +200,11 @@ void Presentation::update(float dt, float speed) {
 
 void Presentation::accelerate() { finishStage(); }
 bool Presentation::busy() const { return stage_ < stages_.size(); }
+std::vector<Cue> Presentation::takeCues() {
+    std::vector<Cue> taken;
+    taken.swap(cues_);
+    return taken;
+}
 const bj::Snapshot& Presentation::visible() const { return visible_; }
 bool Presentation::is(Kind kind) const { return busy() && stages_[stage_].kind == kind; }
 float Presentation::playerArrival() const { return is(Kind::PlayerCard) ? progress_ : 1.0f; }

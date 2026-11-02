@@ -23,10 +23,12 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <stb_image_write.h>
 
+#include "audio/Engine.hpp"
 #include "game/Game.hpp"
 #include "graphics/Renderer.hpp"
 #include "graphics/ArtTexture.hpp"
 #include "presentation/CardSuit.hpp"
+#include "presentation/BandSync.hpp"
 #include "presentation/Presentation.hpp"
 #include <iomanip>
 #include <fstream>
@@ -54,6 +56,51 @@ constexpr ImVec4 red{0.92f, 0.42f, 0.39f, 1.0f};
 constexpr ImVec4 blue{0.39f, 0.66f, 0.88f, 1.0f};
 constexpr ImGuiWindowFlags panelFlags = ImGuiWindowFlags_NoDecoration |
     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings;
+
+// Sound output used by free UI helpers. main() points it at the live engine for the
+// interactive loop only, so previews, screenshots and tests stay silent.
+audio::Engine* soundOut = nullptr;
+void playSound(audio::Sfx sound) {
+    if (soundOut) soundOut->play(sound);
+}
+struct SoundScope {
+    explicit SoundScope(audio::Engine& engine) { soundOut = &engine; }
+    ~SoundScope() { soundOut = nullptr; }
+};
+
+void playCue(presentation::Cue cue) {
+    using presentation::Cue;
+    using audio::Sfx;
+    switch (cue) {
+        case Cue::BetPlaced: playSound(Sfx::ChipsBet); break;
+        case Cue::DealCard: playSound(Sfx::CardDeal); break;
+        case Cue::PlayerCardRoll: playSound(Sfx::CardRoll); break;
+        case Cue::DealerCardRoll: playSound(Sfx::CardRoll); break; // The dealer's draw uses the same roll.
+        case Cue::HandWon: playSound(Sfx::TadaMinor); break;
+        case Cue::RoundCleared: playSound(Sfx::TadaMajor); break;
+        case Cue::ChipsWon: playSound(Sfx::ChipsWin); break;
+        case Cue::HandLost: playSound(Sfx::ChipsWin); break; // The dealer sweeps the stake.
+        case Cue::RunLost: playSound(Sfx::YouLose); break;
+    }
+}
+
+// Hover sound: once when the pointer enters a button, in the main menu screens only (never during a
+// run). Two ids track consecutive frames, so a button that vanishes and returns under a resting
+// pointer sounds again.
+bool hoverSoundsEnabled = false;
+ImGuiID hoveredButtonBefore = 0, hoveredButtonNow = 0;
+void beginSoundFrame() {
+    hoveredButtonBefore = hoveredButtonNow;
+    hoveredButtonNow = 0;
+}
+void buttonSounds(bool pressed, bool closing) {
+    if (ImGui::IsItemHovered()) {
+        const ImGuiID id = ImGui::GetItemID();
+        if (hoverSoundsEnabled && hoveredButtonBefore != id) playSound(audio::Sfx::UiSelection);
+        hoveredButtonNow = id;
+    }
+    if (pressed) playSound(closing ? audio::Sfx::UiClose : audio::Sfx::UiOpen);
+}
 
 std::uint32_t freshSeed() {
     std::random_device random;
@@ -497,7 +544,10 @@ struct Commands {
     template <typename Action> void apply(Action action, bool ability = false) {
         if (blocked || used) return;
         const auto before = game->state();
-        if (!action()) return;
+        if (!action()) {
+            playSound(audio::Sfx::UiError);
+            return;
+        }
         used = true;
         const auto& after = game->state();
         auto kind = ability ? presentation::Action::Ability : presentation::Action::Other;
@@ -560,7 +610,7 @@ void heading(const char* text, const Interface& ui) {
     ImGui::Spacing();
 }
 
-bool theatreButton(const char* label, ImVec2 size, ImVec4 tone = {.25f,.18f,.26f,1}) {
+bool themedButton(const char* label, ImVec2 size, ImVec4 tone, bool closing) {
     const auto p = ImGui::GetCursorScreenPos();
     auto* draw = ImGui::GetWindowDrawList();
     if (size.x > 0 && size.y > 0)
@@ -573,7 +623,17 @@ bool theatreButton(const char* label, ImVec2 size, ImVec4 tone = {.25f,.18f,.26f
     const auto end=ImGui::GetItemRectMax();
     palace::buttonFrame(draw,p,end,ImGui::IsItemHovered(),ImGui::IsItemActive(),ImGui::GetStyle().Alpha<.8f);
     draw->AddLine({p.x+9,p.y+1},{end.x-9,p.y+1},IM_COL32(255,237,201,40));
+    buttonSounds(pressed,closing);
     return pressed;
+}
+
+bool theatreButton(const char* label, ImVec2 size, ImVec4 tone = {.25f,.18f,.26f,1}) {
+    return themedButton(label,size,tone,false);
+}
+
+// Buttons that go back or dismiss something use the "close" sound instead of "open".
+bool backButton(const char* label, ImVec2 size, ImVec4 tone = {.25f,.18f,.26f,1}) {
+    return themedButton(label,size,tone,true);
 }
 
 float approach(float current, bool active) {
@@ -1047,7 +1107,7 @@ void drawSidebar(const bj::Snapshot& state, const TableLayout& layout, Session& 
     ImGui::PopStyleVar();
     const float buttonWidth = (ImGui::GetContentRegionAvail().x - 8) * .5f;
     ImGui::PushFont(ui.button);
-    if (theatreButton("MENU", {buttonWidth, 46})) session.returnToMenu();
+    if (backButton("MENU", {buttonWidth, 46})) session.returnToMenu();
     ImGui::SameLine();
     if (theatreButton("OPTIONS", {buttonWidth, 46})) session.settings = true;
     ImGui::PopFont();
@@ -1137,9 +1197,17 @@ void drawShop(bj::Game& game, Commands& commands, Session& session, const Interf
         ImGui::BeginDisabled(commands.blocked||commands.used||owned||purchased||!affordable||(full&&!selected));
         if(theatreButton(label.c_str(),{cardWidth-24,43},{.23f,.18f,.26f,1})) {
             commands.apply([&]{return selected?game.replace(state.owned[static_cast<std::size_t>(session.shopReplacement)],item.id):game.buy(item.id);});
-            if(commands.used) {session.shopReplacement=-1;session.selectedEquipment=-1;}
+            if(commands.used) {
+                playSound(audio::Sfx::ChipsBet); // Coins are paid across the table.
+                session.shopReplacement=-1;session.selectedEquipment=-1;
+            }
         }
-        ImGui::EndDisabled();ImGui::PopFont();ImGui::EndChild();ImGui::PopStyleColor();ImGui::PopID();
+        ImGui::EndDisabled();
+        // A click on an offer that cannot be bought (too expensive, already owned, nothing to trade) is an error.
+        if(!commands.blocked&&!commands.used&&(owned||purchased||!affordable||(full&&!selected))&&
+           ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)&&ImGui::IsMouseClicked(0))
+            playSound(audio::Sfx::UiError);
+        ImGui::PopFont();ImGui::EndChild();ImGui::PopStyleColor();ImGui::PopID();
         (void)accent;
     }
     const float inventoryY=offerY+offerHeight+29,cellWidth=(width-76)/4,cellHeight=94;
@@ -1170,7 +1238,10 @@ void drawShop(bj::Game& game, Commands& commands, Session& session, const Interf
         ImGui::SameLine();const std::string sell="SELL / "+std::to_string(item.cost/2);
         if(theatreButton(sell.c_str(),{(cellWidth-22)*.5f,27},{.29f,.18f,.17f,1})) {
             commands.apply([&]{return game.sell(item.id);});
-            if(commands.used) {session.shopReplacement=-1;session.selectedEquipment=-1;}
+            if(commands.used) {
+                playSound(audio::Sfx::ChipsWin); // Half the price comes back as coins.
+                session.shopReplacement=-1;session.selectedEquipment=-1;
+            }
         }
         ImGui::EndDisabled();ImGui::PopFont();ImGui::PopID();
     }
@@ -1435,7 +1506,7 @@ void drawRules(Session& session, const Interface& ui) {
         ImGui::TextWrapped("Equip up to 8 relics. Click a physical chip to inspect it. Keys 1-8 inspect; A or ACTIVATE uses the selected ability; charges are limited per hand or round. A pending bust can be rescued before settlement. Shop sales return half the price.");
         ImGui::PopFont();
         ImGui::SetCursorPosY(474);
-        if (theatreButton("GOT IT", {160, 44})) session.rules = false;
+        if (backButton("GOT IT", {160, 44})) session.rules = false;
     }
     ImGui::End();
 }
@@ -1457,9 +1528,11 @@ void drawSettings(Session& session, gfx::RenderSettings& settings, const Interfa
         heading("THE PROJECTION ROOM",ui);
         ImGui::BeginChild("settings-body",{0,ImGui::GetContentRegionAvail().y-58},false);
         ImGui::PushFont(ui.small);
-        ImGui::Checkbox("Lighting",&settings.lighting);ImGui::SameLine(225);ImGui::Checkbox("Textures",&settings.textures);
-        ImGui::Checkbox("Ambient motion",&settings.animate);
-        ImGui::Checkbox("Cinematic entrance",&session.transitions);
+        if(ImGui::Checkbox("Lighting",&settings.lighting)) playSound(audio::Sfx::UiOpen);
+        ImGui::SameLine(225);
+        if(ImGui::Checkbox("Textures",&settings.textures)) playSound(audio::Sfx::UiOpen);
+        if(ImGui::Checkbox("Ambient motion",&settings.animate)) playSound(audio::Sfx::UiOpen);
+        if(ImGui::Checkbox("Cinematic entrance",&session.transitions)) playSound(audio::Sfx::UiOpen);
         ImGui::TextColored(muted,"Off: a short fade. Escape skips the entrance.");
         ImGui::Spacing();ImGui::TextColored(gold,"HOUSE LIGHTS");
         ImGui::SliderFloat("Light",&settings.lightIntensity,gfx::minLight,gfx::maxLight);
@@ -1473,7 +1546,7 @@ void drawSettings(Session& session, gfx::RenderSettings& settings, const Interfa
         ImGui::PopFont();ImGui::EndChild();
         ImGui::SetCursorPosY(height-63);
         if(theatreButton("RESET VIEW",{200,42},{.22f,.17f,.25f,1})) resetCamera(settings);
-        ImGui::SameLine();if(theatreButton("DONE",{200,42},{.17f,.28f,.23f,1})) session.settings=false;
+        ImGui::SameLine();if(backButton("DONE",{200,42},{.17f,.28f,.23f,1})) session.settings=false;
     }
     ImGui::End();
 }
@@ -1603,7 +1676,10 @@ void drawCollection(Session& session, const Interface& ui, const ArtAssets& art)
         ImGui::PushStyleColor(ImGuiCol_Header,{0,0,0,0});
         ImGui::PushStyleColor(ImGuiCol_HeaderHovered,{0,0,0,0});
         ImGui::PushStyleColor(ImGuiCol_HeaderActive,{0,0,0,0});
-        if(ImGui::Selectable("##relic",selected,0,{w,cellHeight})) session.selectedRelic=item.id;
+        if(ImGui::Selectable("##relic",selected,0,{w,cellHeight})) {
+            session.selectedRelic=item.id;
+            playSound(audio::Sfx::UiOpen);
+        }
         ImGui::PopStyleColor(3);
         const bool hovered=ImGui::IsItemHovered()||ImGui::IsItemFocused();
         auto& lift=session.collectionHover[static_cast<int>(item.id)];
@@ -1635,7 +1711,7 @@ void drawCollection(Session& session, const Interface& ui, const ArtAssets& art)
     ImGui::EndChild();
     ImGui::PopStyleVar();
     ImGui::SetCursorPosY(size.y-64);
-    if(theatreButton("BACK",{180,44})) session.collection=false;
+    if(backButton("BACK",{180,44})) session.collection=false;
     ImGui::SameLine();
     ImGui::PushFont(ui.small);
     ImGui::TextColored(muted,"%d curiosities. Every one available from the first round.",static_cast<int>(bj::relicCatalog().size()));
@@ -1730,7 +1806,7 @@ void drawDeckSelection(bj::Game& game, Session& session, const Interface& ui, co
     draw->AddText(ui.small,18,{layout.origin.x+textX,layout.origin.y+403},ImGui::ColorConvertFloat4ToU32(muted),
         "Your chosen back stays with you\nfor the entire run.");
     ImGui::SetCursorPos({36,height-90});
-    if(theatreButton("BACK",{160,54})) session.deckSelection=false;
+    if(backButton("BACK",{160,54})) session.deckSelection=false;
     ImGui::SetCursorPos({textX,height-90});
     ImGui::PushFont(ui.button);
     if(theatreButton("TAKE A SEAT",{width-textX-36,54},{.14f,.32f,.23f,1})) session.start(game);
@@ -1825,6 +1901,8 @@ int main(int argc, char** argv) {
         Interface interface(window.handle, assets);
         gfx::Renderer renderer(assets);
         ArtAssets art(assets);
+        // Hidden runs (smoke, screenshots, captures) are silent; so is any missing audio folder.
+        audio::Engine sound(assets / "audio", !options.hidden);
         gfx::RenderSettings settings;
         settings.animate = !options.noAmbientMotion;
         settings.lightIntensity=options.light;
@@ -1890,6 +1968,32 @@ int main(int argc, char** argv) {
         int fullShopResizeFrame = -1;
         int relicHoverResizeFrame = -1;
         double previousTime = glfwGetTime();
+        SoundScope soundScope(sound);
+        int carSoundCycle=-1;
+        bool carSoundActive=false;
+        // Beat grids and loudness curves of the soundtracks, in the same order the audio layer reports them.
+        std::vector<presentation::SoundtrackSync> soundtrackSync;
+        for(auto file:audio::discoverSoundtracks(assets/"audio")) soundtrackSync.push_back(presentation::SoundtrackSync::load(file.replace_extension(".sync")));
+        // The ensemble plays the soundtrack that is sounding, in time with it. Without audio (hidden runs,
+        // missing files) it plays a steady demonstration groove instead of standing still.
+        const auto conduct=[&](gfx::Scene& scene,float sceneTime) {
+            const auto clock=sound.musicClock();
+            if(clock.track>=0&&static_cast<std::size_t>(clock.track)<soundtrackSync.size()&&!soundtrackSync[static_cast<std::size_t>(clock.track)].empty()) {
+                const auto& sync=soundtrackSync[static_cast<std::size_t>(clock.track)];
+                const auto energy=sync.energyAt(clock.position);
+                scene.band.playing=true;
+                scene.band.beats=sync.beatAt(clock.position);
+                scene.band.bpm=static_cast<float>(sync.bpm());
+                scene.band.low=energy.low;scene.band.mid=energy.mid;scene.band.high=energy.high;scene.band.hit=energy.hit;
+            } else if(!sound.active()) {
+                scene.band.playing=true;
+                scene.band.beats=sceneTime*110.0/60.0;
+                scene.band.bpm=110.0f;
+                scene.band.low=scene.band.mid=scene.band.high=scene.band.hit=.7f;
+            } else {
+                scene.band.playing=false;
+            }
+        };
         std::set<std::string> captured;
         std::set<std::pair<int,int>> checkedRelicLayouts;
         while (!glfwWindowShouldClose(window.handle)) {
@@ -1922,7 +2026,10 @@ int main(int argc, char** argv) {
             if(options.entrancePreview && frame==1) session.start(game);
             const bool switched=session.switched;
             session.update(dt, game);
-            if(!switched && session.switched) timeline.reset(game.state());
+            if(!switched && session.switched) {
+                timeline.reset(game.state());
+                playSound(audio::Sfx::ChipsStart); // Chips are handed to the player and the dealer.
+            }
             if(!session.menu && !session.settings && !session.rules) timeline.update(dt,session.animationSpeed);
             session.history.observe(timeline.visible(),timeline.busy());
             session.updateGameOver(dt,!session.menu && !timeline.busy() && timeline.visible().phase==bj::Phase::RunLost);
@@ -2053,6 +2160,8 @@ int main(int argc, char** argv) {
                 }
             }
             ImGui::NewFrame();
+            beginSoundFrame();
+            hoverSoundsEnabled=session.menu;
             if(!options.captures.empty()) {
                 const auto display=ImGui::GetIO().DisplaySize;
                 const auto size=std::make_pair(static_cast<int>(display.x),static_cast<int>(display.y));
@@ -2063,16 +2172,21 @@ int main(int argc, char** argv) {
             const bool wasBusy=timeline.busy();
             Commands commands{overlay || wasBusy,false,&game,&timeline};
             if(ImGui::IsKeyPressed(ImGuiKey_Escape,false)) {
+                // Every Escape that steps back (closes a panel, goes up a level) plays the close sound.
                 if(session.transitioning()) session.entrance.skip();
-                else if(session.rules) session.rules=false;
-                else if(session.settings) session.settings=false;
-                else if(session.collection) session.collection=false;
-                else if(session.deckSelection) session.deckSelection=false;
-                else if(!session.menu&&(session.selectedEquipment>=0||session.hoveredRelic>=0)) session.clearEquipmentContext();
-                else if(!session.transitioning()) session.returnToMenu();
+                else if(session.rules) {session.rules=false;playSound(audio::Sfx::UiClose);}
+                else if(session.settings) {session.settings=false;playSound(audio::Sfx::UiClose);}
+                else if(session.collection) {session.collection=false;playSound(audio::Sfx::UiClose);}
+                else if(session.deckSelection) {session.deckSelection=false;playSound(audio::Sfx::UiClose);}
+                else if(!session.menu&&(session.selectedEquipment>=0||session.hoveredRelic>=0)) {session.clearEquipmentContext();playSound(audio::Sfx::UiClose);}
+                else if(!session.transitioning()) {
+                    if(!session.menu) playSound(audio::Sfx::UiClose);
+                    session.returnToMenu();
+                }
             }
             if(ImGui::IsKeyPressed(ImGuiKey_F1,false) && !session.transitioning()) {
                 session.rules=false; session.settings=!session.settings;
+                playSound(session.settings?audio::Sfx::UiOpen:audio::Sfx::UiClose);
             }
             const bool space=ImGui::IsKeyPressed(ImGuiKey_Space,false);
             const bool gameSpace=ImGui::IsKeyDown(ImGuiKey_Space) && !session.settings && !session.rules &&
@@ -2111,10 +2225,36 @@ int main(int argc, char** argv) {
                 } else if(session.menu && !options.smoke) session.start(game);
                 else autoplayStep(game,commands);
             }
+            for(const auto cue:timeline.takeCues()) playCue(cue);
+            // Main theme in every menu screen until the run begins; shuffled soundtracks from then on.
+            sound.setMusic(session.menu&&!session.transitioning()?audio::MusicMode::Menu:audio::MusicMode::Game);
+            sound.setDucked(!session.menu&&session.gameOverElapsed>0.0f); // Leave room for the game-over sound.
             feedback.observe(settledState(timeline),dt,!session.menu && !session.transitioning());
             session.syncEquipmentContext(game.state());
             const float sceneTime=options.hidden && options.frames>0 ? frame/60.0f : static_cast<float>(now);
+            {
+                // The sedan crosses the street once every 32 s (see Renderer::drawMenuSedan). Its recording
+                // starts at the same cycle position, so the engine, the stereo sweep and the loudest instant
+                // of the pass coincide with the car's movement on screen. It fades out when the player
+                // starts the game, or when ambient motion (and with it the car) is switched off.
+                constexpr double carCycle=32.0,carAudioLength=17.3,carAudioAhead=.45;
+                if(session.menu&&settings.animate&&!session.transitioning()) {
+                    const double t=std::max(0.0,static_cast<double>(sceneTime));
+                    const int cycle=static_cast<int>(t/carCycle);
+                    const double phase=t-cycle*carCycle;
+                    if(carSoundCycle!=cycle&&phase+carAudioAhead<carAudioLength) {
+                        sound.carPass(phase+carAudioAhead);
+                        carSoundCycle=cycle;
+                        carSoundActive=true;
+                    }
+                } else if(carSoundActive) {
+                    sound.carStop(1.2);
+                    carSoundActive=false;
+                    carSoundCycle=-1;
+                }
+            }
             auto scene=makeScene(timeline,sceneTime,session);
+            conduct(scene,sceneTime);
             drawPhysicalEquipment(scene,settings,width,height,game,commands,session,interface);
             // Space is handled above; prevent focused buttons from receiving it again.
             ImGui::BeginDisabled(gameSpace);
@@ -2198,6 +2338,7 @@ int main(int argc, char** argv) {
             session.updateBustReaction(0,timeline.visible());
             drawGameplayShading(session,timeline);
             scene=makeScene(timeline,sceneTime,session);
+            conduct(scene,sceneTime);
             renderer.render(scene,settings,width,height);
             if(session.transitioning() && session.menu) ImGui::GetForegroundDrawList()->AddText({24,24},IM_COL32(242,218,175,160),"ESC / SKIP ENTRANCE");
             if (session.transitioning()) ImGui::GetForegroundDrawList()->AddRectFilled(
